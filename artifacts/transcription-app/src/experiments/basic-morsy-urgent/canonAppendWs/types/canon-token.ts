@@ -35,6 +35,10 @@ export type TranscriptRow = {
  * own spacing, but never emit a double space when both sides already have one.
  * Does not insert a separator — callers rely on trailing/leading spaces in the parts.
  */
+function isArabicLetter(ch: string | undefined): boolean {
+  return !!ch && /[\u0600-\u06FF]/.test(ch);
+}
+
 export function joinCanonTextParts(parts: readonly string[]): string {
   let result = "";
   for (let i = 0; i < parts.length; i++) {
@@ -42,9 +46,22 @@ export function joinCanonTextParts(parts: readonly string[]): string {
     if (!txt) continue;
     if (txt.startsWith(" ") && result.endsWith(" ")) {
       result += txt.slice(1);
-    } else {
-      result += txt;
+      continue;
     }
+    // Soniox tokens carry their own spaces (docs: " morn" + "ing").
+    // Arabic tokens often arrive without a space between words — insert one
+    // so we do not glue فحصها into تتأكهذه-style runs.
+    if (
+      result.length > 0 &&
+      !result.endsWith(" ") &&
+      !txt.startsWith(" ") &&
+      isArabicLetter(result[result.length - 1]) &&
+      isArabicLetter(txt[0])
+    ) {
+      result += ` ${txt}`;
+      continue;
+    }
+    result += txt;
   }
   return result;
 }

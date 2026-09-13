@@ -40,14 +40,11 @@ export function fitSonioxContextToBudget(
   const protectedCount = Math.max(0, opts.protectedTranslationTermCount ?? 0);
   const PROTECTED_GENERAL = new Set([
     "domain",
+    "topic",
     "setting",
-    "role",
-    "accuracy",
-    "translation_register",
-    "original_as_spoken",
-    "arabic_translation_msa",
-    "language_register",
-    "no_invented_words",
+    "speakers",
+    "language",
+    "instructions",
   ]);
 
   const next: SonioxContext = {

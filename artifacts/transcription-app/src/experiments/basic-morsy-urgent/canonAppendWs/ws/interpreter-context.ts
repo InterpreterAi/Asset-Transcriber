@@ -221,6 +221,14 @@ export function getInterpreterContext(
   for (const t of injectedTerms) {
     pushProtected(`${t.source ?? ""}`, `${t.target ?? ""}`);
   }
+  if (a === "ar" || b === "ar") {
+    pushProtected("interpreter", "المترجم");
+    pushProtected("the interpreter", "المترجم");
+    pushProtected("make sure she", "تأكد أنها");
+    pushProtected("her exam", "فحصها");
+    pushProtected("her pain", "ألمها");
+    pushProtected("give her", "أعطها");
+  }
   for (const lang of [a, b]) {
     if (lang === "en") continue;
     for (const t of criticalMedicalTermsForLang(lang)) {
@@ -316,66 +324,40 @@ export function getInterpreterContext(
   for (const t of MEDICAL_TERMS_EN) pushPin(t);
   for (const t of LEGAL_TERMS_EN) pushPin(t);
 
+  // Official Soniox context.general: short key/values only (docs: ideally ≤10 pairs).
+  // @see https://soniox.com/docs/stt/concepts/context
+  const pairLabel = `${a}↔${b}`;
+  const general: { key: string; value: string }[] = [
+    { key: "domain", value: "Healthcare" },
+    { key: "topic", value: `Live medical interpreter session ${pairLabel}` },
+    { key: "setting", value: "Phone or in-person clinical interpreting" },
+    {
+      key: "speakers",
+      value: "Multiple speakers (clinician, patient or caregiver, interpreter)",
+    },
+    {
+      key: "instructions",
+      value:
+        "Transcribe Original exactly as spoken. Translation: formal written standard of the target only. Follow source he/she/it/they exactly — do not flip gender. Keep numbers, drugs, and names exact. Interpreter addressed as YOU is male (masculine 2nd person).",
+    },
+  ];
+  if (a === "ar" || b === "ar") {
+    general.push({
+      key: "language",
+      value:
+        "Arabic translation must be Modern Standard Arabic (الفصحى) full sentences. Never dialect. she/her → هي/ها/ها; he/him → هو/ه; it → هو/هي by the English noun.",
+    });
+  }
+  if (a === "es" || b === "es") {
+    general.push({
+      key: "language",
+      value:
+        "Spanish: análisis, sistema, problema, tema, idioma, diagnóstico are masculine.",
+    });
+  }
+
   const ctx: SonioxContext = {
-    general: [
-      { key: "domain", value: "Medical, legal, and insurance interpretation" },
-      { key: "setting", value: "Live professional interpreter session" },
-      { key: "role", value: "Human interpreter relaying speech between two parties" },
-      { key: "accuracy", value: "Preserve exact numbers, drug names, vaccine names, body-part injuries, auto-accident terms, insurance terms, and codes" },
-      {
-        key: "translation_register",
-        value:
-          "TRANSLATION column ONLY: always the formal professional WRITTEN standard of the TARGET language (medical/legal documents). Never colloquial, slang, street speech, or regional dialect in translation — lock one official register for the whole session.",
-      },
-      {
-        key: "original_as_spoken",
-        value:
-          "ORIGINAL/transcription: write speech exactly as heard (any dialect). Spoken dialect in the original must NEVER change translation register.",
-      },
-      ...(a === "ar" || b === "ar"
-        ? [
-            {
-              key: "arabic_translation_msa",
-              value:
-                "When translating INTO Arabic: ALWAYS العربية الفصحى (MSA) only — formal full clauses. FORBIDDEN in translation: Egyptian, Levantine, Gulf, Iraqi, Maghrebi, or any dialect. Ban particles/forms such as: زي، إحنا، احنا، كده، كدة، عشان، علشان، ليش، ليه، فين، وين، إزاي، مش، ده، دي، بتاع، دلوقتي، هنجيب، هيبقى، هيكون، هعمل، أبين، راسك، برضو، خالص، واش، بزاف، كيفاش، دابا. Use مثل، نحن، هكذا، لأن، لماذا، أين، كيف، ليس، هذا، هذه، الآن، سيكون، سأحصل على، أبدو، رأسك instead.",
-            },
-            {
-              key: "arabic_interpreter_address",
-              value:
-                "The live interpreter operating this app is male. When a speaker addresses the interpreter as YOU (translate for me, tell her/him, let them know, ask her, introduce yourself), use masculine 2nd-person Arabic: أنتَ، منك، لك، تترجم، ترجم، قل، أخبر، اسأل — never default the interpreter to feminine (منكِ، تترجمي، قولي).",
-            },
-            {
-              key: "arabic_patient_gender",
-              value:
-                "Do not assume a female patient from English 'a patient' / 'the patient' / 'my patient' alone. Use masculine/generic مريض / المريض / لمريض unless English clearly marks female (she, her, female patient, woman, pregnant, Ms., Mrs.). Keep feminine مريضة only with clear female markers.",
-            },
-          ]
-        : []),
-      {
-        key: "language_register",
-        value:
-          "Always translate into the formal standard written language of the target (e.g. Arabic الفصحى, standard international English, formal Latin American / European Spanish without slang). Never switch into colloquial or regional dialect mid-session.",
-      },
-      {
-        key: "no_invented_words",
-        value:
-          "Never invent or guess words. If uncertain, use the most common standard formal equivalent in the target.",
-      },
-      {
-        key: "full_phrase_meaning",
-        value:
-          "Translate full clinical/legal meaning of phrases, not word-by-word.",
-      },
-      ...(a === "es" || b === "es"
-        ? [
-            {
-              key: "spanish_gender",
-              value:
-                "Spanish: análisis, sistema, problema, tema, idioma, diagnóstico are masculine (un análisis, el sistema).",
-            },
-          ]
-        : []),
-    ],
+    general,
     terms: recognitionPins,
   };
 

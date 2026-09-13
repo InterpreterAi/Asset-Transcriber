@@ -29,6 +29,15 @@ describe("joinCanonTextParts", () => {
     expect(joinCanonTextParts(["Hello", "", " world"])).toBe("Hello world");
     expect(joinCanonTextParts(["", "only live"])).toBe("only live");
   });
+
+  it("inserts a space between Arabic words when Soniox omitted it", () => {
+    expect(joinCanonTextParts(["تتأكد", "هذه"])).toBe("تتأكد هذه");
+    expect(joinCanonText(["تتأكد", "أنها"].map(tok))).toBe("تتأكد أنها");
+  });
+
+  it("does not insert a space inside Latin subwords (Soniox morn+ing)", () => {
+    expect(joinCanonTextParts(["morn", "ing"])).toBe("morning");
+  });
 });
 
 describe("joinCanonText", () => {

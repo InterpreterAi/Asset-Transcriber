@@ -54,13 +54,19 @@ describe("getInterpreterContext Soniox budget (tight 7.5k operating cap)", () =>
     });
   }
 
-  it("keeps MSA register rules and does not send context.text session memory", () => {
+  it("uses official short Soniox general keys and does not send context.text", () => {
     const ctx = getInterpreterContext("en", "ar");
-    expect(ctx.general.some((g) => g.key === "language_register")).toBe(true);
-    expect(ctx.general.some((g) => g.key === "arabic_translation_msa")).toBe(true);
-    expect(ctx.general.some((g) => g.key === "original_as_spoken")).toBe(true);
-    expect(ctx.general.some((g) => g.key === "original_dialect")).toBe(false);
+    const keys = ctx.general.map((g) => g.key);
+    expect(keys).toContain("domain");
+    expect(keys).toContain("topic");
+    expect(keys).toContain("setting");
+    expect(keys).toContain("speakers");
+    expect(keys).toContain("instructions");
+    expect(keys).toContain("language");
+    expect(ctx.general.length).toBeLessThanOrEqual(10);
+    expect(ctx.general.every((g) => g.value.length <= 320)).toBe(true);
     expect((ctx as { text?: string }).text).toBeUndefined();
     expect(ctx.terms.length).toBeGreaterThan(0);
+    expect(ctx.translation_terms?.some((t) => t.source === "interpreter")).toBe(true);
   });
 });
