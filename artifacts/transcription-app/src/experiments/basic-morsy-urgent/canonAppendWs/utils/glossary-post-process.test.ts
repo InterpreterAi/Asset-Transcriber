@@ -50,6 +50,21 @@ describe("applyGlossaryPostProcess", () => {
     expect(applyGlossaryPostProcess("ok", [])).toBe("ok");
     expect(applyGlossaryPostProcess("ok")).toBe("ok");
   });
+
+  it("repairs cholesterol→فقر الدم when original proves cholesterol", () => {
+    const out = applyGlossaryPostProcess(
+      "هل تتناول أتورفاستاتين لفقر الدم؟",
+      [],
+      {
+        originalText: "Are you taking atorvastatin for cholesterol?",
+        rowSourceLanguage: "en",
+        langA: "en",
+        langB: "ar",
+      },
+    );
+    expect(out).toContain("الكوليسترول");
+    expect(out).not.toContain("فقر الدم");
+  });
 });
 
 describe("upstream glossary helpers still available", () => {
