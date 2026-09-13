@@ -153,7 +153,9 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     expect(state.finalizedUtterances[0] && utteranceCommittedText(state.finalizedUtterances[0]!)).toBe(
       "Hello there.",
     );
-    expect(state.activeUtterance && utteranceCommittedText(state.activeUtterance)).toContain("الأنف");
+    const activeText = state.activeUtterance && utteranceCommittedText(state.activeUtterance);
+    expect(activeText).toContain("عندي");
+    expect(activeText).toContain("الأنف");
   });
 
   it("does not freeze on a single speaker-flicker final (needs N=2)", () => {
@@ -170,6 +172,44 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     expect(state.activeUtterance && utteranceCommittedText(state.activeUtterance)).toBe("Hello doctor.");
   });
 
+  it("does not paint pending speaker-break live text onto the old row", () => {
+    const state = reduceAll([
+      frame(1, [
+        tok("Hello doctor.", { id: "pb1", speakerId: "1", language: "en", startMs: 0 }),
+      ]),
+      frame(2, [
+        tok(" I", { id: "pb2", speakerId: "2", language: "en", startMs: 100, isFinal: true }),
+        tok(" have", { id: "pb3", speakerId: "2", language: "en", startMs: 150, isFinal: false }),
+      ]),
+    ]);
+    expect(state.pendingSpeakerFinals).toHaveLength(1);
+    expect(state.activeUtterance?.nonFinalTokens ?? []).toHaveLength(0);
+    const proj = projectTranscriptView(state, { chunkV2NativeTranslate: true });
+    const active = proj.rows.find(r => !r.finalized);
+    expect(active?.committedText).toBe("Hello doctor.");
+    expect(active?.liveText).toBe("");
+    expect(active?.committedText + (active?.liveText ?? "")).not.toContain("have");
+  });
+
+  it("does not paint pending language-break live text onto the old row", () => {
+    const state = reduceAll([
+      frame(1, [
+        tok("Hello there.", { id: "pl1", speakerId: "1", language: "en", startMs: 0 }),
+      ]),
+      frame(2, [
+        tok(" عندي ألم شديد", { id: "pl2", speakerId: "1", language: "ar", startMs: 100, isFinal: true }),
+        tok(" في الأنف", { id: "pl3", speakerId: "1", language: "ar", startMs: 150, isFinal: false }),
+      ]),
+    ]);
+    expect(state.pendingSpeakerFinals).toHaveLength(1);
+    expect(state.finalizedUtterances).toHaveLength(0);
+    const proj = projectTranscriptView(state, { chunkV2NativeTranslate: true });
+    const active = proj.rows.find(r => !r.finalized);
+    expect(active?.committedText).toBe("Hello there.");
+    expect(active?.liveText).toBe("");
+    expect(active?.committedText + (active?.liveText ?? "")).not.toMatch(/عندي|الأنف/);
+  });
+
   it("freezes after two consecutive speaker-agreeing finals", () => {
     const state = reduceAll([
       frame(1, [
@@ -184,7 +224,32 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     ]);
     expect(state.finalizedUtterances.length).toBeGreaterThanOrEqual(1);
     expect(state.activeUtterance?.speaker).toBe("2");
-    expect(state.activeUtterance && utteranceCommittedText(state.activeUtterance)).toContain("have pain");
+    const activeText = state.activeUtterance && utteranceCommittedText(state.activeUtterance);
+    expect(activeText).toContain("I");
+    expect(activeText).toContain("have pain");
+    // First pending word must lead the new row — not start at the second final.
+    expect(activeText?.trimStart().startsWith("I")).toBe(true);
+  });
+
+  it("absorbs a rejected speaker flicker back onto the old row", () => {
+    const state = reduceAll([
+      frame(1, [
+        tok("Hello doctor.", { id: "ab1", speakerId: "1", language: "en", startMs: 0 }),
+      ]),
+      frame(2, [
+        tok(" wait", { id: "ab2", speakerId: "2", language: "en", startMs: 100 }),
+      ]),
+      frame(3, [
+        tok(" please", { id: "ab3", speakerId: "1", language: "en", startMs: 200 }),
+      ]),
+    ]);
+    expect(state.pendingSpeakerFinals).toHaveLength(0);
+    expect(state.finalizedUtterances).toHaveLength(0);
+    expect(state.activeUtterance?.speaker).toBe("1");
+    const text = state.activeUtterance && utteranceCommittedText(state.activeUtterance);
+    expect(text).toContain("Hello doctor.");
+    expect(text).toContain("wait");
+    expect(text).toContain("please");
   });
 
   it("keeps distinct tokens that share timestamps", () => {

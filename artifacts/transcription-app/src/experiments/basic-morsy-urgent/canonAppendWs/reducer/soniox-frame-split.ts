@@ -173,3 +173,49 @@ export function nonFinalsForRow(
   if (!rowSpeaker) return nonFinals;
   return nonFinals.filter(t => !t.speaker || t.speaker === rowSpeaker);
 }
+
+function langBase(s: string | undefined): string | undefined {
+  const t = s?.trim();
+  return t?.length ? t.split("-")[0]!.toLowerCase() : undefined;
+}
+
+/**
+ * Chunk-v2: while a language/speaker break is waiting on N=2 confirmation,
+ * do not attach live hypothesis that belongs to the pending handoff onto the
+ * still-open (old) row — that stranded the first new word on the previous bubble.
+ */
+export function nonFinalsForChunkV2ActiveRow(
+  nonFinals: CanonToken[],
+  opts: {
+    rowSpeaker: string | undefined;
+    rowLanguage: string | undefined;
+    pendingSpeakerId: string | undefined;
+    pendingLanguage: string | undefined;
+    pendingFinalsCount: number;
+  },
+): CanonToken[] {
+  if (!opts.pendingFinalsCount) {
+    return nonFinalsForRow(nonFinals, opts.rowSpeaker);
+  }
+
+  // Speaker-break debounce: only keep tokens that explicitly match the open row.
+  // Unlabeled non-finals are ambiguous and were painting the new speaker onto the old row.
+  if (opts.pendingSpeakerId) {
+    const openSp = opts.rowSpeaker?.trim();
+    if (!openSp) return [];
+    return nonFinals.filter(t => t.speaker?.trim() === openSp);
+  }
+
+  // Language-break debounce: drop live tokens in the pending (new) language.
+  if (opts.pendingLanguage) {
+    const openLg = langBase(opts.rowLanguage);
+    return nonFinalsForRow(nonFinals, opts.rowSpeaker).filter(t => {
+      const lg = langBase(t.language);
+      if (lg && lg === opts.pendingLanguage) return false;
+      if (openLg && lg && lg !== openLg) return false;
+      return true;
+    });
+  }
+
+  return nonFinalsForRow(nonFinals, opts.rowSpeaker);
+}

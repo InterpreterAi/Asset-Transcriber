@@ -20,7 +20,7 @@ import {
   translationPreviewTextFromFrame,
   translationTextFromFrame,
   inferTailSpeakerLang,
-  nonFinalsForRow,
+  nonFinalsForChunkV2ActiveRow,
 } from "./soniox-frame-split";
 import { reduceCanonAppendWsNonChunkV2 } from "./reducer.non-chunk-v2";
 
@@ -264,7 +264,11 @@ function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: Redu
   const openCommitted = next.activeUtterance
     ? utteranceCommittedText(next.activeUtterance)
     : "";
+  // While N=2 debounce is holding a break, do not force-freeze from NF language
+  // tail — that confirmed early and left the first pending word stranded / split.
+  const breakPending = next.pendingSpeakerFinals.length > 0;
   if (
+    !breakPending &&
     activeLang &&
     tailLang &&
     tailLang !== activeLang &&
@@ -290,7 +294,13 @@ function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: Redu
         ...row,
         speaker: row.speaker ?? tail.speaker,
         language: row.language ?? tail.language,
-        nonFinalTokens: nonFinalsForRow(frameNonFinals, rowSpeaker),
+        nonFinalTokens: nonFinalsForChunkV2ActiveRow(frameNonFinals, {
+          rowSpeaker,
+          rowLanguage: row.language ?? tail.language,
+          pendingSpeakerId: next.pendingSpeakerId,
+          pendingLanguage: next.pendingLanguage,
+          pendingFinalsCount: next.pendingSpeakerFinals.length,
+        }),
       },
     };
   }

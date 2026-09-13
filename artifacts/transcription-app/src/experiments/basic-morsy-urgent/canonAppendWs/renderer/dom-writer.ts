@@ -1,4 +1,5 @@
 import type { RowProjection } from "../projection/transcript-view";
+import { joinCanonTextParts } from "../types/canon-token";
 import { logChunkV2DomPaint } from "@/hooks/morsy-chunk-v2-instrumentation";
 import { isolateLtrRunsInRtl, isRtlTranslationText } from "@/lib/wrap-ltr-numbers";
 import {
@@ -479,7 +480,12 @@ export class CanonAppendWsDomWriter {
               this.committedRtlCache.set(proj.row_id, { raw: proj.committedText, processed: processedCommitted });
             }
           }
-          const combined = [processedCommitted, proj.liveText].filter(Boolean).join(" ");
+          // Same space-safe concat as joinCanonText — never insert a separator
+          // that would turn trailing committed space + live "." into "  .".
+          // Projection already clears liveText while a chunk-v2 lang/speaker break
+          // is pending N=2 confirmation, so pending handoff words are not joined
+          // onto this (old) active row.
+          const combined = joinCanonTextParts([processedCommitted, proj.liveText]);
           renderHypothesisLcp(hypo, combined);
         }
       } else {

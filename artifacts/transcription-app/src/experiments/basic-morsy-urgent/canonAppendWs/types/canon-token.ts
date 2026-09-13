@@ -30,11 +30,16 @@ export type TranscriptRow = {
   openedWallMs?: number;
 };
 
-export function joinCanonText(tokens: readonly CanonToken[]): string {
+/**
+ * Concatenate text parts the way Soniox tokens join: preserve each part's
+ * own spacing, but never emit a double space when both sides already have one.
+ * Does not insert a separator — callers rely on trailing/leading spaces in the parts.
+ */
+export function joinCanonTextParts(parts: readonly string[]): string {
   let result = "";
-  for (let i = 0; i < tokens.length; i++) {
-    const txt = tokens[i]!.text;
-    // Prevent double spacing but preserve explicit token spacing.
+  for (let i = 0; i < parts.length; i++) {
+    const txt = parts[i]!;
+    if (!txt) continue;
     if (txt.startsWith(" ") && result.endsWith(" ")) {
       result += txt.slice(1);
     } else {
@@ -42,4 +47,8 @@ export function joinCanonText(tokens: readonly CanonToken[]): string {
     }
   }
   return result;
+}
+
+export function joinCanonText(tokens: readonly CanonToken[]): string {
+  return joinCanonTextParts(tokens.map(t => t.text));
 }

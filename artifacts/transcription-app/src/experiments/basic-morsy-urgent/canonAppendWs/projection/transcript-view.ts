@@ -214,7 +214,13 @@ export function projectTranscriptView(
     }
     if (state.activeUtterance) {
       const rawCommitted = utteranceCommittedText(state.activeUtterance);
-      const liveText = utteranceLiveText(state.activeUtterance);
+      // Hold live hypothesis off the open row while a lang/speaker break is
+      // waiting on N=2 — otherwise pending-handoff text paints on the old bubble
+      // (dom-writer joins committed+live) and the new row appears to start mid-phrase.
+      const liveText =
+        state.pendingSpeakerFinals.length > 0
+          ? ""
+          : utteranceLiveText(state.activeUtterance);
       const committedText = cleanSonioxPunctuation(rawCommitted, opts, false);
       const translationPreview = (state.activeTranslationPreviewText ?? state.activeTranslationText ?? "").trim();
       if (committedText.trim().length || liveText.trim().length) {
