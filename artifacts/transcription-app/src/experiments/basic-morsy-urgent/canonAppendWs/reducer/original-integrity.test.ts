@@ -105,7 +105,7 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     expect(row.committedText + row.liveText).toBe("How are you");
   });
 
-  it('keeps short patient "No." pending until confirmed or freeze (N=2)', () => {
+  it('keeps short patient "No." on a new bubble on first final (N=1 live)', () => {
     const state = reduceAll([
       frame(1, [
         tok("How are you?", { id: "d0", speakerId: "1", language: "en", startMs: 0 }),
@@ -114,12 +114,9 @@ describe("chunk-v2 Original integrity (restored path)", () => {
         tok("No.", { id: "d1", speakerId: "2", language: "en", startMs: 500 }),
       ]),
     ]);
-    // One conflicting final is held pending (Soniox temp switch guard).
-    expect(state.pendingSpeakerFinals).toHaveLength(1);
-    const proj = projectTranscriptView(
-      freezeActiveUtterance(state),
-      { chunkV2NativeTranslate: true },
-    );
+    expect(state.finalizedUtterances).toHaveLength(1);
+    expect(state.pendingSpeakerFinals).toHaveLength(0);
+    const proj = projectTranscriptView(state, { chunkV2NativeTranslate: true });
     const patient = proj.rows.find(r => r.speaker === "2");
     expect(patient?.committedText).toBe("No.");
   });
@@ -159,7 +156,7 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     expect(activeText).toContain("الأنف");
   });
 
-  it("does not open a new bubble on a single speaker flicker final (N=2)", () => {
+  it("opens a new colored bubble on the first new-speaker final (live typing)", () => {
     const state = reduceAll([
       frame(1, [
         tok("Hello doctor.", { id: "s1", speakerId: "1", language: "en", startMs: 0 }),
@@ -168,12 +165,13 @@ describe("chunk-v2 Original integrity (restored path)", () => {
         tok(" wait", { id: "s2", speakerId: "2", language: "en", startMs: 100 }),
       ]),
     ]);
-    expect(state.finalizedUtterances).toHaveLength(0);
-    expect(state.pendingSpeakerFinals).toHaveLength(1);
-    expect(state.activeUtterance && utteranceCommittedText(state.activeUtterance)).toBe("Hello doctor.");
+    expect(state.finalizedUtterances).toHaveLength(1);
+    expect(state.pendingSpeakerFinals).toHaveLength(0);
+    expect(state.activeUtterance?.speaker).toBe("2");
+    expect(state.activeUtterance && utteranceCommittedText(state.activeUtterance)).toContain("wait");
   });
 
-  it("keeps typing visible while speaker-break is pending (no freeze dump)", () => {
+  it("types live non-finals on the new speaker row immediately (no freeze dump)", () => {
     const state = reduceAll([
       frame(1, [
         tok("Hello doctor.", { id: "pb1", speakerId: "1", language: "en", startMs: 0 }),
@@ -183,11 +181,13 @@ describe("chunk-v2 Original integrity (restored path)", () => {
         tok(" have", { id: "pb3", speakerId: "2", language: "en", startMs: 150, isFinal: false }),
       ]),
     ]);
-    expect(state.pendingSpeakerFinals).toHaveLength(1);
+    expect(state.pendingSpeakerFinals).toHaveLength(0);
+    expect(state.finalizedUtterances).toHaveLength(1);
+    expect(state.activeUtterance?.speaker).toBe("2");
     const proj = projectTranscriptView(state, { chunkV2NativeTranslate: true });
     const active = proj.rows.find(r => !r.finalized);
-    expect(active?.committedText).toBe("Hello doctor.");
-    expect(active?.liveText).toContain("I");
+    expect(active?.speaker).toBe("2");
+    expect(active?.committedText).toContain("I");
     expect(active?.liveText).toContain("have");
   });
 
@@ -210,7 +210,7 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     expect(active?.liveText).toMatch(/الأنف/);
   });
 
-  it("opens a new colored bubble after two consecutive speaker-agreeing finals", () => {
+  it("opens a new bubble immediately then continues same-speaker finals on it", () => {
     const state = reduceAll([
       frame(1, [
         tok("Hello doctor.", { id: "t1", speakerId: "1", language: "en", startMs: 0 }),
@@ -222,7 +222,7 @@ describe("chunk-v2 Original integrity (restored path)", () => {
         tok(" have pain", { id: "t3", speakerId: "2", language: "en", startMs: 200 }),
       ]),
     ]);
-    expect(state.finalizedUtterances.length).toBeGreaterThanOrEqual(1);
+    expect(state.finalizedUtterances).toHaveLength(1);
     expect(state.activeUtterance?.speaker).toBe("2");
     const activeText = state.activeUtterance && utteranceCommittedText(state.activeUtterance);
     expect(activeText).toContain("I");
@@ -230,7 +230,7 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     expect(activeText?.trimStart().startsWith("I")).toBe(true);
   });
 
-  it("absorbs a rejected speaker flicker back onto the old row", () => {
+  it("treats a brief speaker flip then return as handoffs (N=1 live)", () => {
     const state = reduceAll([
       frame(1, [
         tok("Hello doctor.", { id: "ab1", speakerId: "1", language: "en", startMs: 0 }),
@@ -243,12 +243,9 @@ describe("chunk-v2 Original integrity (restored path)", () => {
       ]),
     ]);
     expect(state.pendingSpeakerFinals).toHaveLength(0);
-    expect(state.finalizedUtterances).toHaveLength(0);
+    expect(state.finalizedUtterances.length).toBeGreaterThanOrEqual(2);
     expect(state.activeUtterance?.speaker).toBe("1");
-    const text = state.activeUtterance && utteranceCommittedText(state.activeUtterance);
-    expect(text).toContain("Hello doctor.");
-    expect(text).toContain("wait");
-    expect(text).toContain("please");
+    expect(state.activeUtterance && utteranceCommittedText(state.activeUtterance)).toContain("please");
   });
 
   it("keeps a same-speaker monologue in one bubble across sentence finals", () => {
@@ -553,6 +550,43 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     expect(utteranceCommittedText(state.finalizedUtterances[0]!)).toContain("First sentence");
     expect(state.activeUtterance && utteranceCommittedText(state.activeUtterance)).toContain(
       "long audio pause",
+    );
+  });
+
+  it("pause-splits after ~5s wall quiet when audio also shows a real gap", () => {
+    const ledger = new AppendOnlyCanonLedger();
+    let state = createInitialEngineState();
+    state = reduceCanonAppendWs(
+      state,
+      frame(1, [
+        tok("First block before a real pause.", {
+          id: "w1",
+          speakerId: "1",
+          language: "en",
+          startMs: 0,
+          endMs: 2000,
+        }),
+      ]),
+      { ledger, wallMs: 10_000, chunkV2NativeTranslate: true },
+    );
+    // 5.5s wall silence + 1.2s audio gap (real pause; not pure delivery delay).
+    state = reduceCanonAppendWs(
+      state,
+      frame(2, [
+        tok(" Second block after wall quiet.", {
+          id: "w2",
+          speakerId: "1",
+          language: "en",
+          startMs: 3200,
+          endMs: 4800,
+        }),
+      ]),
+      { ledger, wallMs: 15_500, chunkV2NativeTranslate: true },
+    );
+    expect(state.finalizedUtterances.length).toBeGreaterThanOrEqual(1);
+    expect(utteranceCommittedText(state.finalizedUtterances[0]!)).toContain("First block");
+    expect(state.activeUtterance && utteranceCommittedText(state.activeUtterance)).toContain(
+      "Second block",
     );
   });
 
