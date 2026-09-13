@@ -339,6 +339,11 @@ export function getInterpreterContext(
               value:
                 "When translating INTO Arabic: ALWAYS العربية الفصحى (MSA) only — formal full clauses. FORBIDDEN in translation: Egyptian, Levantine, Gulf, Iraqi, Maghrebi, or any dialect. Ban particles/forms such as: زي، إحنا، احنا، كده، كدة، عشان، علشان، ليش، ليه، فين، وين، إزاي، مش، ده، دي، بتاع، دلوقتي، هنجيب، هيبقى، هيكون، هعمل، أبين، راسك، برضو، خالص، واش، بزاف، كيفاش، دابا. Use مثل، نحن، هكذا، لأن، لماذا، أين، كيف، ليس، هذا، هذه، الآن، سيكون، سأحصل على، أبدو، رأسك instead.",
             },
+            {
+              key: "arabic_interpreter_address",
+              value:
+                "The live interpreter operating this app is male. When a speaker addresses the interpreter as YOU (translate for me, tell her/him, let them know, ask her, introduce yourself), use masculine 2nd-person Arabic: أنتَ، منك، لك، تترجم، ترجم، قل، أخبر، اسأل — never default the interpreter to feminine (منكِ، تترجمي، قولي). Patient/clinician gender still follows clear clinical context (e.g. female patient → ألمكِ).",
+            },
           ]
         : []),
       {
