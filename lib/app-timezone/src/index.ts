@@ -19,6 +19,28 @@ export function startOfAppMonth(ref: Date = new Date()): Date {
   return DateTime.fromJSDate(ref).setZone(APP_TIME_ZONE).startOf("month").toUTC().toJSDate();
 }
 
+/** `YYYY-MM` for the app-calendar month containing `ref`. */
+export function appYearMonthContaining(ref: Date = new Date()): string {
+  return DateTime.fromJSDate(ref).setZone(APP_TIME_ZONE).toFormat("yyyy-MM");
+}
+
+/** UTC range for an app-calendar month (`YYYY-MM`). `endExclusive` is the first instant of the next month. */
+export function appMonthRangeUtc(yearMonth: string): { start: Date; endExclusive: Date } | null {
+  const startDt = DateTime.fromFormat(yearMonth.trim(), "yyyy-MM", { zone: APP_TIME_ZONE });
+  if (!startDt.isValid) return null;
+  return {
+    start: startDt.startOf("month").toUTC().toJSDate(),
+    endExclusive: startDt.startOf("month").plus({ months: 1 }).toUTC().toJSDate(),
+  };
+}
+
+/** UTC midnight of the app-calendar day for `YYYY-MM-DD`. */
+export function startOfAppDayFromIsoDate(isoDate: string): Date | null {
+  const dt = DateTime.fromISO(isoDate.trim(), { zone: APP_TIME_ZONE });
+  if (!dt.isValid) return null;
+  return dt.startOf("day").toUTC().toJSDate();
+}
+
 /** First instant of the calendar day `daysAgo` days before the app-calendar day of `ref`. */
 export function startOfAppDayMinusDays(ref: Date, daysAgo: number): Date {
   return DateTime.fromJSDate(ref)
@@ -46,6 +68,14 @@ export function appCalendarDayIsoKeyForDaysAgo(ref: Date, daysAgo: number): stri
 /** `YYYY-MM-DD` (app TZ) for the calendar day containing instant `ref`. */
 export function appCalendarIsoDateContaining(ref: Date): string {
   return DateTime.fromJSDate(ref).setZone(APP_TIME_ZONE).toISODate()!;
+}
+
+/** Inclusive app-calendar day count from `start`'s day through `end`'s day. No 370-day cap. */
+export function countAppCalendarDaysInclusive(start: Date, end: Date): number {
+  const d0 = DateTime.fromJSDate(start).setZone(APP_TIME_ZONE).startOf("day");
+  const endD = DateTime.fromJSDate(end).setZone(APP_TIME_ZONE).startOf("day");
+  if (!d0.isValid || !endD.isValid || d0 > endD) return 0;
+  return Math.floor(endD.diff(d0, "days").days) + 1;
 }
 
 /** Each app-calendar `YYYY-MM-DD` from the start of `start`'s day through the start of `end`'s day (inclusive). */

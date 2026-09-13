@@ -62,7 +62,18 @@ import {
   sendTrialExtensionActivatedEmail,
 } from "../lib/transactional-email.js";
 import { formatEmailDate } from "../lib/email-template.js";
-import { appCalendarDayIsoKeyForDaysAgo, countAppTimezoneWeekdaysInclusive, startOfAppDay, startOfAppDayMinusDays, startOfAppMonth } from "@workspace/app-timezone";
+import {
+  appCalendarDayIsoKeyForDaysAgo,
+  appCalendarStartOfDayPlusDays,
+  appMonthRangeUtc,
+  appYearMonthContaining,
+  countAppTimezoneWeekdaysInclusive,
+  countAppCalendarDaysInclusive,
+  startOfAppDay,
+  startOfAppDayFromIsoDate,
+  startOfAppDayMinusDays,
+  startOfAppMonth,
+} from "@workspace/app-timezone";
 
 const router = Router();
 
@@ -88,6 +99,201 @@ const BILLING_FALLBACK_MS = 30 * 24 * 60 * 60 * 1000;
 const SONIOX_STT_COST_PER_MIN = 0.0025;
 const SONIOX_COST_PER_MIN = SONIOX_STT_COST_PER_MIN;
 const SONIOX_NATIVE_TRANSLATION_COST_PER_MIN = 0.001;
+const SONIOX_COMBINED_COST_PER_MIN = SONIOX_STT_COST_PER_MIN + SONIOX_NATIVE_TRANSLATION_COST_PER_MIN;
+/** Daily caps at or above this are treated as unlimited-style (no meaningful monthly TTL). */
+const UNLIMITED_STYLE_DAILY_CAP_HOURS = 150;
+
+function roundAdminHours(n: number): number {
+  return Math.round(n * 10) / 10;
+}
+function roundAdminUsd(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+type PaidSubscriberRangeMode = "month" | "since_subscribe" | "custom";
+
+async function buildPaidSubscriberReport(opts: {
+  mode: PaidSubscriberRangeMode;
+  month?: string;
+  from?: string;
+  to?: string;
+}): Promise<
+  | { ok: true; body: Record<string, unknown> }
+  | { ok: false; status: number; error: string }
+> {
+  const now = new Date();
+  const mode = opts.mode;
+  let rangeStart: Date;
+  let rangeEndExclusive: Date;
+  let label: string;
+  let monthKey: string | null = null;
+
+  if (mode === "since_subscribe") {
+    rangeStart = new Date("2000-01-01T00:00:00.000Z");
+    rangeEndExclusive = now;
+    label = "Since each subscriber started";
+  } else if (mode === "custom") {
+    const from = startOfAppDayFromIsoDate(opts.from ?? "");
+    const toDay = startOfAppDayFromIsoDate(opts.to ?? "");
+    if (!from || !toDay) {
+      return { ok: false, status: 400, error: "Custom range needs from and to as YYYY-MM-DD." };
+    }
+    if (from.getTime() > toDay.getTime()) {
+      return { ok: false, status: 400, error: "Custom range from must be on or before to." };
+    }
+    rangeStart = from;
+    rangeEndExclusive = appCalendarStartOfDayPlusDays(toDay, 1);
+    label = `${opts.from} → ${opts.to}`;
+  } else {
+    const ym = opts.month && /^\d{4}-\d{2}$/.test(opts.month)
+      ? opts.month
+      : appYearMonthContaining(now);
+    const monthRange = appMonthRangeUtc(ym);
+    if (!monthRange) {
+      return { ok: false, status: 400, error: "Month must be YYYY-MM." };
+    }
+    rangeStart = monthRange.start;
+    rangeEndExclusive = monthRange.endExclusive;
+    monthKey = ym;
+    label = ym;
+  }
+
+  const periodLastInclusive = new Date(Math.max(rangeStart.getTime(), rangeEndExclusive.getTime() - 1));
+  const entitledLastInclusive = mode === "since_subscribe"
+    ? now
+    : periodLastInclusive;
+  const calendarDays = mode === "since_subscribe"
+    ? 0
+    : Math.max(1, countAppCalendarDaysInclusive(rangeStart, entitledLastInclusive));
+  const calendarWeekdays = mode === "since_subscribe"
+    ? 0
+    : countAppTimezoneWeekdaysInclusive(rangeStart, entitledLastInclusive);
+  const calendarWeekendDays = Math.max(0, calendarDays - calendarWeekdays);
+
+  const paidRows = await db
+    .select({
+      id: usersTable.id,
+      username: usersTable.username,
+      email: usersTable.email,
+      planType: usersTable.planType,
+      dailyLimitMinutes: usersTable.dailyLimitMinutes,
+      subscriptionStartedAt: usersTable.subscriptionStartedAt,
+      createdAt: usersTable.createdAt,
+      minutesInRange: sql<number>`
+        COALESCE(SUM(CASE
+          WHEN ${sessionsTable.startedAt} IS NOT NULL
+            AND ${sessionsTable.startedAt} >= GREATEST(
+              ${rangeStart},
+              COALESCE(${usersTable.subscriptionStartedAt}, ${usersTable.createdAt})
+            )
+            AND ${sessionsTable.startedAt} < ${rangeEndExclusive}
+            THEN ${effectiveSessionSecondsSql()}
+          ELSE 0
+        END), 0) / 60.0`,
+    })
+    .from(usersTable)
+    .leftJoin(sessionsTable, eq(sessionsTable.userId, usersTable.id))
+    .where(and(
+      eq(usersTable.isAdmin, false),
+      notInArray(usersTable.planType, [...TRIAL_LIKE_PLAN_TYPES]),
+    ))
+    .groupBy(
+      usersTable.id,
+      usersTable.username,
+      usersTable.email,
+      usersTable.planType,
+      usersTable.dailyLimitMinutes,
+      usersTable.subscriptionStartedAt,
+      usersTable.createdAt,
+    )
+    .orderBy(desc(sql`COALESCE(SUM(CASE
+          WHEN ${sessionsTable.startedAt} IS NOT NULL
+            AND ${sessionsTable.startedAt} >= GREATEST(
+              ${rangeStart},
+              COALESCE(${usersTable.subscriptionStartedAt}, ${usersTable.createdAt})
+            )
+            AND ${sessionsTable.startedAt} < ${rangeEndExclusive}
+            THEN ${effectiveSessionSecondsSql()}
+          ELSE 0
+        END), 0)`));
+
+  const users = paidRows.map((u) => {
+    const subscribedAt = u.subscriptionStartedAt ?? u.createdAt;
+    const userWindowStart = new Date(Math.max(rangeStart.getTime(), subscribedAt.getTime()));
+    const inWindow = userWindowStart.getTime() < rangeEndExclusive.getTime()
+      && userWindowStart.getTime() <= entitledLastInclusive.getTime();
+    const entitledDays = inWindow
+      ? Math.max(1, countAppCalendarDaysInclusive(userWindowStart, entitledLastInclusive))
+      : 0;
+    const dailyCapMin = Number(u.dailyLimitMinutes) || 0;
+    const dailyCapHours = Math.round((dailyCapMin / 60) * 100) / 100;
+    const unlimitedStyle = dailyCapHours >= UNLIMITED_STYLE_DAILY_CAP_HOURS;
+    const minutes = Math.max(0, Number(u.minutesInRange) || 0);
+    const hoursUsed = minutes / 60;
+    const hoursEntitled = unlimitedStyle ? null : dailyCapHours * entitledDays;
+    const hoursUnused = hoursEntitled == null ? null : Math.max(0, hoursEntitled - hoursUsed);
+    const hoursOverage = hoursEntitled == null ? 0 : Math.max(0, hoursUsed - hoursEntitled);
+    return {
+      username: u.username,
+      email: u.email ?? null,
+      planType: u.planType,
+      subscribedAt: subscribedAt.toISOString(),
+      dailyCapHours,
+      unlimitedStyle,
+      entitledDays,
+      hoursEntitled: hoursEntitled == null ? null : roundAdminHours(hoursEntitled),
+      hoursUsed: roundAdminHours(hoursUsed),
+      hoursUnused: hoursUnused == null ? null : roundAdminHours(hoursUnused),
+      hoursOverage: roundAdminHours(hoursOverage),
+      estTotalUsd: roundAdminUsd(minutes * SONIOX_COMBINED_COST_PER_MIN),
+    };
+  });
+
+  const totals = users.reduce(
+    (acc, u) => {
+      acc.paidUsers += 1;
+      acc.hoursUsed += u.hoursUsed;
+      acc.estSonioxCostUsd += u.estTotalUsd;
+      acc.hoursOverage += u.hoursOverage;
+      if (u.hoursEntitled != null) acc.hoursEntitled += u.hoursEntitled;
+      if (u.hoursUnused != null) acc.hoursUnused += u.hoursUnused;
+      return acc;
+    },
+    {
+      paidUsers: 0,
+      hoursEntitled: 0,
+      hoursUsed: 0,
+      hoursUnused: 0,
+      hoursOverage: 0,
+      estSonioxCostUsd: 0,
+    },
+  );
+
+  return {
+    ok: true,
+    body: {
+      mode,
+      label,
+      month: monthKey,
+      rangeStart: rangeStart.toISOString(),
+      rangeEnd: new Date(rangeEndExclusive.getTime() - 1).toISOString(),
+      includesWeekends: true,
+      calendarDays,
+      calendarWeekdays,
+      calendarWeekendDays,
+      costPerMinCombined: SONIOX_COMBINED_COST_PER_MIN,
+      totals: {
+        paidUsers: totals.paidUsers,
+        hoursEntitled: roundAdminHours(totals.hoursEntitled),
+        hoursUsed: roundAdminHours(totals.hoursUsed),
+        hoursUnused: roundAdminHours(totals.hoursUnused),
+        hoursOverage: roundAdminHours(totals.hoursOverage),
+        estSonioxCostUsd: roundAdminUsd(totals.estSonioxCostUsd),
+      },
+      users,
+    },
+  };
+}
 
 function paidBillingWindowForUser(
   u: (typeof usersTable)["$inferSelect"],
@@ -1560,73 +1766,7 @@ ${sql.raw(effectiveSessionSecondsSqlAliasS())}
   const ltvEstimate = churnPercentMonthly > 0 ? +(activeMrr / churnPercentMonthly).toFixed(2) : null;
   const estimatedGrossMarginPct = activeMrr > 0 ? +((1 - Number(realCostMonth) / activeMrr) * 100).toFixed(1) : null;
 
-  const monthEndNy = new Date(startOfMonthNy);
-  monthEndNy.setMonth(monthEndNy.getMonth() + 1);
-  const calendarMonthDays = Math.max(
-    1,
-    Math.ceil((monthEndNy.getTime() - startOfMonthNy.getTime()) / 86_400_000),
-  );
-  const calendarMonthWeekdays = countAppTimezoneWeekdaysInclusive(
-    startOfMonthNy,
-    new Date(monthEndNy.getTime() - 1),
-  );
-  const calendarMonthWeekendDays = Math.max(0, calendarMonthDays - calendarMonthWeekdays);
-  const calendarMonthDaysElapsed = Math.min(
-    calendarMonthDays,
-    Math.max(1, Math.ceil((now.getTime() - startOfMonthNy.getTime()) / 86_400_000)),
-  );
-
-  const paidSubscriberRows = await db
-    .select({
-      username: usersTable.username,
-      email: usersTable.email,
-      planType: usersTable.planType,
-      dailyLimitMinutes: usersTable.dailyLimitMinutes,
-      minutesMonth: sql<number>`
-        COALESCE(SUM(CASE
-          WHEN ${sessionsTable.startedAt} >= ${startOfMonthNy}
-            THEN ${effectiveSessionSecondsSql()}
-          ELSE 0
-        END), 0) / 60.0`,
-    })
-    .from(usersTable)
-    .leftJoin(sessionsTable, eq(sessionsTable.userId, usersTable.id))
-    .where(and(
-      eq(usersTable.isAdmin, false),
-      notInArray(usersTable.planType, [...TRIAL_LIKE_PLAN_TYPES]),
-    ))
-    .groupBy(
-      usersTable.id,
-      usersTable.username,
-      usersTable.email,
-      usersTable.planType,
-      usersTable.dailyLimitMinutes,
-    )
-    .orderBy(desc(sql`COALESCE(SUM(CASE
-          WHEN ${sessionsTable.startedAt} >= ${startOfMonthNy}
-            THEN ${effectiveSessionSecondsSql()}
-          ELSE 0
-        END), 0)`));
-
-  const paidSubscriberUsers = paidSubscriberRows.map((u) => {
-    const minutes = Math.max(0, Number(u.minutesMonth) || 0);
-    const hours = minutes / 60;
-    const sttUsd = minutes * SONIOX_STT_COST_PER_MIN;
-    const txUsd = minutes * SONIOX_NATIVE_TRANSLATION_COST_PER_MIN;
-    const dailyCapMin = Number(u.dailyLimitMinutes) || 0;
-    return {
-      username: u.username,
-      email: u.email ?? null,
-      planType: u.planType,
-      dailyCapHours: Math.round((dailyCapMin / 60) * 100) / 100,
-      hoursUsed: Math.round(hours * 10) / 10,
-      estSttUsd: Math.round((sttUsd + Number.EPSILON) * 100) / 100,
-      estTranslationUsd: Math.round((txUsd + Number.EPSILON) * 100) / 100,
-      estTotalUsd: Math.round((sttUsd + txUsd + Number.EPSILON) * 100) / 100,
-    };
-  });
-  const paidSubscriberHours = paidSubscriberUsers.reduce((s, u) => s + u.hoursUsed, 0);
-  const paidSubscriberCost = paidSubscriberUsers.reduce((s, u) => s + u.estTotalUsd, 0);
+  const paidSubscribersMonth = await buildPaidSubscriberReport({ mode: "month" });
 
   res.json({
     userGrowth:  growthChart,
@@ -1663,20 +1803,25 @@ ${sql.raw(effectiveSessionSecondsSqlAliasS())}
       totalMinutes: +Number(u.totalMinutes).toFixed(1),
       planType:     u.planType,
     })),
-    paidSubscribersMonth: {
-      includesWeekends: true,
-      calendarMonthDaysTotal: calendarMonthDays,
-      calendarMonthDaysElapsed,
-      calendarMonthWeekdays,
-      calendarMonthWeekendDays,
-      paidUsers: paidSubscriberUsers.length,
-      totalHoursUsed: Math.round(paidSubscriberHours * 10) / 10,
-      totalEstSonioxCostUsd: Math.round(paidSubscriberCost * 100) / 100,
-      sttCostPerMin: SONIOX_STT_COST_PER_MIN,
-      translationCostPerMin: SONIOX_NATIVE_TRANSLATION_COST_PER_MIN,
-      users: paidSubscriberUsers,
-    },
+    paidSubscribersMonth: paidSubscribersMonth.ok ? paidSubscribersMonth.body : null,
   });
+});
+
+router.get("/analytics/paid-subscribers", requireAdmin, async (req, res) => {
+  const rawMode = String(req.query.mode ?? "month");
+  const mode: PaidSubscriberRangeMode =
+    rawMode === "since_subscribe" || rawMode === "custom" ? rawMode : "month";
+  const report = await buildPaidSubscriberReport({
+    mode,
+    month: typeof req.query.month === "string" ? req.query.month : undefined,
+    from: typeof req.query.from === "string" ? req.query.from : undefined,
+    to: typeof req.query.to === "string" ? req.query.to : undefined,
+  });
+  if (!report.ok) {
+    res.status(report.status).json({ error: report.error });
+    return;
+  }
+  res.json(report.body);
 });
 
 // ── Extended analytics endpoint (new panels, time-filtered) ─────────────────

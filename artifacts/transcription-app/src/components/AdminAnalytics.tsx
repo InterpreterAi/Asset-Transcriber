@@ -50,28 +50,41 @@ interface AnalyticsData {
     totalMinutes: number;
     planType: string;
   }[];
-  paidSubscribersMonth?: {
-    includesWeekends: boolean;
-    calendarMonthDaysTotal: number;
-    calendarMonthDaysElapsed: number;
-    calendarMonthWeekdays: number;
-    calendarMonthWeekendDays: number;
+}
+
+type PaidSubMode = "month" | "since_subscribe" | "custom";
+
+interface PaidSubscriberReport {
+  mode: PaidSubMode;
+  label: string;
+  month: string | null;
+  includesWeekends: boolean;
+  calendarDays: number;
+  calendarWeekdays: number;
+  calendarWeekendDays: number;
+  costPerMinCombined: number;
+  totals: {
     paidUsers: number;
-    totalHoursUsed: number;
-    totalEstSonioxCostUsd: number;
-    sttCostPerMin: number;
-    translationCostPerMin: number;
-    users: {
-      username: string;
-      email: string | null;
-      planType: string;
-      dailyCapHours: number;
-      hoursUsed: number;
-      estSttUsd: number;
-      estTranslationUsd: number;
-      estTotalUsd: number;
-    }[];
+    hoursEntitled: number;
+    hoursUsed: number;
+    hoursUnused: number;
+    hoursOverage: number;
+    estSonioxCostUsd: number;
   };
+  users: {
+    username: string;
+    email: string | null;
+    planType: string;
+    subscribedAt: string;
+    dailyCapHours: number;
+    unlimitedStyle: boolean;
+    entitledDays: number;
+    hoursEntitled: number | null;
+    hoursUsed: number;
+    hoursUnused: number | null;
+    hoursOverage: number;
+    estTotalUsd: number;
+  }[];
 }
 
 interface ExtendedData {
@@ -118,6 +131,23 @@ async function fetchExtended(range: RangeKey, from: string, to: string): Promise
   return res.json();
 }
 
+async function fetchPaidSubscribers(
+  mode: PaidSubMode,
+  month: string,
+  from: string,
+  to: string,
+): Promise<PaidSubscriberReport> {
+  const params = new URLSearchParams({ mode });
+  if (mode === "month") params.set("month", month);
+  if (mode === "custom") {
+    params.set("from", from);
+    params.set("to", to);
+  }
+  const res = await fetch(`${BASE}/api/admin/analytics/paid-subscribers?${params}`, { credentials: "include" });
+  if (!res.ok) throw new Error("Failed to load paid subscribers");
+  return res.json();
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtMin(m: number) {
   if (m < 1) return `${Math.round(m * 60)}s`;
@@ -149,6 +179,11 @@ function fmtDailyCapHours(h: number): string {
   if (h >= 150) return "Unlimited-style";
   if (h <= 0) return "—";
   return `${h}h / day`;
+}
+
+function fmtHoursCell(n: number | null | undefined): string {
+  if (n == null) return "—";
+  return `${n} h`;
 }
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
@@ -281,6 +316,254 @@ function UsageBar({ pct }: { pct: number }) {
   );
 }
 
+const PAID_MODE_OPTIONS: { key: PaidSubMode; label: string }[] = [
+  { key: "month", label: "Specific month" },
+  { key: "since_subscribe", label: "Since subscribed" },
+  { key: "custom", label: "Custom dates" },
+];
+
+function PaidSubscribersPanel() {
+  const today = format(new Date(), "yyyy-MM-dd");
+  const thisMonth = format(new Date(), "yyyy-MM");
+  const [mode, setMode] = useState<PaidSubMode>("month");
+  const [month, setMonth] = useState(thisMonth);
+  const [from, setFrom] = useState(thisMonth + "-01");
+  const [to, setTo] = useState(today);
+
+  const enabled = mode !== "custom" || (!!from && !!to && from <= to);
+
+  const { data, isLoading, isFetching, refetch } = useQuery<PaidSubscriberReport>({
+    queryKey: ["admin-paid-subscribers", mode, month, from, to],
+    queryFn: () => fetchPaidSubscribers(mode, month, from, to),
+    refetchInterval: 5 * 60 * 1000,
+    staleTime: 60_000,
+    enabled,
+  });
+
+  const title = mode === "since_subscribe"
+    ? "Paid subscribers — since they subscribed"
+    : mode === "custom"
+      ? "Paid subscribers — custom dates"
+      : `Paid subscribers — ${month}`;
+
+  return (
+    <section className="rounded-2xl border border-emerald-200/80 bg-emerald-50/40 p-4 dark:border-emerald-500/25 dark:bg-emerald-500/10">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <SectionTitle>
+          <CreditCard className="w-4 h-4 text-emerald-600 dark:text-emerald-300" />
+          {title}
+        </SectionTitle>
+        <button
+          type="button"
+          onClick={() => refetch()}
+          disabled={isFetching}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:bg-muted transition-colors disabled:opacity-50"
+        >
+          <RefreshCw className={`w-3 h-3 ${isFetching ? "animate-spin" : ""}`} />
+          Refresh
+        </button>
+      </div>
+      <p className="text-[11px] text-muted-foreground mt-1 mb-3">
+        Paying accounts only. Entitled hours = daily cap × days in the selected window (Sat/Sun included).
+        Unused = entitled − used. Cost is one Soniox total (STT + translation together, $0.0035/min).
+      </p>
+
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <div className="flex rounded-lg border border-border overflow-hidden">
+          {PAID_MODE_OPTIONS.map((opt) => (
+            <button
+              key={opt.key}
+              type="button"
+              onClick={() => setMode(opt.key)}
+              className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                mode === opt.key
+                  ? "bg-emerald-600 text-white"
+                  : "bg-muted/60 dark:bg-muted/30 text-muted-foreground hover:bg-muted dark:hover:bg-muted/50"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        {mode === "month" && (
+          <input
+            type="month"
+            value={month}
+            onChange={(e) => setMonth(e.target.value)}
+            className="border border-border rounded-md px-2 py-1 text-xs bg-background dark:bg-muted/40 focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+        )}
+        {mode === "custom" && (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <input
+              type="date"
+              max={today}
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+              className="border border-border rounded-md px-2 py-1 text-xs bg-background dark:bg-muted/40 focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+            <span>→</span>
+            <input
+              type="date"
+              max={today}
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              className="border border-border rounded-md px-2 py-1 text-xs bg-background dark:bg-muted/40 focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+          </div>
+        )}
+      </div>
+
+      {isLoading ? (
+        <PanelSkeleton rows={3} />
+      ) : !data ? (
+        <p className="text-sm text-muted-foreground">Could not load paid subscriber totals.</p>
+      ) : (
+        <>
+          <div className="rounded-xl border border-emerald-300/70 bg-card/80 px-4 py-3 mb-3 dark:border-emerald-500/30">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-800 dark:text-emerald-200">
+              All paid users together
+            </p>
+            <p className="text-sm text-foreground mt-1 leading-snug">
+              <span className="font-semibold tabular-nums">{data.totals.paidUsers}</span> subscribers
+              {" · "}
+              <span className="font-semibold tabular-nums">{data.totals.hoursEntitled} h</span> entitled
+              {" · "}
+              <span className="font-semibold tabular-nums">{data.totals.hoursUsed} h</span> used
+              {" · "}
+              <span className="font-semibold tabular-nums">{data.totals.hoursUnused} h</span> unused
+              {" · "}
+              <span className="font-semibold tabular-nums">{fmtUsd(data.totals.estSonioxCostUsd)}</span> est. Soniox
+            </p>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              {data.mode === "since_subscribe"
+                ? "Each row uses that subscriber’s own start date through today"
+                : `${data.calendarDays} days in this window (${data.calendarWeekdays} weekdays, ${data.calendarWeekendDays} weekend)`}
+              {" · "}weekends included: {data.includesWeekends ? "yes" : "no"}
+              {data.totals.hoursOverage > 0 ? ` · overage ${data.totals.hoursOverage} h` : ""}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            <StatCard
+              icon={<Users className="w-4.5 h-4.5" />}
+              label="Paid subscribers"
+              value={data.totals.paidUsers}
+              sub={data.label}
+              color="bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-200"
+            />
+            <StatCard
+              icon={<Clock className="w-4.5 h-4.5" />}
+              label="Hours entitled"
+              value={`${data.totals.hoursEntitled} h`}
+              sub="Daily cap × days"
+              color="bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-200"
+            />
+            <StatCard
+              icon={<Clock className="w-4.5 h-4.5" />}
+              label="Hours used"
+              value={`${data.totals.hoursUsed} h`}
+              sub="Billable sessions"
+              color="bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-200"
+            />
+            <StatCard
+              icon={<Clock className="w-4.5 h-4.5" />}
+              label="Hours unused"
+              value={`${data.totals.hoursUnused} h`}
+              sub="Entitled minus used"
+              color="bg-teal-50 text-teal-700 dark:bg-teal-500/15 dark:text-teal-200"
+            />
+            <StatCard
+              icon={<DollarSign className="w-4.5 h-4.5" />}
+              label="Est. Soniox cost"
+              value={fmtUsd(data.totals.estSonioxCostUsd)}
+              sub={`STT + translation · $${data.costPerMinCombined}/min`}
+              color="bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-200"
+            />
+          </div>
+
+          <Card className="border-border mt-4 overflow-hidden">
+            {data.users.length === 0 ? (
+              <div className="flex items-center justify-center py-10 text-muted-foreground text-sm">
+                No paid subscribers yet
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[820px]">
+                  <thead className="bg-gray-50 dark:bg-muted text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
+                    <tr>
+                      <th className="px-4 py-2 font-semibold text-left">#</th>
+                      <th className="px-4 py-2 font-semibold text-left">Subscriber</th>
+                      <th className="px-4 py-2 font-semibold text-left">Plan</th>
+                      <th className="px-4 py-2 font-semibold text-right">Daily cap</th>
+                      <th className="px-4 py-2 font-semibold text-right">Entitled</th>
+                      <th className="px-4 py-2 font-semibold text-right">Used</th>
+                      <th className="px-4 py-2 font-semibold text-right">Unused</th>
+                      <th className="px-4 py-2 font-semibold text-right">Est. cost</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {data.users.map((u, i) => (
+                      <tr key={`${u.username}-${u.email ?? i}`} className="hover:bg-muted/30">
+                        <td className="px-4 py-2.5 text-muted-foreground text-xs font-mono">{i + 1}</td>
+                        <td className="px-4 py-2.5">
+                          <div className="font-medium text-sm">{u.username}</div>
+                          {u.email && (
+                            <div className="text-[11px] text-muted-foreground truncate max-w-[220px]">{u.email}</div>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-200">
+                            {paidPlanLabel(u.planType)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5 text-right text-xs text-muted-foreground tabular-nums">
+                          {fmtDailyCapHours(u.dailyCapHours)}
+                        </td>
+                        <td className="px-4 py-2.5 text-right text-xs tabular-nums">
+                          {u.unlimitedStyle ? "Unlimited" : fmtHoursCell(u.hoursEntitled)}
+                        </td>
+                        <td className="px-4 py-2.5 text-right font-semibold text-sm text-primary tabular-nums">
+                          {u.hoursUsed} h
+                        </td>
+                        <td className="px-4 py-2.5 text-right text-xs tabular-nums">
+                          {u.unlimitedStyle ? "—" : fmtHoursCell(u.hoursUnused)}
+                        </td>
+                        <td className="px-4 py-2.5 text-right font-semibold text-sm tabular-nums">
+                          {fmtUsd(u.estTotalUsd)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-emerald-50/80 dark:bg-emerald-500/10 border-t border-emerald-200 dark:border-emerald-500/25">
+                    <tr>
+                      <td className="px-4 py-2.5 text-xs font-semibold" colSpan={4}>
+                        All users together
+                      </td>
+                      <td className="px-4 py-2.5 text-right text-xs font-semibold tabular-nums">
+                        {data.totals.hoursEntitled} h
+                      </td>
+                      <td className="px-4 py-2.5 text-right text-sm font-bold tabular-nums">
+                        {data.totals.hoursUsed} h
+                      </td>
+                      <td className="px-4 py-2.5 text-right text-xs font-semibold tabular-nums">
+                        {data.totals.hoursUnused} h
+                      </td>
+                      <td className="px-4 py-2.5 text-right text-sm font-bold tabular-nums">
+                        {fmtUsd(data.totals.estSonioxCostUsd)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </Card>
+        </>
+      )}
+    </section>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 export default function AdminAnalytics() {
   const today = format(new Date(), "yyyy-MM-dd");
@@ -318,7 +601,6 @@ export default function AdminAnalytics() {
 
   const { userGrowth, dau, usageStats, conversion, topUsers } = data;
   const business = data.businessMetrics;
-  const paidMonth = data.paidSubscribersMonth;
 
   const conversionPie = [
     { name: "Paid",  value: conversion.paidUsers  },
@@ -350,115 +632,7 @@ export default function AdminAnalytics() {
         </button>
       </div>
 
-      {/* ── Paid subscribers (calendar month) ────────────────────────────── */}
-      <section className="rounded-2xl border border-emerald-200/80 bg-emerald-50/40 p-4 dark:border-emerald-500/25 dark:bg-emerald-500/10">
-        <SectionTitle>
-          <CreditCard className="w-4 h-4 text-emerald-600 dark:text-emerald-300" />
-          Paid subscribers — this calendar month
-        </SectionTitle>
-        <p className="text-[11px] text-muted-foreground mt-1 mb-3">
-          Paying accounts only (no trials, no admins). Hours and estimated Soniox STT
-          (${paidMonth?.sttCostPerMin ?? 0.0025}/min) + native translation
-          (${paidMonth?.translationCostPerMin ?? 0.001}/min). Saturday and Sunday are
-          included (full week). America/New_York calendar month.
-        </p>
-        {paidMonth ? (
-          <>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-              <StatCard
-                icon={<Users className="w-4.5 h-4.5" />}
-                label="Paid subscribers"
-                value={paidMonth.paidUsers}
-                sub="Basic / Pro / Platinum"
-                color="bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-200"
-              />
-              <StatCard
-                icon={<Clock className="w-4.5 h-4.5" />}
-                label="Hours used"
-                value={`${paidMonth.totalHoursUsed} h`}
-                sub={`${paidMonth.calendarMonthDaysElapsed} of ${paidMonth.calendarMonthDaysTotal} days elapsed`}
-                color="bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-200"
-              />
-              <StatCard
-                icon={<DollarSign className="w-4.5 h-4.5" />}
-                label="Est. Soniox cost"
-                value={fmtUsd(paidMonth.totalEstSonioxCostUsd)}
-                sub="STT + native translation"
-                color="bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-200"
-              />
-              <StatCard
-                icon={<Calendar className="w-4.5 h-4.5" />}
-                label="Days this month"
-                value={paidMonth.calendarMonthDaysTotal}
-                sub={`${paidMonth.calendarMonthWeekdays} weekdays · ${paidMonth.calendarMonthWeekendDays} weekend`}
-                color="bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-200"
-              />
-              <StatCard
-                icon={<Calendar className="w-4.5 h-4.5" />}
-                label="Weekends included"
-                value={paidMonth.includesWeekends ? "Yes" : "No"}
-                sub="Sat + Sun count toward the month"
-                color="bg-teal-50 text-teal-700 dark:bg-teal-500/15 dark:text-teal-200"
-              />
-            </div>
-            <Card className="border-border mt-4 overflow-hidden">
-              {paidMonth.users.length === 0 ? (
-                <div className="flex items-center justify-center py-10 text-muted-foreground text-sm">
-                  No paid subscribers yet
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm min-w-[720px]">
-                    <thead className="bg-gray-50 dark:bg-muted text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
-                      <tr>
-                        <th className="px-4 py-2 font-semibold text-left">#</th>
-                        <th className="px-4 py-2 font-semibold text-left">Subscriber</th>
-                        <th className="px-4 py-2 font-semibold text-left">Plan</th>
-                        <th className="px-4 py-2 font-semibold text-right">Daily cap</th>
-                        <th className="px-4 py-2 font-semibold text-right">Hours this month</th>
-                        <th className="px-4 py-2 font-semibold text-right">STT $</th>
-                        <th className="px-4 py-2 font-semibold text-right">Translation $</th>
-                        <th className="px-4 py-2 font-semibold text-right">Est. total</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                      {paidMonth.users.map((u, i) => (
-                        <tr key={`${u.username}-${u.email ?? i}`} className="hover:bg-muted/30">
-                          <td className="px-4 py-2.5 text-muted-foreground text-xs font-mono">{i + 1}</td>
-                          <td className="px-4 py-2.5">
-                            <div className="font-medium text-sm">{u.username}</div>
-                            {u.email && (
-                              <div className="text-[11px] text-muted-foreground truncate max-w-[220px]">{u.email}</div>
-                            )}
-                          </td>
-                          <td className="px-4 py-2.5">
-                            <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-200">
-                              {paidPlanLabel(u.planType)}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2.5 text-right text-xs text-muted-foreground tabular-nums">
-                            {fmtDailyCapHours(u.dailyCapHours)}
-                          </td>
-                          <td className="px-4 py-2.5 text-right font-semibold text-sm text-primary tabular-nums">
-                            {u.hoursUsed} h
-                          </td>
-                          <td className="px-4 py-2.5 text-right text-xs tabular-nums">{fmtUsd(u.estSttUsd)}</td>
-                          <td className="px-4 py-2.5 text-right text-xs tabular-nums">{fmtUsd(u.estTranslationUsd)}</td>
-                          <td className="px-4 py-2.5 text-right font-semibold text-sm tabular-nums">
-                            {fmtUsd(u.estTotalUsd)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </Card>
-          </>
-        ) : (
-          <p className="text-sm text-muted-foreground">Paid subscriber rollup is not on this server build yet. Refresh after deploy.</p>
-        )}
-      </section>
+      <PaidSubscribersPanel />
 
       {/* ── Global time filter ───────────────────────────────────────────── */}
       <section>
