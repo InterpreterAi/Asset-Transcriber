@@ -7,6 +7,11 @@ import { isChunkV2OpenRowMidWord } from "../policies/mid-word-open";
 import { SAME_SPEAKER_LONG_PAUSE_SPLIT_MS } from "../policies/segmentation-constants";
 import { isChunkV2ShortAcknowledgement } from "../policies/short-acknowledgement";
 import {
+  collapseConsecutiveShortAckSegments,
+  collapseInternalShortAckSpam,
+  shouldSkipDuplicateShortAckFinal,
+} from "../policies/short-ack-collapse";
+import {
   appendFinalToActive,
   freezeActiveUtterance,
   openActiveUtterance,
@@ -174,15 +179,20 @@ function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: Redu
     lastHypothesisLagMs: lagComputed !== null ? lagComputed : next.lastHypothesisLagMs,
   };
 
-  const translationChunk = translationTextFromFrame(frame.tokens);
+  const translationChunk = collapseInternalShortAckSpam(
+    translationTextFromFrame(frame.tokens),
+  );
   const translationPreview = translationPreviewTextFromFrame(frame.tokens);
-  const nextFinalTranslation =
+  const nextFinalTranslation = collapseConsecutiveShortAckSegments(
     translationChunk.length > 0
       ? (next.activeTranslationText ?? "") + translationChunk
-      : next.activeTranslationText ?? "";
+      : next.activeTranslationText ?? "",
+  );
   let nextPreviewTranslation: string;
   if (translationPreview.length > 0) {
-    nextPreviewTranslation = `${nextFinalTranslation}${translationPreview}`;
+    nextPreviewTranslation = collapseConsecutiveShortAckSegments(
+      `${nextFinalTranslation}${translationPreview}`,
+    );
   } else if (translationChunk.length > 0) {
     nextPreviewTranslation = nextFinalTranslation;
   } else {
@@ -202,12 +212,21 @@ function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: Redu
   for (const ct of frameFinals) {
     if (next.seenFinalTokenIds.includes(ct.token_id)) continue;
     next = { ...next, seenFinalTokenIds: [...next.seenFinalTokenIds, ct.token_id] };
-    ctx.ledger.appendFinalCanon(ct);
+    const cleanedText = collapseInternalShortAckSpam(ct.text);
+    const cleaned: CanonToken =
+      cleanedText === ct.text ? ct : { ...ct, text: cleanedText };
+
+    // Identical short-ack loop across frames (message-scoped ids never collide).
+    if (shouldSkipDuplicateShortAckFinal(next, cleaned)) {
+      continue;
+    }
+
+    ctx.ledger.appendFinalCanon(cleaned);
 
     if (next.activeUtterance) {
       const openMidWord = isChunkV2OpenRowMidWord(utteranceCommittedText(next.activeUtterance));
-      const langBreak = rowBreaksForLanguage(next.activeUtterance, ct);
-      const spkBreak = rowBreaksForSpeaker(next.activeUtterance, ct);
+      const langBreak = rowBreaksForLanguage(next.activeUtterance, cleaned);
+      const spkBreak = rowBreaksForSpeaker(next.activeUtterance, cleaned);
 
       if (openMidWord && langBreak && !spkBreak) {
         // Mid-word LID flicker — stay.
@@ -222,10 +241,10 @@ function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: Redu
     }
 
     if (!next.activeUtterance) {
-      next = openActiveUtterance(next, ct.speaker, ct.language);
+      next = openActiveUtterance(next, cleaned.speaker, cleaned.language);
     }
 
-    next = appendFinalToActive(next, ct, { preserveEstablishedSpeaker: true });
+    next = appendFinalToActive(next, cleaned, { preserveEstablishedSpeaker: true });
   }
 
   const tail = inferTailSpeakerLang(canon.length ? canon : frameNonFinals);

@@ -346,9 +346,26 @@ export const CRITICAL_MEDICAL_TERMS: readonly CriticalMedicalTerm[] = [
       ja: "インスリン",
     },
   },
+  {
+    en: "burp",
+    translations: {
+      ar: "التجشؤ",
+    },
+    confusedL2: {
+      ar: ["القيء"],
+    },
+  },
+  {
+    en: "fart",
+    translations: {
+      ar: "إخراج الريح",
+    },
+    confusedL2: {
+      ar: ["البثور", "بثور"],
+    },
+  },
 ];
 
-/** EN lemmas that must win context budget over lower-priority body-part dumps. */
 export const CRITICAL_MEDICAL_EN_SET = new Set(
   CRITICAL_MEDICAL_TERMS.map((t) => t.en.toLowerCase()),
 );

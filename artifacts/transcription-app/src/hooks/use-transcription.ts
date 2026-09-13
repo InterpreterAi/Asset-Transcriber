@@ -3426,6 +3426,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const dispatchMorsyChunkV2LivePreviewRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
   const dispatchMorsyChunkV2EndpointFlushRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
   const chunkV2GlossaryEntriesRef = useRef<ChunkV2GlossaryEntry[]>([]);
+  /** Sticky EN→AR patient/addressee gender for the open call (he/him vs she/her). */
+  const chunkV2ArabicAddresseeGenderRef = useRef<"m" | "f" | undefined>(undefined);
   /** Stable call site for engine hooks (defined later in this hook). */
   const applyChunkV2FinalGlossaryPostProcessRef = useRef<
     (translationText: string, committedOriginal: string, rowSourceLanguage: string) => string
@@ -4068,6 +4070,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         rowSourceLanguage,
         langA: pair.a,
         langB: pair.b,
+        sessionAddresseeGender: chunkV2ArabicAddresseeGenderRef.current,
+        onInferredAddresseeGender: (g) => {
+          chunkV2ArabicAddresseeGenderRef.current = g;
+        },
       },
     );
   }, []);
@@ -4075,6 +4081,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   const clearChunkV2GlossaryState = useCallback(() => {
     chunkV2GlossaryEntriesRef.current = [];
+    chunkV2ArabicAddresseeGenderRef.current = undefined;
     canonWsIsolationEngineRef.current?.setChunkV2GlossaryTerms([]);
     canonWsIsolationEngineRef.current?.setChunkV2GlossaryEntries([], langPairRef.current);
   }, []);

@@ -1,7 +1,7 @@
 import type { RowProjection } from "../projection/transcript-view";
 import { joinCanonTextParts } from "../types/canon-token";
 import { logChunkV2DomPaint } from "@/hooks/morsy-chunk-v2-instrumentation";
-import { isolateLtrRunsInRtl, isRtlTranslationText } from "@/lib/wrap-ltr-numbers";
+import { isolateLtrRunsInRtl, isRtlTranslationText, prepareMixedScriptOriginal, effectiveOriginalDirection } from "@/lib/wrap-ltr-numbers";
 import {
   createWorkspaceCopyButton,
   markWorkspaceSelectableText,
@@ -13,7 +13,7 @@ import {
   createCommittedMirror,
   renderCommittedAppendOnly,
 } from "./committed-renderer";
-import { isolateLtrInRtl, renderHypothesisLcp } from "./hypothesis-renderer";
+import { renderHypothesisLcp } from "./hypothesis-renderer";
 export type CanonAppendWsLayoutMode = "side-by-side" | "stacked";
 export type EngineDomRowHandles = {
   row: HTMLElement;
@@ -35,8 +35,11 @@ function getLangDirection(langCode: string): "rtl" | "ltr" {
   const base = langCode.split("-")[0]?.toLowerCase() ?? "";
   return RTL_LANGS.has(base) ? "rtl" : "ltr";
 }
-function applyDirectionToElement(el: HTMLElement, langCode: string): void {
-  const dir = getLangDirection(langCode);
+function applyDirectionToElement(el: HTMLElement, langCodeOrDir: string): void {
+  const dir =
+    langCodeOrDir === "rtl" || langCodeOrDir === "ltr"
+      ? langCodeOrDir
+      : getLangDirection(langCodeOrDir);
   el.setAttribute("dir", dir);
   el.style.textAlign = dir === "rtl" ? "right" : "left";
   el.style.unicodeBidi = "plaintext";
@@ -46,7 +49,14 @@ function prepareTextForDisplay(text: string, langCode: string): string {
   if (getLangDirection(langCode) === "rtl" || isRtlTranslationText(text)) {
     return isolateLtrRunsInRtl(text);
   }
+  // LTR column that still contains Arabic/Hebrew — isolate RTL runs.
+  if (textHasRtlScriptSafe(text)) {
+    return prepareMixedScriptOriginal(text, langCode, false);
+  }
   return text;
+}
+function textHasRtlScriptSafe(text: string): boolean {
+  return /[\u0590-\u05FF\u0600-\u06FF]/.test(text);
 }
 function rowSourceLanguage(row: HTMLElement): string {
   return row.dataset.cawLanguage ?? "";
@@ -461,37 +471,73 @@ export class CanonAppendWsDomWriter {
       handles.stripe.className = `w-1 shrink-0 rounded-full self-stretch min-h-[1.25rem] mt-0.5 ${this.stripeColorForRow(proj.speaker, proj.row_id)}`;
       if (!line || !hypo) continue;
       if (this.chunkV2NativeTranslate) {
-        applyDirectionToElement(line, proj.language ?? "");
+        const rawOriginal = proj.finalized
+          ? proj.committedText
+          : joinCanonTextParts([proj.committedText, proj.liveText]);
+        const langRtl = getLangDirection(proj.language ?? "") === "rtl";
+        const origDir = effectiveOriginalDirection(rawOriginal, proj.language ?? "", langRtl);
+        applyDirectionToElement(line, origDir);
+        // Invalidate hypothesis RTL cache when direction flips (en↔ar code-switch).
+        const hypoAny = hypo as HTMLElement & { _rtlChecked?: boolean; _isRtl?: boolean };
+        if (hypoAny._isRtl !== (origDir === "rtl")) {
+          hypoAny._rtlChecked = false;
+        }
         if (proj.finalized) {
-          // Chunk V2: freeze-time commit only.
-          renderCommittedAppendOnly(line, proj.committedText, handles.committedMirror);
+          const prepared = prepareMixedScriptOriginal(
+            proj.committedText,
+            proj.language ?? "",
+            langRtl,
+          );
+          renderCommittedAppendOnly(line, prepared, handles.committedMirror);
           renderHypothesisLcp(hypo, "");
         } else {
-          // Chunk V2: keep active row fully grey until structural freeze.
-          // Cache processed committedText so isolateLtrInRtl only re-runs when committed changes.
-          const dir = getLangDirection(proj.language ?? "");
           let processedCommitted = proj.committedText;
-          if (dir === "rtl" && proj.committedText) {
-            const cached = this.committedRtlCache.get(proj.row_id);
-            if (cached && cached.raw === proj.committedText) {
-              processedCommitted = cached.processed;
-            } else {
-              processedCommitted = isolateLtrInRtl(proj.committedText);
-              this.committedRtlCache.set(proj.row_id, { raw: proj.committedText, processed: processedCommitted });
-            }
+          const cacheKey = `${origDir}:${proj.committedText}`;
+          const cached = this.committedRtlCache.get(proj.row_id);
+          if (cached && cached.raw === cacheKey) {
+            processedCommitted = cached.processed;
+          } else {
+            processedCommitted = prepareMixedScriptOriginal(
+              proj.committedText,
+              proj.language ?? "",
+              langRtl,
+            );
+            this.committedRtlCache.set(proj.row_id, {
+              raw: cacheKey,
+              processed: processedCommitted,
+            });
           }
-          // Same space-safe concat as joinCanonText — never insert a separator
-          // that would turn trailing committed space + live "." into "  .".
-          // Projection already clears liveText while a chunk-v2 lang/speaker break
-          // is pending N=2 confirmation, so pending handoff words are not joined
-          // onto this (old) active row.
-          const combined = joinCanonTextParts([processedCommitted, proj.liveText]);
+          const livePrepared = prepareMixedScriptOriginal(
+            proj.liveText,
+            proj.language ?? "",
+            langRtl,
+          );
+          const combined = joinCanonTextParts([processedCommitted, livePrepared]);
+          // Text already has isolates — skip second pass in hypothesis renderer.
+          hypoAny._rtlChecked = true;
+          hypoAny._isRtl = false;
           renderHypothesisLcp(hypo, combined);
         }
       } else {
-        // Non-chunk-v2 path remains committed + live split.
-        renderCommittedAppendOnly(line, proj.committedText, handles.committedMirror);
-        renderHypothesisLcp(hypo, proj.finalized ? "" : proj.liveText);
+        // Non-chunk-v2: same mixed-script Original paint (en↔ar, he, fa, …).
+        const rawOriginal = proj.finalized
+          ? proj.committedText
+          : joinCanonTextParts([proj.committedText, proj.liveText]);
+        const langRtl = getLangDirection(proj.language ?? "") === "rtl";
+        const origDir = effectiveOriginalDirection(rawOriginal, proj.language ?? "", langRtl);
+        applyDirectionToElement(line, origDir);
+        const preparedCommitted = prepareMixedScriptOriginal(
+          proj.committedText,
+          proj.language ?? "",
+          langRtl,
+        );
+        renderCommittedAppendOnly(line, preparedCommitted, handles.committedMirror);
+        const livePrepared = prepareMixedScriptOriginal(
+          proj.liveText,
+          proj.language ?? "",
+          langRtl,
+        );
+        renderHypothesisLcp(hypo, proj.finalized ? "" : livePrepared);
       }
       if (this.translationPrefixLiveByRowId.has(proj.row_id)) {
         this.paintTranslationPrefixLive(

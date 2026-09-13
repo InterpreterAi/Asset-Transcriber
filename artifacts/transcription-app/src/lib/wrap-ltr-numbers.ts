@@ -11,6 +11,7 @@ const AR_SCRIPT =
 const HE_SCRIPT = /[\u0590-\u05FF]/;
 
 export const LRI = "\u2066";
+export const RLI = "\u2067";
 export const PDI = "\u2069";
 
 export function escapeHtml(s: string): string {
@@ -79,6 +80,61 @@ export function wrapMixedLtrTokens(text: string, wrap: (token: string) => string
  */
 export function isolateLtrRunsInRtl(text: string): string {
   return wrapMixedLtrTokens(text, (m) => `${LRI}${m}${PDI}`);
+}
+
+/** Arabic / Hebrew runs as RLI islands inside an LTR (e.g. English) paragraph. */
+const RTL_SCRIPT_RUN_RE =
+  /[\u0590-\u05FF\u0600-\u06FF\u0700-\u074F\u0750-\u077F\u08A0-\u08FF\ufb50-\ufdff\ufe70-\ufeff]+(?:\s+[\u0590-\u05FF\u0600-\u06FF\u0700-\u074F\u0750-\u077F\u08A0-\u08FF\ufb50-\ufdff\ufe70-\ufeff]+)*/g;
+
+export function isolateRtlRunsInLtr(text: string): string {
+  if (!text || (!AR_SCRIPT.test(text) && !HE_SCRIPT.test(text))) return text;
+  RTL_SCRIPT_RUN_RE.lastIndex = 0;
+  return text.replace(RTL_SCRIPT_RUN_RE, (m) => `${RLI}${m}${PDI}`);
+}
+
+export function textHasLatinScript(text: string): boolean {
+  return /[A-Za-z\u00C0-\u024F]/.test(text);
+}
+
+export function textHasRtlScript(text: string): boolean {
+  return AR_SCRIPT.test(text) || HE_SCRIPT.test(text);
+}
+
+/**
+ * Paint-only Original cleanup for mixed-script rows (EN↔AR code-switch, etc.).
+ * Base direction follows `langCode`; the opposite script is isolated so reading
+ * order stays natural in both en-ar and other RTL-pair sessions.
+ */
+export function prepareMixedScriptOriginal(
+  text: string,
+  langCode: string,
+  langIsRtl: boolean,
+): string {
+  if (!text) return text;
+  // Avoid double-wrapping if a prior paint pass already added isolates.
+  if (text.includes(LRI) || text.includes(RLI)) return text;
+  const hasRtl = textHasRtlScript(text);
+  const hasLatin = textHasLatinScript(text);
+  if (hasRtl && hasLatin) {
+    // Mixed EN↔AR (etc.): isolate the minority script against the row language base.
+    return langIsRtl ? isolateLtrRunsInRtl(text) : isolateRtlRunsInLtr(text);
+  }
+  // Pure Arabic/Hebrew (even on an en-labeled row after code-switch) — LTR islands only.
+  if (hasRtl) return isolateLtrRunsInRtl(text);
+  return text;
+}
+
+export function effectiveOriginalDirection(
+  text: string,
+  langCode: string,
+  langIsRtl: boolean,
+): "rtl" | "ltr" {
+  const hasRtl = textHasRtlScript(text);
+  const hasLatin = textHasLatinScript(text);
+  if (hasRtl && !hasLatin) return "rtl";
+  if (!hasRtl) return langIsRtl ? "rtl" : "ltr";
+  // Mixed: keep session/row language as the paragraph base.
+  return langIsRtl ? "rtl" : "ltr";
 }
 
 /**

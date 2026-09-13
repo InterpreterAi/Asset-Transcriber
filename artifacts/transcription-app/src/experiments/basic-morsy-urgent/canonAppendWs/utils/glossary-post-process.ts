@@ -13,13 +13,25 @@ import type { ChunkV2GlossaryEntry } from "./chunk-v2-glossary";
 import { normalizeChunkV2StandardRegister } from "./chunk-v2-standard-register";
 import { applyCriticalMedicalNativeRepair } from "./critical-medical-terms";
 import { applyCriticalClaimNativeRepair } from "./critical-claim-terms";
-import { repairArabicSessionGender } from "./arabic-interpreter-address";
+import {
+  inferEnglishAddresseeGender,
+  repairArabicSessionGender,
+  type ArabicAddresseeGender,
+} from "./arabic-interpreter-address";
+import {
+  repairArabicBurpFartMistranslation,
+  repairArabicSendMeImperativeEnglish,
+} from "./arabic-phrase-repairs";
 
 export type GlossaryPostProcessOpts = {
   originalText?: string;
   rowSourceLanguage?: string;
   langA?: string;
   langB?: string;
+  /** Sticky patient/addressee gender for EN→AR (updated by caller across the call). */
+  sessionAddresseeGender?: ArabicAddresseeGender;
+  /** Optional sink so callers can persist newly inferred gender. */
+  onInferredAddresseeGender?: (g: ArabicAddresseeGender) => void;
 };
 
 function asEntries(terms: unknown): ChunkV2GlossaryEntry[] {
@@ -71,11 +83,21 @@ export function applyGlossaryPostProcess(
 
   if (o.originalText?.trim()) {
     const targetLang = targetLangFromPair(o.rowSourceLanguage, o.langA, o.langB);
+    const src = o.rowSourceLanguage.split("-")[0]!.toLowerCase();
     out = applyCriticalMedicalNativeRepair(out, o.originalText, targetLang);
     out = applyCriticalClaimNativeRepair(out, o.originalText, targetLang);
-    const src = o.rowSourceLanguage.split("-")[0]!.toLowerCase();
+
     if (targetLang === "ar" && src !== "ar") {
-      out = repairArabicSessionGender(out, o.originalText);
+      out = repairArabicBurpFartMistranslation(out, o.originalText);
+      const inferred = inferEnglishAddresseeGender(o.originalText);
+      if (inferred) o.onInferredAddresseeGender?.(inferred);
+      out = repairArabicSessionGender(out, o.originalText, {
+        sessionAddresseeGender: o.sessionAddresseeGender,
+      });
+    }
+
+    if (targetLang === "en" && src === "ar") {
+      out = repairArabicSendMeImperativeEnglish(out, o.originalText);
     }
   }
 

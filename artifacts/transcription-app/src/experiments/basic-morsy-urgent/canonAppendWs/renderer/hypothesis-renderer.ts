@@ -1,4 +1,4 @@
-import { isolateLtrRunsInRtl } from "@/lib/wrap-ltr-numbers";
+import { isolateLtrRunsInRtl, LRI, RLI } from "@/lib/wrap-ltr-numbers";
 
 function ensureHypothesisText(span: HTMLElement): Text {
   const first = span.firstChild;
@@ -19,7 +19,8 @@ export function renderHypothesisLcp(span: HTMLElement, next: string): void {
       span.getAttribute("dir") === "rtl" ||
       span.closest('[dir="rtl"]') !== null;
   }
-  const shouldWrapRtl = (span as any)._isRtl as boolean;
+  const alreadyIsolated = next.includes(LRI) || next.includes(RLI);
+  const shouldWrapRtl = !alreadyIsolated && ((span as any)._isRtl as boolean);
   const safeNext = shouldWrapRtl ? isolateLtrRunsInRtl(next) : next;
   const tn = ensureHypothesisText(span);
   if (tn.data === safeNext) return;

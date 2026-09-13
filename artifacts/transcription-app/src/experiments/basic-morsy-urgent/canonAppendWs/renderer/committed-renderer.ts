@@ -1,6 +1,6 @@
 /** Single committed originals node — append-only growth. */
 
-import { isolateLtrRunsInRtl } from "@/lib/wrap-ltr-numbers";
+import { isolateLtrRunsInRtl, LRI, RLI } from "@/lib/wrap-ltr-numbers";
 
 function ensureCommittedTextHost(row: HTMLElement): Text {
   const fin = row.querySelector<HTMLElement>(`[data-caw-engine="committed"]`);
@@ -24,7 +24,11 @@ export function createCommittedMirror(): CommittedDomMirror {
 }
 
 export function renderCommittedAppendOnly(row: HTMLElement, fullCommittedUtf16: string, mirror: CommittedDomMirror): void {
-  const shouldWrapRtl = row.getAttribute("dir") === "rtl" || row.closest('[dir="rtl"]') !== null;
+  const alreadyIsolated =
+    fullCommittedUtf16.includes(LRI) || fullCommittedUtf16.includes(RLI);
+  const shouldWrapRtl =
+    !alreadyIsolated &&
+    (row.getAttribute("dir") === "rtl" || row.closest('[dir="rtl"]') !== null);
   const nextCommitted = shouldWrapRtl ? isolateLtrRunsInRtl(fullCommittedUtf16) : fullCommittedUtf16;
   const tn = ensureCommittedTextHost(row);
   if (mirror.lastUtf16Committed === nextCommitted.length) return;
