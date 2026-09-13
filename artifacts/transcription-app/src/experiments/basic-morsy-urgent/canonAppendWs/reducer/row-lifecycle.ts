@@ -53,6 +53,9 @@ export function openActiveUtterance(
     activeUtterance: u,
     nextUtteranceSeq: state.nextUtteranceSeq + 1,
     speakerChangeConsecutive: 0,
+    pendingSpeakerId: undefined,
+    pendingLanguage: undefined,
+    pendingSpeakerFinals: [],
   };
 }
 
@@ -92,28 +95,91 @@ export function appendFinalToActive(
   };
 }
 
+/**
+ * Force-confirm buffered language/speaker finals onto a new active row.
+ * Used by freeze (Stop/pause) and by chunk-v2 N-token break confirmation.
+ */
+export function confirmPendingBreakToActive(state: EngineState): EngineState {
+  const pending = state.pendingSpeakerFinals;
+  if (!pending.length) {
+    return {
+      ...state,
+      pendingSpeakerId: undefined,
+      pendingLanguage: undefined,
+      pendingSpeakerFinals: [],
+      speakerChangeConsecutive: 0,
+    };
+  }
+  const first = pending[0]!;
+  const speaker = state.pendingSpeakerId ?? first.speaker;
+  const language = state.pendingLanguage ?? first.language;
+  let next: EngineState = {
+    ...state,
+    pendingSpeakerId: undefined,
+    pendingLanguage: undefined,
+    pendingSpeakerFinals: [],
+    speakerChangeConsecutive: 0,
+  };
+  // Freeze the old row without re-entering pending promotion.
+  const au = next.activeUtterance;
+  if (au && (utteranceCommittedText(au).length > 0 || utteranceLiveText(au).length > 0)) {
+    const frozen: CanonUtterance = {
+      ...au,
+      finalTokens: trimTrailingSubwordTokens([...au.finalTokens]),
+      nonFinalTokens: [],
+      is_final: true,
+      translationText: next.activeTranslationText?.trim() || undefined,
+    };
+    next = {
+      ...next,
+      finalizedUtterances: [...next.finalizedUtterances, frozen],
+      activeUtterance: null,
+      activeTranslationText: "",
+      activeTranslationPreviewText: "",
+      metrics: {
+        ...next.metrics,
+        rowsFrozen: next.metrics.rowsFrozen + 1,
+        speakerFlipCount: next.metrics.speakerFlipCount + 1,
+      },
+    };
+  } else {
+    next = { ...next, activeUtterance: null };
+  }
+  next = openActiveUtterance(next, speaker, language);
+  for (const tok of pending) {
+    next = appendFinalToActive(next, tok, { preserveEstablishedSpeaker: true });
+  }
+  return next;
+}
+
 /** Hard-close active row — Intercall-style immutable block. */
 export function freezeActiveUtterance(state: EngineState): EngineState {
-  const au = state.activeUtterance;
-  if (!au) return state;
+  // If a chunk-v2 debounce is holding finals off-row, promote them onto a new
+  // active row first so Stop / pause-split do not drop the handoff.
+  let next = confirmPendingBreakToActive(state);
+  const au = next.activeUtterance;
+  if (!au) return next;
   if (!utteranceCommittedText(au).length && !utteranceLiveText(au).length) {
-    return { ...state, activeUtterance: null };
+    return { ...next, activeUtterance: null };
   }
   const frozen: CanonUtterance = {
     ...au,
     finalTokens: trimTrailingSubwordTokens([...au.finalTokens]),
     nonFinalTokens: [],
     is_final: true,
-    translationText: state.activeTranslationText?.trim() || undefined,
+    translationText: next.activeTranslationText?.trim() || undefined,
   };
   return {
-    ...state,
-    finalizedUtterances: [...state.finalizedUtterances, frozen],
+    ...next,
+    finalizedUtterances: [...next.finalizedUtterances, frozen],
     activeUtterance: null,
     activeTranslationText: "",
     activeTranslationPreviewText: "",
     speakerChangeConsecutive: 0,
-    metrics: { ...state.metrics, rowsFrozen: state.metrics.rowsFrozen + 1 },
+    pendingSpeakerId: undefined,
+    pendingLanguage: undefined,
+    pendingSpeakerFinals: [],
+    metrics: { ...next.metrics, rowsFrozen: next.metrics.rowsFrozen + 1 },
   };
 }
 

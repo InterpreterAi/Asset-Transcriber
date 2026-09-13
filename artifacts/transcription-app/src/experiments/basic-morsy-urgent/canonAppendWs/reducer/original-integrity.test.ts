@@ -12,6 +12,7 @@ import type { SonioxFrame } from "../ws/frame-types";
 import type { Token } from "../types/tokens";
 import { applyGlossaryPostProcess } from "../utils/glossary-post-process";
 import { stableSonioxTokenId } from "../policies/token-identity";
+import { utteranceCommittedText } from "../types/canon-utterance";
 import { joinCanonText } from "../types/canon-token";
 import { freezeActiveUtterance } from "./row-lifecycle";
 
@@ -113,13 +114,77 @@ describe("chunk-v2 Original integrity (restored path)", () => {
         tok("No.", { id: "d1", speakerId: "2", language: "en", startMs: 500 }),
       ]),
     ]);
-    // Speaker change freezes prior row; short answer must remain on speaker 2.
+    // One conflicting final is held pending (N=2); freeze force-confirms the handoff.
     const proj = projectTranscriptView(
       freezeActiveUtterance(state),
       { chunkV2NativeTranslate: true },
     );
     const patient = proj.rows.find(r => r.speaker === "2");
     expect(patient?.committedText).toBe("No.");
+  });
+
+  it("does not freeze on a single language-flicker final (needs N=2)", () => {
+    const state = reduceAll([
+      frame(1, [
+        tok("Hello there.", { id: "l1", speakerId: "1", language: "en", startMs: 0 }),
+      ]),
+      frame(2, [
+        tok(" عندي ألم شديد", { id: "l2", speakerId: "1", language: "ar", startMs: 100 }),
+      ]),
+    ]);
+    expect(state.finalizedUtterances).toHaveLength(0);
+    expect(state.pendingSpeakerFinals).toHaveLength(1);
+    expect(state.activeUtterance && utteranceCommittedText(state.activeUtterance)).toBe("Hello there.");
+  });
+
+  it("freezes after two consecutive language-agreeing finals", () => {
+    const state = reduceAll([
+      frame(1, [
+        tok("Hello there.", { id: "m1", speakerId: "1", language: "en", startMs: 0 }),
+      ]),
+      frame(2, [
+        tok(" عندي ألم", { id: "m2", speakerId: "1", language: "ar", startMs: 100 }),
+      ]),
+      frame(3, [
+        tok(" في الأنف اليوم", { id: "m3", speakerId: "1", language: "ar", startMs: 200 }),
+      ]),
+    ]);
+    expect(state.finalizedUtterances.length).toBeGreaterThanOrEqual(1);
+    expect(state.finalizedUtterances[0] && utteranceCommittedText(state.finalizedUtterances[0]!)).toBe(
+      "Hello there.",
+    );
+    expect(state.activeUtterance && utteranceCommittedText(state.activeUtterance)).toContain("الأنف");
+  });
+
+  it("does not freeze on a single speaker-flicker final (needs N=2)", () => {
+    const state = reduceAll([
+      frame(1, [
+        tok("Hello doctor.", { id: "s1", speakerId: "1", language: "en", startMs: 0 }),
+      ]),
+      frame(2, [
+        tok(" wait", { id: "s2", speakerId: "2", language: "en", startMs: 100 }),
+      ]),
+    ]);
+    expect(state.finalizedUtterances).toHaveLength(0);
+    expect(state.pendingSpeakerFinals).toHaveLength(1);
+    expect(state.activeUtterance && utteranceCommittedText(state.activeUtterance)).toBe("Hello doctor.");
+  });
+
+  it("freezes after two consecutive speaker-agreeing finals", () => {
+    const state = reduceAll([
+      frame(1, [
+        tok("Hello doctor.", { id: "t1", speakerId: "1", language: "en", startMs: 0 }),
+      ]),
+      frame(2, [
+        tok(" I", { id: "t2", speakerId: "2", language: "en", startMs: 100 }),
+      ]),
+      frame(3, [
+        tok(" have pain", { id: "t3", speakerId: "2", language: "en", startMs: 200 }),
+      ]),
+    ]);
+    expect(state.finalizedUtterances.length).toBeGreaterThanOrEqual(1);
+    expect(state.activeUtterance?.speaker).toBe("2");
+    expect(state.activeUtterance && utteranceCommittedText(state.activeUtterance)).toContain("have pain");
   });
 
   it("keeps distinct tokens that share timestamps", () => {

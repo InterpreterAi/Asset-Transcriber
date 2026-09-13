@@ -47,6 +47,7 @@ function freezeRowForSonioxNative(state: EngineState, chunkV2NativeTranslate: bo
   const cleared: EngineState = {
     ...state,
     pendingSpeakerId: undefined,
+    pendingLanguage: undefined,
     pendingSpeakerFinals: [],
   };
   if (!chunkV2NativeTranslate || !cleared.activeUtterance) {
@@ -89,6 +90,7 @@ function absorbPendingIntoActive(state: EngineState): EngineState {
     return {
       ...state,
       pendingSpeakerId: undefined,
+      pendingLanguage: undefined,
       pendingSpeakerFinals: [],
       speakerChangeConsecutive: 0,
     };
@@ -96,6 +98,7 @@ function absorbPendingIntoActive(state: EngineState): EngineState {
   let next: EngineState = {
     ...state,
     pendingSpeakerId: undefined,
+    pendingLanguage: undefined,
     pendingSpeakerFinals: [],
     speakerChangeConsecutive: 0,
   };

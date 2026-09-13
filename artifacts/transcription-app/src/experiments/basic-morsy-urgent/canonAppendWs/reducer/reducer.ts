@@ -1,4 +1,5 @@
 import type { AppendOnlyCanonLedger } from "../ledger/append-ledger";
+import type { CanonToken } from "../types/canon-token";
 import type { EngineState } from "../types/transcript";
 import type { SonioxFrame } from "../ws/frame-types";
 
@@ -7,6 +8,7 @@ import { SAME_SPEAKER_LONG_PAUSE_SPLIT_MS } from "../policies/segmentation-const
 import { isChunkV2ShortAcknowledgement } from "../policies/short-acknowledgement";
 import {
   appendFinalToActive,
+  confirmPendingBreakToActive,
   freezeActiveUtterance,
   openActiveUtterance,
   rowBreaksForLanguage,
@@ -28,6 +30,52 @@ export type ReduceContext = {
   sameSpeakerLongPauseSplitMs?: number;
   chunkV2NativeTranslate?: boolean;
 };
+
+/**
+ * Same N as non-chunk `SPEAKER_BREAK_CONFIRM_TOKENS` — two consecutive finals
+ * must agree on the new language/speaker before the row freezes.
+ */
+const CHUNK_V2_BREAK_CONFIRM_TOKENS = 2;
+
+function langBase(s: string | undefined): string | undefined {
+  const t = s?.trim();
+  return t?.length ? t.split("-")[0]!.toLowerCase() : undefined;
+}
+
+function speakerId(s: string | undefined): string | undefined {
+  const t = s?.trim();
+  return t?.length ? t : undefined;
+}
+
+function clearChunkV2Pending(state: EngineState): EngineState {
+  return {
+    ...state,
+    pendingSpeakerId: undefined,
+    pendingLanguage: undefined,
+    pendingSpeakerFinals: [],
+    speakerChangeConsecutive: 0,
+  };
+}
+
+/** False-alarm buffer: rewrite pending finals onto the open row's labels. */
+function absorbChunkV2PendingIntoActive(state: EngineState): EngineState {
+  const pending = state.pendingSpeakerFinals;
+  const au = state.activeUtterance;
+  if (!pending.length || !au) return clearChunkV2Pending(state);
+  let next = clearChunkV2Pending(state);
+  for (const tok of pending) {
+    next = appendFinalToActive(
+      next,
+      {
+        ...tok,
+        speaker: au.speaker,
+        language: au.language ?? tok.language,
+      },
+      { preserveEstablishedSpeaker: true },
+    );
+  }
+  return next;
+}
 
 /** Same speaker, speech resumes after a long gap — new row (not every short Soniox `<end>`). */
 function tryLongPauseSplit(
@@ -57,9 +105,8 @@ function tryLongPauseSplit(
 /**
  * Restored chunk-v2 Soniox row contract (4feb41b4 + Original integrity):
  * - Append finals once; replace non-finals each frame
- * - Language / speaker flips open a new row; short acknowledgements
- *   ("ها؟", "Okay.", "Huh?") absorb language flicker but still hand off speakers
- * - Mid-word open rows absorb lang/speaker flicker so "Good mor"/"ning." stay one bubble
+ * - Language / speaker flips require N consecutive agreeing finals (same N as non-chunk)
+ * - Mid-word / short-ack guards still absorb flicker independently
  * - Never overwrite established row speaker labels
  */
 function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: ReduceContext): EngineState {
@@ -122,33 +169,83 @@ function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: Redu
     if (next.activeUtterance) {
       const langBreak = rowBreaksForLanguage(next.activeUtterance, ct);
       const spkBreak = !langBreak && rowBreaksForSpeaker(next.activeUtterance, ct);
-      // Short acks: absorb language flicker into the open row (no "ها؟" / "Okay."
-      // bubble storm). Real speaker handoffs still open a new row.
-      // Mid-word: never shatter — Soniox subword + tag flicker ("mor"/"ning").
+      // Mid-word / short-ack: absorb into open row (clear any pending debounce).
       if (openMidWord && (langBreak || spkBreak)) {
-        next = { ...next, speakerChangeConsecutive: 0 };
+        next = absorbChunkV2PendingIntoActive(next);
       } else if (incomingShort && langBreak) {
-        next = { ...next, speakerChangeConsecutive: 0 };
+        next = absorbChunkV2PendingIntoActive(next);
       } else if (langBreak) {
-        next = freezeActiveUtterance(next);
+        const tlg = langBase(ct.language);
+        if (tlg && next.pendingLanguage === tlg) {
+          const consecutive = (next.speakerChangeConsecutive ?? 0) + 1;
+          if (consecutive >= CHUNK_V2_BREAK_CONFIRM_TOKENS) {
+            next = {
+              ...next,
+              pendingLanguage: tlg,
+              pendingSpeakerId: undefined,
+              pendingSpeakerFinals: [...next.pendingSpeakerFinals, ct],
+              speakerChangeConsecutive: consecutive,
+              endpointPending: false,
+              endpointPendingAtMs: 0,
+            };
+            next = confirmPendingBreakToActive(next);
+            continue;
+          }
+          next = {
+            ...next,
+            pendingLanguage: tlg,
+            pendingSpeakerId: undefined,
+            pendingSpeakerFinals: [...next.pendingSpeakerFinals, ct],
+            speakerChangeConsecutive: consecutive,
+          };
+          continue;
+        }
         next = {
           ...next,
-          endpointPending: false,
-          endpointPendingAtMs: 0,
-          speakerChangeConsecutive: 0,
-          metrics: { ...next.metrics, speakerFlipCount: next.metrics.speakerFlipCount + 1 },
+          pendingLanguage: tlg,
+          pendingSpeakerId: undefined,
+          pendingSpeakerFinals: [ct],
+          speakerChangeConsecutive: 1,
         };
+        continue;
       } else if (spkBreak) {
-        next = freezeActiveUtterance(next);
+        const sid = speakerId(ct.speaker);
+        if (sid && next.pendingSpeakerId === sid && !next.pendingLanguage) {
+          const consecutive = (next.speakerChangeConsecutive ?? 0) + 1;
+          if (consecutive >= CHUNK_V2_BREAK_CONFIRM_TOKENS) {
+            next = {
+              ...next,
+              pendingSpeakerId: sid,
+              pendingLanguage: undefined,
+              pendingSpeakerFinals: [...next.pendingSpeakerFinals, ct],
+              speakerChangeConsecutive: consecutive,
+              endpointPending: false,
+              endpointPendingAtMs: 0,
+            };
+            next = confirmPendingBreakToActive(next);
+            continue;
+          }
+          next = {
+            ...next,
+            pendingSpeakerId: sid,
+            pendingLanguage: undefined,
+            pendingSpeakerFinals: [...next.pendingSpeakerFinals, ct],
+            speakerChangeConsecutive: consecutive,
+          };
+          continue;
+        }
         next = {
           ...next,
-          endpointPending: false,
-          endpointPendingAtMs: 0,
-          speakerChangeConsecutive: 0,
-          metrics: { ...next.metrics, speakerFlipCount: next.metrics.speakerFlipCount + 1 },
+          pendingSpeakerId: sid,
+          pendingLanguage: undefined,
+          pendingSpeakerFinals: [ct],
+          speakerChangeConsecutive: 1,
         };
+        continue;
+      } else if (next.pendingSpeakerFinals.length) {
+        next = absorbChunkV2PendingIntoActive(next);
       } else {
-        next = { ...next, speakerChangeConsecutive: 0 };
+        next = clearChunkV2Pending(next);
       }
     }
 

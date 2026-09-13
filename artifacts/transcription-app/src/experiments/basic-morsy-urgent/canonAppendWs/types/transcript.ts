@@ -13,6 +13,8 @@ export type EngineState = {
   speakerChangeConsecutive: number;
   /** First new-speaker finals held off the old row until the handoff is real. */
   pendingSpeakerId: string | undefined;
+  /** Chunk-v2: pending language-break base code (mutually exclusive with pendingSpeakerId). */
+  pendingLanguage: string | undefined;
   pendingSpeakerFinals: CanonToken[];
   nextUtteranceSeq: number;
   /** Dedupe — Soniox sends each final token once. */
@@ -43,6 +45,7 @@ export function createInitialEngineState(): EngineState {
     activeTranslationPreviewText: "",
     speakerChangeConsecutive: 0,
     pendingSpeakerId: undefined,
+    pendingLanguage: undefined,
     pendingSpeakerFinals: [],
     nextUtteranceSeq: 0,
     seenFinalTokenIds: [],
