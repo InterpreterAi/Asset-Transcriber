@@ -343,6 +343,46 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     expect(proj.rows[0]?.committedText).toContain("feeling");
   });
 
+  it("does not glue a real language-switch short ack onto the previous row", () => {
+    const state = reduceAll([
+      frame(1, [
+        tok("Sí, la factura es correcta.", {
+          id: "sw1",
+          speakerId: "1",
+          language: "es",
+          startMs: 0,
+          endMs: 800,
+        }),
+      ]),
+      frame(2, [
+        tok(" Perfect.", {
+          id: "sw2",
+          speakerId: "1",
+          language: "en",
+          startMs: 900,
+          endMs: 1100,
+        }),
+      ]),
+      frame(3, [
+        tok(" Also, the server returned a 503.", {
+          id: "sw3",
+          speakerId: "1",
+          language: "en",
+          startMs: 1200,
+          endMs: 2000,
+        }),
+      ]),
+    ]);
+    const frozen = freezeActiveUtterance(state);
+    const proj = projectTranscriptView(frozen, { chunkV2NativeTranslate: true });
+    const esRow = proj.rows.find(r => r.committedText.includes("factura"));
+    const enRow = proj.rows.find(r => r.committedText.includes("503"));
+    expect(esRow?.committedText).toContain("Sí, la factura es correcta.");
+    expect(esRow?.committedText ?? "").not.toContain("Perfect");
+    expect(enRow?.committedText).toContain("Perfect");
+    expect(enRow?.committedText).toContain("503");
+  });
+
   it("does not pause-split an acknowledgement-only row", () => {
     const ledger = new AppendOnlyCanonLedger();
     let state = createInitialEngineState();

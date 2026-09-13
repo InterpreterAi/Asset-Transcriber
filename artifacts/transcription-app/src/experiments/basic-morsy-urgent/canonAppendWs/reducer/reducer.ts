@@ -141,7 +141,7 @@ function tryLongPauseSplit(
  * Restored chunk-v2 Soniox row contract (4feb41b4 + Original integrity):
  * - Append finals once; replace non-finals each frame
  * - Language / speaker flips require N consecutive agreeing finals (same N as non-chunk)
- * - Mid-word / short-ack guards still absorb flicker independently
+ * - Mid-word guard still absorbs flicker; short language-switch acks use normal debounce
  * - Never overwrite established row speaker labels
  */
 function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: ReduceContext): EngineState {
@@ -196,7 +196,6 @@ function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: Redu
     next = { ...next, seenFinalTokenIds: [...next.seenFinalTokenIds, ct.token_id] };
     ctx.ledger.appendFinalCanon(ct);
 
-    const incomingShort = isChunkV2ShortAcknowledgement(ct.text);
     const openMidWord = next.activeUtterance
       ? isChunkV2OpenRowMidWord(utteranceCommittedText(next.activeUtterance))
       : false;
@@ -204,10 +203,12 @@ function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: Redu
     if (next.activeUtterance) {
       const langBreak = rowBreaksForLanguage(next.activeUtterance, ct);
       const spkBreak = !langBreak && rowBreaksForSpeaker(next.activeUtterance, ct);
-      // Mid-word / short-ack: absorb into open row (clear any pending debounce).
+      // Mid-word only: absorb LID/speaker flicker into the open row.
+      // Do NOT special-case short acks on language break — that glued real
+      // handoff words ("Perfect.", "Okay.") onto the previous language's bubble.
+      // Short flicker still clears when the next final returns to the open language
+      // (pending absorb below).
       if (openMidWord && (langBreak || spkBreak)) {
-        next = absorbChunkV2PendingIntoActive(next);
-      } else if (incomingShort && langBreak) {
         next = absorbChunkV2PendingIntoActive(next);
       } else if (langBreak) {
         const tlg = langBase(ct.language);
