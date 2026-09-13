@@ -62,7 +62,7 @@ import {
   sendTrialExtensionActivatedEmail,
 } from "../lib/transactional-email.js";
 import { formatEmailDate } from "../lib/email-template.js";
-import { appCalendarDayIsoKeyForDaysAgo, startOfAppDay, startOfAppDayMinusDays, startOfAppMonth } from "@workspace/app-timezone";
+import { appCalendarDayIsoKeyForDaysAgo, countAppTimezoneWeekdaysInclusive, startOfAppDay, startOfAppDayMinusDays, startOfAppMonth } from "@workspace/app-timezone";
 
 const router = Router();
 
@@ -81,6 +81,14 @@ function billingPlanFromCustomIdSegment(raw: string): "basic" | "professional" |
 /** Same 30-day fallback as PayPal when `subscription_period_ends_at` is missing (admin UI uses this for estimates). */
 const BILLING_FALLBACK_MS = 30 * 24 * 60 * 60 * 1000;
 
+// ── Cost constants ─────────────────────────────────────────────────────────
+// STT is always Soniox. Native translation (Chunk v2) is billed in the same
+// Soniox stream — Soniox publishes ~$0.06/hr extra output tokens (~$0.001/min).
+// Stored translation_cost is OpenAI /translate only (legacy leftover plans).
+const SONIOX_STT_COST_PER_MIN = 0.0025;
+const SONIOX_COST_PER_MIN = SONIOX_STT_COST_PER_MIN;
+const SONIOX_NATIVE_TRANSLATION_COST_PER_MIN = 0.001;
+
 function paidBillingWindowForUser(
   u: (typeof usersTable)["$inferSelect"],
   minutesInPeriod: number,
@@ -94,10 +102,16 @@ function paidBillingWindowForUser(
   if (end.getTime() <= start.getTime()) return null;
   const periodMs = end.getTime() - start.getTime();
   const daysInPeriod = Math.min(366, Math.max(1, Math.ceil(periodMs / 86_400_000)));
+  const weekdaysInPeriod = Math.min(
+    daysInPeriod,
+    Math.max(0, countAppTimezoneWeekdaysInclusive(start, new Date(end.getTime() - 1))),
+  );
+  const weekendDaysInPeriod = Math.max(0, daysInPeriod - weekdaysInPeriod);
   const dailyCapMin = Number(u.dailyLimitMinutes);
   if (!Number.isFinite(dailyCapMin) || dailyCapMin <= 0) return null;
   const dailyHours = dailyCapMin / 60;
   const eligibleHours = dailyHours * daysInPeriod;
+  const eligibleHoursWeekdaysOnly = dailyHours * weekdaysInPeriod;
   const now = Date.now();
   const sliceEnd = Math.min(now, end.getTime());
   const elapsedMs = Math.max(0, sliceEnd - start.getTime());
@@ -105,28 +119,32 @@ function paidBillingWindowForUser(
   const elapsedDays = Math.max(elapsedMs / 86_400_000, 1 / 24);
   const usedHours = minutesInPeriod / 60;
   const projectedHours = Math.min(eligibleHours, (usedHours / elapsedDays) * daysInPeriod);
+  const estSonioxCostUsd =
+    Math.round(
+      (minutesInPeriod * (SONIOX_STT_COST_PER_MIN + SONIOX_NATIVE_TRANSLATION_COST_PER_MIN) +
+        Number.EPSILON) *
+        100,
+    ) / 100;
 
   return {
     paidBillingPeriodStartAt: start.toISOString(),
     paidBillingPeriodEndAt: end.toISOString(),
     paidBillingPeriodDays: daysInPeriod,
+    paidBillingWeekdaysInPeriod: weekdaysInPeriod,
+    paidBillingWeekendDaysInPeriod: weekendDaysInPeriod,
+    /** Eligible hours use full calendar days (Sat/Sun included). */
+    paidBillingIncludesWeekends: true,
     paidBillingDailyCapHours: Math.round((dailyCapMin / 60) * 100) / 100,
     paidBillingEligibleHours: Math.round(eligibleHours * 10) / 10,
+    paidBillingEligibleHoursWeekdaysOnly: Math.round(eligibleHoursWeekdaysOnly * 10) / 10,
     paidBillingMinutesUsedInPeriod: Math.round(minutesInPeriod * 10) / 10,
     paidBillingHoursUsedInPeriod: Math.round(usedHours * 10) / 10,
     paidBillingProjectedHoursAtPeriodEnd: Math.round(projectedHours * 10) / 10,
+    paidBillingEstSonioxCostUsd: estSonioxCostUsd,
     paidBillingUsesSignupProxyForStart: !u.subscriptionStartedAt,
     paidBillingUsesEstimatedPeriodEnd: !u.subscriptionPeriodEndsAt,
   };
 }
-
-// ── Cost constants ─────────────────────────────────────────────────────────
-// STT is always Soniox. Native translation (Chunk v2) is billed in the same
-// Soniox stream — Soniox publishes ~$0.06/hr extra output tokens (~$0.001/min).
-// Stored translation_cost is OpenAI /translate only (legacy leftover plans).
-const SONIOX_STT_COST_PER_MIN = 0.0025;
-const SONIOX_COST_PER_MIN = SONIOX_STT_COST_PER_MIN;
-const SONIOX_NATIVE_TRANSLATION_COST_PER_MIN = 0.001;
 
 const SONIOX_NATIVE_ANALYTICS_WHERE = sql`(
   LOWER(${usersTable.planType}) IN ('trial-openai', 'basic-hetzner', 'professional-libre')
@@ -367,6 +385,8 @@ function packAdminLiveSessionRow(s: {
   translationRouteDetail: string;
   hetznerMtManualLane: number | null;
   hetznerMtAssignedLane: number | null;
+  minutesUsedToday: number;
+  dailyLimitMinutes: number;
 }) {
   const libre = s.translationStack === "libre";
   const hz = libre
@@ -400,6 +420,8 @@ function packAdminLiveSessionRow(s: {
     openSessionOrdinal: s.openSessionOrdinal,
     translationStack: s.translationStack,
     translationRouteDetail,
+    minutesUsedToday: Math.round(Number(s.minutesUsedToday) * 10) / 10,
+    dailyLimitMinutes: Number(s.dailyLimitMinutes) || 0,
     ...hz,
   };
 }
@@ -428,6 +450,22 @@ function liveSessionSummaryFromEnriched(
   return { totalSessions: enriched.length, usersWithMultipleOpen: usersWithMulti.size };
 }
 
+async function todayMinutesMapForUserIds(userIds: number[]): Promise<Map<number, number>> {
+  const ids = [...new Set(userIds.filter((id) => Number.isFinite(id) && id > 0))];
+  if (ids.length === 0) return new Map();
+  const todayStartNy = startOfAppDay();
+  const rows = await db
+    .select({
+      userId: sessionsTable.userId,
+      minutesToday: sql<number>`
+        COALESCE(SUM(${effectiveSessionSecondsSql()}), 0) / 60.0`,
+    })
+    .from(sessionsTable)
+    .where(and(inArray(sessionsTable.userId, ids), gte(sessionsTable.startedAt, todayStartNy)))
+    .groupBy(sessionsTable.userId);
+  return new Map(rows.map((r) => [r.userId, Number(r.minutesToday) || 0]));
+}
+
 function normalizeForCompare(v: string | null | undefined): string {
   return (v ?? "").trim().toLowerCase();
 }
@@ -449,16 +487,15 @@ function setIntersectionCount(a: Set<string>, b: Set<string>): number {
 
 // ── List users ───────────────────────────────────────────────────────────────
 router.get("/users", requireAdmin, async (_req, res) => {
-  // Batch-reset daily usage for anyone whose lastUsageResetAt is before today's midnight (America/New_York).
-  // This ensures inactive users (who never trigger getUserWithResetCheck) show 0 after the day rolls over in app TZ.
   const now = new Date();
   const todayStartNy = startOfAppDay(now);
+  const monthStartNy = startOfAppMonth(now);
   await db
     .update(usersTable)
     .set({ minutesUsedToday: 0, lastUsageResetAt: now })
     .where(lt(usersTable.lastUsageResetAt, todayStartNy));
 
-  const [usersRaw, shareCounts, todayUsageRows, lifetimeUsageRows, loginIpStats, userLoginIps, paidBillingRows] = await Promise.all([
+  const [usersRaw, shareCounts, todayUsageRows, lifetimeUsageRows, loginIpStats, userLoginIps, paidBillingRows, calendarMonthUsageRows] = await Promise.all([
     db.select().from(usersTable).orderBy(usersTable.createdAt),
     db.select({
       userId: shareEventsTable.userId,
@@ -528,8 +565,16 @@ router.get("/users", requireAdmin, async (_req, res) => {
         ), 0)::double precision AS minutes_in_period
       FROM users u
       WHERE u.is_admin = false
-        AND LOWER(TRIM(COALESCE(u.plan_type, ''))) NOT IN ('trial', 'trial-libre', 'trial-openai')
+        AND LOWER(TRIM(COALESCE(u.plan_type, ''))) NOT IN ('trial', 'trial-libre', 'trial-openai', 'trial-hetzner')
     `),
+    db.select({
+      userId: sessionsTable.userId,
+      minutesMonth: sql<number>`
+        COALESCE(SUM(${effectiveSessionSecondsSql()}), 0) / 60.0`,
+    })
+      .from(sessionsTable)
+      .where(gte(sessionsTable.startedAt, monthStartNy))
+      .groupBy(sessionsTable.userId),
   ]);
 
   const users = await Promise.all(usersRaw.map((u) => expireAdminComplimentaryIfDue(u)));
@@ -540,6 +585,9 @@ router.get("/users", requireAdmin, async (_req, res) => {
 
   const shareMap = new Map(shareCounts.map(s => [s.userId, Number(s.count)]));
   const todayUsageMap = new Map(todayUsageRows.map((r) => [r.userId, Number(r.minutesToday)]));
+  const calendarMonthUsageMap = new Map(
+    calendarMonthUsageRows.map((r) => [r.userId, Number(r.minutesMonth) || 0]),
+  );
   const lifetimeUsageMap = new Map(
     lifetimeUsageRows.map((r) => [
       r.userId,
@@ -634,6 +682,26 @@ router.get("/users", requireAdmin, async (_req, res) => {
   let paidBillingRollupUsed = 0;
   let paidBillingRollupProjected = 0;
   let paidBillingRollupUserCount = 0;
+  let paidBillingRollupCost = 0;
+  let paidCalendarMonthHours = 0;
+  let paidCalendarMonthCost = 0;
+  let paidCalendarMonthUserCount = 0;
+
+  const monthEndNy = new Date(monthStartNy);
+  monthEndNy.setMonth(monthEndNy.getMonth() + 1);
+  const calendarMonthDays = Math.max(
+    1,
+    Math.ceil((monthEndNy.getTime() - monthStartNy.getTime()) / 86_400_000),
+  );
+  const calendarMonthWeekdays = countAppTimezoneWeekdaysInclusive(
+    monthStartNy,
+    new Date(monthEndNy.getTime() - 1),
+  );
+  const calendarMonthWeekendDays = Math.max(0, calendarMonthDays - calendarMonthWeekdays);
+  const calendarMonthDaysElapsed = Math.min(
+    calendarMonthDays,
+    Math.max(1, Math.ceil((now.getTime() - monthStartNy.getTime()) / 86_400_000)),
+  );
 
   const userPayloads = users.map((u) => {
     const dup = loginIpDupMetrics(u.id);
@@ -645,6 +713,32 @@ router.get("/users", requireAdmin, async (_req, res) => {
       paidBillingRollupEligible += Number(paidBilling.paidBillingEligibleHours);
       paidBillingRollupUsed += Number(paidBilling.paidBillingHoursUsedInPeriod);
       paidBillingRollupProjected += Number(paidBilling.paidBillingProjectedHoursAtPeriodEnd);
+      paidBillingRollupCost += Number(paidBilling.paidBillingEstSonioxCostUsd);
+    }
+    const monthMinutes = calendarMonthUsageMap.get(u.id) ?? 0;
+    const isPaidCustomer = !u.isAdmin && !isTrialLikePlanType(u.planType);
+    let calendarMonth: Record<string, string | number | boolean> | null = null;
+    if (isPaidCustomer) {
+      const monthHours = monthMinutes / 60;
+      const monthCost =
+        Math.round(
+          (monthMinutes * (SONIOX_STT_COST_PER_MIN + SONIOX_NATIVE_TRANSLATION_COST_PER_MIN) +
+            Number.EPSILON) *
+            100,
+        ) / 100;
+      paidCalendarMonthUserCount++;
+      paidCalendarMonthHours += monthHours;
+      paidCalendarMonthCost += monthCost;
+      calendarMonth = {
+        calendarMonthMinutesUsed: Math.round(monthMinutes * 10) / 10,
+        calendarMonthHoursUsed: Math.round(monthHours * 10) / 10,
+        calendarMonthEstSonioxCostUsd: monthCost,
+        calendarMonthDaysTotal: calendarMonthDays,
+        calendarMonthDaysElapsed: calendarMonthDaysElapsed,
+        calendarMonthWeekdays: calendarMonthWeekdays,
+        calendarMonthWeekendDays: calendarMonthWeekendDays,
+        calendarMonthIncludesWeekends: true,
+      };
     }
     return {
       id:                 u.id,
@@ -679,6 +773,7 @@ router.get("/users", requireAdmin, async (_req, res) => {
       sharedLoginIps:           dup.sharedLoginIps,
       sharedLoginIpClusters,
       ...(paidBilling ?? {}),
+      ...(calendarMonth ?? {}),
     };
   });
 
@@ -689,8 +784,22 @@ router.get("/users", requireAdmin, async (_req, res) => {
       totalEligibleHoursThisPeriod: Math.round(paidBillingRollupEligible * 10) / 10,
       totalHoursUsedThisPeriod: Math.round(paidBillingRollupUsed * 10) / 10,
       totalProjectedHoursAtPeriodEnd: Math.round(paidBillingRollupProjected * 10) / 10,
+      totalEstSonioxCostUsdThisPeriod: Math.round(paidBillingRollupCost * 100) / 100,
+      includesWeekends: true,
       description:
-        "Admin-only estimate: non-admin paid plans. Billing window = subscription_started_at (or signup created_at) through subscription_period_ends_at (or start + 30 days). Eligible hours = (daily_limit_minutes/60) × days in that window. Session minutes counted when session started inside the window. Projected at renewal caps at eligible total and extrapolates from pace so far in the window.",
+        "Admin-only estimate: non-admin paid plans. Billing window = subscription_started_at (or signup created_at) through subscription_period_ends_at (or start + 30 days). Eligible hours = (daily_limit_minutes/60) × calendar days in that window (Sat/Sun included). Session minutes counted when session started inside the window. Soniox cost ≈ STT ($0.0025/min) + native translation ($0.001/min).",
+    },
+    paidCalendarMonthRollup: {
+      paidUsersInRollup: paidCalendarMonthUserCount,
+      totalHoursUsedThisCalendarMonth: Math.round(paidCalendarMonthHours * 10) / 10,
+      totalEstSonioxCostUsdThisCalendarMonth: Math.round(paidCalendarMonthCost * 100) / 100,
+      calendarMonthDaysTotal: calendarMonthDays,
+      calendarMonthDaysElapsed: calendarMonthDaysElapsed,
+      calendarMonthWeekdays: calendarMonthWeekdays,
+      calendarMonthWeekendDays: calendarMonthWeekendDays,
+      includesWeekends: true,
+      description:
+        "Admin-only: paid (non-trial) customers only. Hours and estimated Soniox STT+translation cost for the current America/New_York calendar month. Eligible-day counts include Saturday and Sunday (full week).",
     },
   });
 });
@@ -1128,6 +1237,7 @@ router.get("/stats", requireAdmin, async (_req, res) => {
 
   const enrichedLive = enrichActiveSessionRows(activeSessionRows);
   const liveSessionSummary = liveSessionSummaryFromEnriched(enrichedLive);
+  const liveTodayMap = await todayMinutesMapForUserIds(enrichedLive.map((s) => s.userId));
   const liveByStack = { soniox: 0, hetzner: 0, openai: 0 };
   for (const s of enrichedLive) {
     if (s.translationStack === "soniox") liveByStack.soniox += 1;
@@ -1187,6 +1297,8 @@ router.get("/stats", requireAdmin, async (_req, res) => {
         translationRouteDetail: s.translationRouteDetail,
         hetznerMtManualLane: s.hetznerMtManualLane,
         hetznerMtAssignedLane: s.hetznerMtAssignedLane,
+        minutesUsedToday: liveTodayMap.get(s.userId) ?? 0,
+        dailyLimitMinutes: Number(s.dailyLimitMinutes) || 0,
       }),
     ),
     liveSessionSummary,
@@ -1660,6 +1772,7 @@ router.get("/active-sessions", requireAdmin, async (req, res) => {
     .orderBy(sessionsTable.startedAt);
 
   const enriched = enrichActiveSessionRows(rows);
+  const liveTodayMap = await todayMinutesMapForUserIds(enriched.map((s) => s.userId));
   res.json({
     activeSessions: enriched.map(s =>
       packAdminLiveSessionRow({
@@ -1679,6 +1792,8 @@ router.get("/active-sessions", requireAdmin, async (req, res) => {
         translationRouteDetail: s.translationRouteDetail,
         hetznerMtManualLane: s.hetznerMtManualLane,
         hetznerMtAssignedLane: s.hetznerMtAssignedLane,
+        minutesUsedToday: liveTodayMap.get(s.userId) ?? 0,
+        dailyLimitMinutes: Number(s.dailyLimitMinutes) || 0,
       }),
     ),
     liveSessionSummary: liveSessionSummaryFromEnriched(enriched),
@@ -2074,12 +2189,11 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
 
   if (planType) {
     const pt = planType.toLowerCase();
-    const existingDailyLimit = Number(existing.dailyLimitMinutes);
-    // Admin edit drawer always sends `dailyLimitMinutes`; when unchanged, keep plan defaults in sync.
-    if (
-      dailyLimitMinutes === undefined ||
-      (Number.isFinite(existingDailyLimit) && Number(dailyLimitMinutes) === existingDailyLimit)
-    ) {
+    const planChanged = pt !== (existing.planType ?? "").trim().toLowerCase();
+    // Only apply plan-default hours when the plan actually changes AND the admin
+    // did not send an explicit dailyLimitMinutes in this request. Never overwrite
+    // a custom admin cap (e.g. Professional kept at 12h) on unrelated saves.
+    if (planChanged && dailyLimitMinutes === undefined) {
       const normalizedDefaultLimit = defaultDailyLimitMinutesForPlanType(pt);
       if (normalizedDefaultLimit != null) {
         updates.dailyLimitMinutes = normalizedDefaultLimit;

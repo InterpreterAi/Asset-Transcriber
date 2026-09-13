@@ -105,6 +105,10 @@ interface AdminStats {
     /** Live API router: manual Hetzner lane pin (in-memory). */
     hetznerCoreRoutingMode?: "auto" | "manual";
     hetznerManualCoreLane?: 1 | 2 | 3 | 4 | null;
+    /** Billable minutes used today (admin live cards). */
+    minutesUsedToday?: number;
+    /** Daily cap in minutes (admin live cards). */
+    dailyLimitMinutes?: number;
   }[];
   /** Populated with /stats and fast /active-sessions polls. */
   liveSessionSummary?: {
@@ -460,9 +464,9 @@ function lastSeen(date: string | null | undefined) {
 
 /** Current product defaults: Soniox STT + Soniox translation. */
 const ADMIN_PLAN_OPTIONS_DEFAULTS: { value: string; label: string }[] = [
-  { value: "trial-openai", label: "Trial · Default (Soniox)" },
-  { value: "basic-hetzner", label: "Basic · Default (Soniox, 5h/day)" },
-  { value: "professional-libre", label: "Professional · Default (Soniox, unlimited)" },
+  { value: "trial-openai", label: "Trial (Soniox)" },
+  { value: "basic-hetzner", label: "Basic (Soniox, 5h/day)" },
+  { value: "professional-libre", label: "Professional (Soniox — customers see Unlimited; default 12h/day)" },
 ];
 
 const ADMIN_PLAN_OPTIONS_LEGACY: { value: string; label: string }[] = [
@@ -499,23 +503,22 @@ function liveSessionStack(s: { translationStack?: "libre" | "openai" | "soniox";
 }
 
 function adminPlanChipLabel(plan: string): string {
-  if (planUsesSonioxNativeTranslation(plan)) {
-    const tier = workspacePlanTierKey(plan);
-    const name = tier === "trial" ? "Trial" : tier === "basic" ? "Basic" : "Professional";
-    return `${name} · Soniox`;
-  }
-  return workspacePlanDisplayName(plan);
+  const tier = workspacePlanTierKey(plan);
+  if (tier === "trial") return "Trial";
+  if (tier === "basic") return "Basic";
+  if (tier === "professional") return "Professional";
+  return "Platinum";
 }
 
 function defaultDailyLimitForAdminPlan(planType: string): number {
   const p = (planType ?? "").trim().toLowerCase();
-  if (isTrialLikePlanType(p)) return 60;
+  if (isTrialLikePlanType(p)) return 120;
   if (
     p === "basic" || p === "basic-openai" || p === "basic-libre" || p === "basic-hetzner" || p === "morsy-urgent" || p === "legacy2"
   ) {
     return 300;
   }
-  if (p === "professional-libre") return 9000;
+  if (p === "professional-libre") return 720;
   if (p === "professional" || p === "professional-openai") return 720;
   if (p === "platinum" || p === "platinum-openai" || p === "platinum-libre" || p === "unlimited") return 720;
   return 60;
@@ -551,13 +554,13 @@ function isoToDatetimeLocalValue(iso: string | null | undefined): string {
 }
 
 function trialBadge(trialEndsAt: string | null | undefined, plan: string) {
-  const engine = adminEngineLabel(plan);
   if (!isTrialLikePlanType(plan)) {
     return (
-      <span className="text-xs font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1 flex-wrap bg-blue-50 text-blue-800 border border-blue-200 dark:bg-blue-500/15 dark:text-blue-100 dark:border-blue-400/25">
-        <span>{adminPlanChipLabel(plan)}</span>
-        <span className="text-[9px] font-normal opacity-90">· {engine}</span>
-        <span className="text-[9px] font-mono opacity-75">({plan})</span>
+      <span
+        className="text-xs font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1 flex-wrap bg-blue-50 text-blue-800 border border-blue-200 dark:bg-blue-500/15 dark:text-blue-100 dark:border-blue-400/25"
+        title={plan}
+      >
+        {adminPlanChipLabel(plan)}
       </span>
     );
   }
@@ -569,13 +572,13 @@ function trialBadge(trialEndsAt: string | null | undefined, plan: string) {
     <span className="text-xs text-red-600 dark:text-red-300 font-semibold bg-red-50 dark:bg-red-500/12 px-2 py-0.5 rounded-full">Expired</span>
   );
   if (daysLeft <= 3) return (
-    <span className="text-xs font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 bg-amber-50 text-amber-900 border border-amber-200 dark:bg-amber-500/15 dark:text-amber-100 dark:border-amber-400/30">
-      <AlertTriangle className="w-3 h-3" />{daysLeft}d left · {engine}
+    <span className="text-xs font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 bg-amber-50 text-amber-900 border border-amber-200 dark:bg-amber-500/15 dark:text-amber-100 dark:border-amber-400/30" title={plan}>
+      <AlertTriangle className="w-3 h-3" />{daysLeft}d left · Trial
     </span>
   );
   return (
-    <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-violet-50 text-violet-900 border border-violet-200 dark:bg-violet-500/15 dark:text-violet-100 dark:border-violet-400/25">
-      {daysLeft}d left · {engine}
+    <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-violet-50 text-violet-900 border border-violet-200 dark:bg-violet-500/15 dark:text-violet-100 dark:border-violet-400/25" title={plan}>
+      {daysLeft}d left · Trial
     </span>
   );
 }
@@ -699,6 +702,22 @@ export default function Admin() {
   });
   const allUsers = usersData?.users ?? [];
   const paidBillingRollup = usersData?.paidBillingRollup;
+  const paidCalendarMonthRollup = (
+    usersData as
+      | {
+          paidCalendarMonthRollup?: {
+            paidUsersInRollup: number;
+            totalHoursUsedThisCalendarMonth: number;
+            totalEstSonioxCostUsdThisCalendarMonth: number;
+            calendarMonthDaysTotal: number;
+            calendarMonthDaysElapsed: number;
+            calendarMonthWeekdays: number;
+            calendarMonthWeekendDays: number;
+            includesWeekends: boolean;
+          };
+        }
+      | undefined
+  )?.paidCalendarMonthRollup;
   const sharedLoginIpIndex = useMemo(() => {
     const byIp = new Map<string, AdminSharedLoginIpCluster>();
     for (const u of allUsers) {
@@ -1967,27 +1986,12 @@ export default function Admin() {
                           {adminPlanChipLabel(s.planType)}
                         </span>
                         <span
-                          className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
-                            liveSessionStack(s) === "openai"
-                              ? "bg-violet-100 text-violet-800 dark:bg-violet-500/15 dark:text-violet-100"
-                              : liveSessionStack(s) === "soniox"
-                                ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-500/15 dark:text-emerald-100"
-                                : "bg-amber-100 text-amber-900 dark:bg-amber-500/15 dark:text-amber-100"
-                          }`}
-                          title={s.translationRouteDetail ?? "Live translation path from API"}
+                          className="text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 bg-emerald-100 text-emerald-900 dark:bg-emerald-500/15 dark:text-emerald-100"
+                          title={s.translationRouteDetail ?? "Soniox STT + translation"}
                         >
-                          {liveSessionStack(s) === "openai"
-                            ? "OpenAI MT"
-                            : liveSessionStack(s) === "soniox"
-                              ? "Soniox"
-                              : "Hetzner MT"}
+                          Soniox
                         </span>
                       </div>
-                      {(liveSessionStack(s) === "openai" || liveSessionStack(s) === "soniox") && s.translationRouteDetail && (
-                        <p className="text-[10px] text-muted-foreground leading-snug mb-1.5 border-l-2 border-border pl-2">
-                          {s.translationRouteDetail}
-                        </p>
-                      )}
                       {liveSessionStack(s) === "libre" && (
                         <div className="space-y-1.5 mb-1.5">
                           <div className="flex flex-wrap items-center gap-2">
@@ -2063,6 +2067,21 @@ export default function Admin() {
                         <span>Duration: <span className="font-medium text-foreground">{fmtDuration(s.durationSeconds)}</span></span>
                         <span>{formatDistanceToNow(new Date(s.startedAt), { addSuffix: true })}</span>
                       </div>
+                      {(() => {
+                        const used = s.minutesUsedToday ?? 0;
+                        const limit = s.dailyLimitMinutes ?? 0;
+                        const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
+                        return (
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className="w-14 h-1.5 bg-gray-100 dark:bg-white/10 rounded-full overflow-hidden">
+                              <div className="h-full bg-primary rounded-full" style={{ width: `${pct}%` }} />
+                            </div>
+                            <span className="text-xs text-muted-foreground whitespace-nowrap">
+                              {formatMinutes(used)} / {formatMinutes(limit)}
+                            </span>
+                          </div>
+                        );
+                      })()}
                       <Button
                         variant="outline"
                         size="sm"
@@ -2385,23 +2404,51 @@ export default function Admin() {
                 </div>
               )}
 
-              {paidBillingRollup && (
+              {(paidBillingRollup || paidCalendarMonthRollup) && (
                 <div className="rounded-lg border border-emerald-200/80 bg-emerald-50/80 px-3 py-2.5 text-xs text-emerald-950 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-100 space-y-1">
                   <p className="font-semibold text-[11px] uppercase tracking-wide text-emerald-900/90 dark:text-emerald-100">
                     Paid users — billing window (admin only)
                   </p>
-                  <p className="text-[11px] leading-snug text-emerald-900/85 dark:text-emerald-100/90">
-                    <span className="font-semibold tabular-nums">{paidBillingRollup.paidUsersInRollup}</span> paying accounts with a window ·{" "}
-                    <span className="font-semibold tabular-nums">{paidBillingRollup.totalEligibleHoursThisPeriod} h</span> total eligible this period
-                    (full daily cap each day) ·{" "}
-                    <span className="font-semibold tabular-nums">{paidBillingRollup.totalHoursUsedThisPeriod} h</span> used so far ·{" "}
-                    <span className="font-semibold tabular-nums">{paidBillingRollup.totalProjectedHoursAtPeriodEnd} h</span> projected at renewal
-                    (pace extrapolation, capped at eligible).
-                  </p>
-                  <p className="text-[10px] text-emerald-900/70 dark:text-emerald-200/70 leading-snug">
-                    Window uses <code className="font-mono bg-card/60 px-0.5 rounded">subscription_started_at</code> or signup date, and{" "}
-                    <code className="font-mono bg-card/60 px-0.5 rounded">subscription_period_ends_at</code> or start + 30 days. Compare to month-end once period end is in the same month.
-                  </p>
+                  {paidBillingRollup && (
+                    <>
+                      <p className="text-[11px] leading-snug text-emerald-900/85 dark:text-emerald-100/90">
+                        <span className="font-semibold tabular-nums">{paidBillingRollup.paidUsersInRollup}</span> paying accounts with a window ·{" "}
+                        <span className="font-semibold tabular-nums">{paidBillingRollup.totalEligibleHoursThisPeriod} h</span> total eligible this period
+                        (full daily cap each day) ·{" "}
+                        <span className="font-semibold tabular-nums">{paidBillingRollup.totalHoursUsedThisPeriod} h</span> used so far ·{" "}
+                        <span className="font-semibold tabular-nums">{paidBillingRollup.totalProjectedHoursAtPeriodEnd} h</span> projected at renewal
+                        (pace extrapolation, capped at eligible)
+                        {(paidBillingRollup as { totalEstSonioxCostUsdThisPeriod?: number }).totalEstSonioxCostUsdThisPeriod != null && (
+                          <>
+                            {" "}· billing-window est Soniox{" "}
+                            <span className="font-semibold tabular-nums">
+                              ${(paidBillingRollup as { totalEstSonioxCostUsdThisPeriod?: number }).totalEstSonioxCostUsdThisPeriod!.toFixed(2)}
+                            </span>
+                          </>
+                        )}
+                        .
+                      </p>
+                      <p className="text-[10px] text-emerald-900/70 dark:text-emerald-200/70 leading-snug">
+                        Window uses <code className="font-mono bg-card/60 px-0.5 rounded">subscription_started_at</code> or signup date, and{" "}
+                        <code className="font-mono bg-card/60 px-0.5 rounded">subscription_period_ends_at</code> or start + 30 days. Compare to month-end once period end is in the same month.
+                      </p>
+                    </>
+                  )}
+                  {paidCalendarMonthRollup && (
+                    <p className="text-[11px] leading-snug text-emerald-900/85 dark:text-emerald-100/90">
+                      Calendar month:{" "}
+                      <span className="font-semibold tabular-nums">{paidCalendarMonthRollup.totalHoursUsedThisCalendarMonth} h</span>
+                      {" "}· est Soniox{" "}
+                      <span className="font-semibold tabular-nums">
+                        ${paidCalendarMonthRollup.totalEstSonioxCostUsdThisCalendarMonth.toFixed(2)}
+                      </span>
+                      {" "}·{" "}
+                      <span className="font-semibold tabular-nums">{paidCalendarMonthRollup.calendarMonthDaysTotal}</span> days
+                      {" "}(<span className="tabular-nums">{paidCalendarMonthRollup.calendarMonthWeekdays}</span> weekdays,{" "}
+                      <span className="tabular-nums">{paidCalendarMonthRollup.calendarMonthWeekendDays}</span> weekend)
+                      {" "}· includes Sat/Sun: {paidCalendarMonthRollup.includesWeekends ? "yes" : "no"}
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -2531,9 +2578,12 @@ export default function Admin() {
                         {/* Plan */}
                         <td className="px-4 py-3">
                           <div className="flex flex-col gap-1">
-                            <code className="text-[10px] font-mono text-foreground bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded self-start">
-                              {u.planType}
-                            </code>
+                            <span
+                              className="text-[10px] font-semibold px-1.5 py-0.5 rounded self-start bg-gray-100 text-foreground dark:bg-white/10"
+                              title={u.planType ?? ""}
+                            >
+                              {adminPlanChipLabel(u.planType ?? "trial")}
+                            </span>
                             {trialBadge(u.trialEndsAt, u.planType ?? "trial")}
                             {isTrialLikePlanType(u.planType) && u.trialEndsAt && (
                               <span className="text-[10px] text-muted-foreground whitespace-nowrap">
@@ -2609,12 +2659,30 @@ export default function Admin() {
                               {formatMinutes(u.minutesUsedToday)} / {formatMinutes(u.dailyLimitMinutes)}
                             </span>
                           </div>
+                          {(u as { calendarMonthHoursUsed?: number }).calendarMonthHoursUsed != null && (
+                            <div className="text-[10px] text-muted-foreground mt-1 tabular-nums">
+                              Month: {(u as { calendarMonthHoursUsed?: number }).calendarMonthHoursUsed}h
+                              {(u as { calendarMonthEstSonioxCostUsd?: number }).calendarMonthEstSonioxCostUsd != null && (
+                                <> · ${(u as { calendarMonthEstSonioxCostUsd?: number }).calendarMonthEstSonioxCostUsd!.toFixed(2)}</>
+                              )}
+                            </div>
+                          )}
                         </td>
 
                         {/* Paid billing window — admin API only */}
                         <td className="px-4 py-3 text-xs text-right tabular-nums text-muted-foreground">
                           {u.paidBillingEligibleHours != null ? (
-                            <span title="Eligible hours this subscription window (daily cap × days).">{u.paidBillingEligibleHours}</span>
+                            <div>
+                              <span title="Eligible hours this subscription window (daily cap × days).">{u.paidBillingEligibleHours}</span>
+                              {u.paidBillingPeriodDays != null && (
+                                <div className="text-[10px] text-muted-foreground/80 mt-0.5">
+                                  Days: {u.paidBillingPeriodDays}
+                                  {(u as { paidBillingIncludesWeekends?: boolean }).paidBillingIncludesWeekends
+                                    ? " (weekends incl.)"
+                                    : ""}
+                                </div>
+                              )}
+                            </div>
                           ) : (
                             "—"
                           )}
@@ -4231,9 +4299,6 @@ export default function Admin() {
                     onChange={e => {
                       const nextPlan = e.target.value;
                       setEditForm(f => {
-                        const currentDefault = defaultDailyLimitForAdminPlan(f.planType);
-                        const nextDefault = defaultDailyLimitForAdminPlan(nextPlan);
-                        const nextLimit = f.dailyLimitMinutes === currentDefault ? nextDefault : f.dailyLimitMinutes;
                         const nextPaid = !isTrialLikePlanType(nextPlan);
                         const now = new Date();
                         const end = new Date(now);
@@ -4242,7 +4307,6 @@ export default function Admin() {
                         return {
                           ...f,
                           planType: nextPlan,
-                          dailyLimitMinutes: nextLimit,
                           subscriptionStartedAtLocal: nextPaid
                             ? (f.subscriptionStartedAtLocal || isoToDatetimeLocalValue(now.toISOString()))
                             : "",

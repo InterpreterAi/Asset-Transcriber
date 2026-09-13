@@ -33,11 +33,11 @@ export { paypalBaseUrl };
 
 /**
  * Public Professional ($99 → `professional-libre`) daily cap.
- * 9000 is the existing integer “unlimited” threshold (`UNLIMITED_DAILY_CAP_MINUTES`):
- * JSON-safe, fits `daily_limit_minutes` INTEGER, and every cap check treats `>= 9000` as no limit.
+ * Real enforcement is 12h/day (720). Customer UI still shows “Unlimited”
+ * via `workspaceUsageShowsSlashUnlimited` — admin is the source of truth for the cap.
  * Do not use 0, null, Infinity, or values above the admin UI max (9999).
  */
-export const PUBLIC_PROFESSIONAL_DAILY_LIMIT_MINUTES = 9000;
+export const PUBLIC_PROFESSIONAL_DAILY_LIMIT_MINUTES = 720;
 
 export const PUBLIC_BASIC_DAILY_LIMIT_MINUTES = 300;
 

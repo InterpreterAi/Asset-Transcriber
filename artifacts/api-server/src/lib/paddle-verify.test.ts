@@ -111,22 +111,22 @@ describe("return-sync transaction gates", () => {
 });
 
 describe("public daily entitlements", () => {
-  it("Basic stays 300 minutes; trial stays 120; public Professional is the 9000 unlimited cap", () => {
+  it("Basic stays 300 minutes; trial stays 120; public Professional is 12h (720)", () => {
     assert.equal(PUBLIC_BASIC_DAILY_LIMIT_MINUTES, 300);
     assert.equal(paypalPlanConfig("basic").dailyLimitMinutes, 300);
     assert.equal(TRIAL_DAILY_LIMIT_MINUTES, 120);
-    assert.equal(PUBLIC_PROFESSIONAL_DAILY_LIMIT_MINUTES, 9000);
-    assert.equal(PUBLIC_PROFESSIONAL_DAILY_LIMIT_MINUTES, 9000);
-    assert.equal(paypalPlanConfig("professional").dailyLimitMinutes, 9000);
+    assert.equal(PUBLIC_PROFESSIONAL_DAILY_LIMIT_MINUTES, 720);
+    assert.equal(paypalPlanConfig("professional").dailyLimitMinutes, 720);
   });
 
   it("does not change Platinum leftover 720-minute cap", () => {
     assert.equal(paypalPlanConfig("platinum").dailyLimitMinutes, 720);
   });
 
-  it("treats 9000 as unlimited at the same gate used by STT/translate", () => {
+  it("Professional 12h cap is below the unlimited gate (≥9000)", () => {
     const cap = paypalPlanConfig("professional").dailyLimitMinutes;
-    assert.equal(cap >= 9000, true);
+    assert.equal(cap, 720);
+    assert.equal(cap >= 9000, false);
     assert.equal(paypalPlanConfig("basic").dailyLimitMinutes >= 9000, false);
     assert.equal(TRIAL_DAILY_LIMIT_MINUTES >= 9000, false);
   });
