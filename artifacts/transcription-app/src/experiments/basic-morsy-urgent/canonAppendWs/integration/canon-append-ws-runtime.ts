@@ -448,12 +448,13 @@ export class CanonAppendWsIsolatedRuntime {
             language_b: sonioxLangB,
           },
           interpreterContext: getInterpreterContext(pair.a, pair.b, this.chunkV2GlossaryTerms),
-          // Restored chunk-v2: endpoint detection on with historical 1000 ms delay.
-          enableEndpointDetection: true,
-          maxEndpointDelayMs: 1000,
+          // Soniox docs: endpoint detection reduces real-time diarization accuracy and
+          // forces early finalization (freeze → whole-sentence chunk dumps). Match
+          // August/a029 + non-chunk: keep endpoint off when speaker bubbles matter.
+          enableEndpointDetection: false,
         }
       : {
-          // Non-chunk: preserve daffcfbf (endpoint off; shared tuning unused for delay).
+          // Non-chunk: preserve daffcfbf (endpoint off).
           enableEndpointDetection: false,
         };
     this.client.connect({

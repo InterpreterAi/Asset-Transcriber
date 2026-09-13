@@ -1,5 +1,6 @@
 import type { CanonUtterance } from "../types/canon-utterance";
 import { utteranceCommittedText, utteranceLiveText } from "../types/canon-utterance";
+import { joinCanonText, joinCanonTextParts } from "../types/canon-token";
 import type { EngineState } from "../types/transcript";
 export type RowProjection = {
   row_id: string;
@@ -214,7 +215,11 @@ export function projectTranscriptView(
     }
     if (state.activeUtterance) {
       const rawCommitted = utteranceCommittedText(state.activeUtterance);
-      const liveText = utteranceLiveText(state.activeUtterance);
+      // While speaker-break is debouncing, paint pending finals + non-finals as live
+      // typing so the UI does not freeze then dump a chunk on confirm.
+      const pendingLive = joinCanonText(state.pendingSpeakerFinals);
+      const hypoLive = utteranceLiveText(state.activeUtterance);
+      const liveText = joinCanonTextParts([pendingLive, hypoLive]);
       const committedText = cleanSonioxPunctuation(rawCommitted, opts, false);
       const translationPreview = (state.activeTranslationPreviewText ?? state.activeTranslationText ?? "").trim();
       if (committedText.trim().length || liveText.trim().length) {

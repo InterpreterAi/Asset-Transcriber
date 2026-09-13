@@ -105,7 +105,7 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     expect(row.committedText + row.liveText).toBe("How are you");
   });
 
-  it('keeps short patient "No." under that patient speaker on first final (N=1)', () => {
+  it('keeps short patient "No." pending until confirmed or freeze (N=2)', () => {
     const state = reduceAll([
       frame(1, [
         tok("How are you?", { id: "d0", speakerId: "1", language: "en", startMs: 0 }),
@@ -114,13 +114,17 @@ describe("chunk-v2 Original integrity (restored path)", () => {
         tok("No.", { id: "d1", speakerId: "2", language: "en", startMs: 500 }),
       ]),
     ]);
-    const proj = projectTranscriptView(state, { chunkV2NativeTranslate: true });
-    expect(state.finalizedUtterances).toHaveLength(1);
+    // One conflicting final is held pending (Soniox temp switch guard).
+    expect(state.pendingSpeakerFinals).toHaveLength(1);
+    const proj = projectTranscriptView(
+      freezeActiveUtterance(state),
+      { chunkV2NativeTranslate: true },
+    );
     const patient = proj.rows.find(r => r.speaker === "2");
     expect(patient?.committedText).toBe("No.");
   });
 
-  it("keeps same-speaker language code-switch on one bubble (Aug)", () => {
+  it("keeps same-speaker language code-switch on one bubble", () => {
     const state = reduceAll([
       frame(1, [
         tok("Hello there.", { id: "l1", speakerId: "1", language: "en", startMs: 0 }),
@@ -155,7 +159,7 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     expect(activeText).toContain("الأنف");
   });
 
-  it("opens a new colored bubble on the first new-speaker final (N=1)", () => {
+  it("does not open a new bubble on a single speaker flicker final (N=2)", () => {
     const state = reduceAll([
       frame(1, [
         tok("Hello doctor.", { id: "s1", speakerId: "1", language: "en", startMs: 0 }),
@@ -164,13 +168,12 @@ describe("chunk-v2 Original integrity (restored path)", () => {
         tok(" wait", { id: "s2", speakerId: "2", language: "en", startMs: 100 }),
       ]),
     ]);
-    expect(state.finalizedUtterances).toHaveLength(1);
-    expect(utteranceCommittedText(state.finalizedUtterances[0]!)).toBe("Hello doctor.");
-    expect(state.activeUtterance?.speaker).toBe("2");
-    expect(state.activeUtterance && utteranceCommittedText(state.activeUtterance)).toContain("wait");
+    expect(state.finalizedUtterances).toHaveLength(0);
+    expect(state.pendingSpeakerFinals).toHaveLength(1);
+    expect(state.activeUtterance && utteranceCommittedText(state.activeUtterance)).toBe("Hello doctor.");
   });
 
-  it("types live non-finals on the new speaker row immediately (no freeze dump)", () => {
+  it("keeps typing visible while speaker-break is pending (no freeze dump)", () => {
     const state = reduceAll([
       frame(1, [
         tok("Hello doctor.", { id: "pb1", speakerId: "1", language: "en", startMs: 0 }),
@@ -180,13 +183,11 @@ describe("chunk-v2 Original integrity (restored path)", () => {
         tok(" have", { id: "pb3", speakerId: "2", language: "en", startMs: 150, isFinal: false }),
       ]),
     ]);
-    expect(state.pendingSpeakerFinals).toHaveLength(0);
-    expect(state.finalizedUtterances).toHaveLength(1);
-    expect(state.activeUtterance?.speaker).toBe("2");
+    expect(state.pendingSpeakerFinals).toHaveLength(1);
     const proj = projectTranscriptView(state, { chunkV2NativeTranslate: true });
     const active = proj.rows.find(r => !r.finalized);
-    expect(active?.speaker).toBe("2");
-    expect(active?.committedText).toContain("I");
+    expect(active?.committedText).toBe("Hello doctor.");
+    expect(active?.liveText).toContain("I");
     expect(active?.liveText).toContain("have");
   });
 
@@ -209,7 +210,7 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     expect(active?.liveText).toMatch(/الأنف/);
   });
 
-  it("opens a new bubble immediately then continues same-speaker finals on it", () => {
+  it("opens a new colored bubble after two consecutive speaker-agreeing finals", () => {
     const state = reduceAll([
       frame(1, [
         tok("Hello doctor.", { id: "t1", speakerId: "1", language: "en", startMs: 0 }),
@@ -221,7 +222,7 @@ describe("chunk-v2 Original integrity (restored path)", () => {
         tok(" have pain", { id: "t3", speakerId: "2", language: "en", startMs: 200 }),
       ]),
     ]);
-    expect(state.finalizedUtterances).toHaveLength(1);
+    expect(state.finalizedUtterances.length).toBeGreaterThanOrEqual(1);
     expect(state.activeUtterance?.speaker).toBe("2");
     const activeText = state.activeUtterance && utteranceCommittedText(state.activeUtterance);
     expect(activeText).toContain("I");
@@ -229,7 +230,7 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     expect(activeText?.trimStart().startsWith("I")).toBe(true);
   });
 
-  it("treats a brief speaker flip then return as a real handoff (N=1 Aug)", () => {
+  it("absorbs a rejected speaker flicker back onto the old row", () => {
     const state = reduceAll([
       frame(1, [
         tok("Hello doctor.", { id: "ab1", speakerId: "1", language: "en", startMs: 0 }),
@@ -241,10 +242,60 @@ describe("chunk-v2 Original integrity (restored path)", () => {
         tok(" please", { id: "ab3", speakerId: "1", language: "en", startMs: 200 }),
       ]),
     ]);
-    // August opens on first speaker change; return to speaker 1 opens another row.
-    expect(state.finalizedUtterances.length).toBeGreaterThanOrEqual(2);
+    expect(state.pendingSpeakerFinals).toHaveLength(0);
+    expect(state.finalizedUtterances).toHaveLength(0);
     expect(state.activeUtterance?.speaker).toBe("1");
-    expect(state.activeUtterance && utteranceCommittedText(state.activeUtterance)).toContain("please");
+    const text = state.activeUtterance && utteranceCommittedText(state.activeUtterance);
+    expect(text).toContain("Hello doctor.");
+    expect(text).toContain("wait");
+    expect(text).toContain("please");
+  });
+
+  it("keeps a same-speaker monologue in one bubble across sentence finals", () => {
+    const state = reduceAll([
+      frame(1, [
+        tok("This is how much alcohol is toxic to the human body.", {
+          id: "al1",
+          speakerId: "1",
+          language: "en",
+          startMs: 0,
+          endMs: 3000,
+        }),
+      ]),
+      frame(2, [
+        tok(" And this is how much alcohol the average person consumes every single week.", {
+          id: "al2",
+          speakerId: "1",
+          language: "en",
+          startMs: 3500,
+          endMs: 7000,
+        }),
+      ]),
+      frame(3, [
+        tok(" And after this video, you are never going to want to drink alcohol again.", {
+          id: "al3",
+          speakerId: "1",
+          language: "en",
+          startMs: 7500,
+          endMs: 11000,
+        }),
+      ]),
+      frame(4, [
+        tok(" Number 1: alcohol is a group 1 carcinogen.", {
+          id: "al4",
+          speakerId: "1",
+          language: "en",
+          startMs: 11500,
+          endMs: 14000,
+        }),
+      ]),
+    ]);
+    expect(state.finalizedUtterances).toHaveLength(0);
+    const text = state.activeUtterance && utteranceCommittedText(state.activeUtterance);
+    expect(text).toContain("toxic to the human body");
+    expect(text).toContain("every single week");
+    expect(text).toContain("never going to want");
+    expect(text).toContain("Number 1");
   });
 
   it("keeps continuous same-speaker same-language speech in one bubble", () => {
