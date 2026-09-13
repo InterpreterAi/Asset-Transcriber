@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -54,17 +54,32 @@ interface AnalyticsData {
 
 type PaidSubMode = "month" | "since_subscribe" | "custom";
 
+interface PaidSubscriberMonthRow {
+  month: string;
+  billingDays: number;
+  dailyHours: number;
+  hoursEntitled: number;
+  hoursUsed: number;
+  hoursUnused: number;
+  hoursOverage: number;
+  estTotalUsd: number;
+}
+
 interface PaidSubscriberReport {
   mode: PaidSubMode;
   label: string;
   month: string | null;
   includesWeekends: boolean;
+  billingDaysPerMonth: number;
+  basicHoursPerMonth: number;
+  professionalHoursPerMonth: number;
   calendarDays: number;
   calendarWeekdays: number;
   calendarWeekendDays: number;
   costPerMinCombined: number;
   totals: {
     paidUsers: number;
+    monthsPaid: number;
     hoursEntitled: number;
     hoursUsed: number;
     hoursUnused: number;
@@ -76,14 +91,14 @@ interface PaidSubscriberReport {
     email: string | null;
     planType: string;
     subscribedAt: string;
+    monthsPaid: number;
     dailyCapHours: number;
-    unlimitedStyle: boolean;
-    entitledDays: number;
-    hoursEntitled: number | null;
+    hoursEntitled: number;
     hoursUsed: number;
-    hoursUnused: number | null;
+    hoursUnused: number;
     hoursOverage: number;
     estTotalUsd: number;
+    months: PaidSubscriberMonthRow[];
   }[];
 }
 
@@ -176,7 +191,6 @@ function paidPlanLabel(planType: string): string {
 }
 
 function fmtDailyCapHours(h: number): string {
-  if (h >= 150) return "Unlimited-style";
   if (h <= 0) return "—";
   return `${h}h / day`;
 }
@@ -184,6 +198,14 @@ function fmtDailyCapHours(h: number): string {
 function fmtHoursCell(n: number | null | undefined): string {
   if (n == null) return "—";
   return `${n} h`;
+}
+
+function fmtMonthLabel(ym: string): string {
+  try {
+    return format(parseISO(`${ym}-01`), "MMM yyyy");
+  } catch {
+    return ym;
+  }
 }
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
@@ -325,7 +347,7 @@ const PAID_MODE_OPTIONS: { key: PaidSubMode; label: string }[] = [
 function PaidSubscribersPanel() {
   const today = format(new Date(), "yyyy-MM-dd");
   const thisMonth = format(new Date(), "yyyy-MM");
-  const [mode, setMode] = useState<PaidSubMode>("month");
+  const [mode, setMode] = useState<PaidSubMode>("since_subscribe");
   const [month, setMonth] = useState(thisMonth);
   const [from, setFrom] = useState(thisMonth + "-01");
   const [to, setTo] = useState(today);
@@ -364,8 +386,8 @@ function PaidSubscribersPanel() {
         </button>
       </div>
       <p className="text-[11px] text-muted-foreground mt-1 mb-3">
-        Paying accounts only. Entitled hours = daily cap × days in the selected window (Sat/Sun included).
-        Unused = entitled − used. Cost is one Soniox total (STT + translation together, $0.0035/min).
+        Each paid month is 30 days. Basic = 5h/day × 30 = 150h. Professional / Platinum = 12h/day × 30 = 360h.
+        Unused = that month’s entitled hours minus hours used. Cost is one Soniox total.
       </p>
 
       <div className="flex flex-wrap items-center gap-2 mb-4">
@@ -427,6 +449,8 @@ function PaidSubscribersPanel() {
             <p className="text-sm text-foreground mt-1 leading-snug">
               <span className="font-semibold tabular-nums">{data.totals.paidUsers}</span> subscribers
               {" · "}
+              <span className="font-semibold tabular-nums">{data.totals.monthsPaid}</span> paid months
+              {" · "}
               <span className="font-semibold tabular-nums">{data.totals.hoursEntitled} h</span> entitled
               {" · "}
               <span className="font-semibold tabular-nums">{data.totals.hoursUsed} h</span> used
@@ -436,10 +460,11 @@ function PaidSubscribersPanel() {
               <span className="font-semibold tabular-nums">{fmtUsd(data.totals.estSonioxCostUsd)}</span> est. Soniox
             </p>
             <p className="text-[11px] text-muted-foreground mt-1">
-              {data.mode === "since_subscribe"
-                ? "Each row uses that subscriber’s own start date through today"
-                : `${data.calendarDays} days in this window (${data.calendarWeekdays} weekdays, ${data.calendarWeekendDays} weekend)`}
-              {" · "}weekends included: {data.includesWeekends ? "yes" : "no"}
+              Basic {data.basicHoursPerMonth}h / month · Professional {data.professionalHoursPerMonth}h / month
+              {" · "}each month is {data.billingDaysPerMonth} days
+              {data.mode !== "since_subscribe"
+                ? ` · window ${data.calendarDays} days (${data.calendarWeekdays} weekdays, ${data.calendarWeekendDays} weekend)`
+                : ""}
               {data.totals.hoursOverage > 0 ? ` · overage ${data.totals.hoursOverage} h` : ""}
             </p>
           </div>
@@ -456,7 +481,7 @@ function PaidSubscribersPanel() {
               icon={<Clock className="w-4.5 h-4.5" />}
               label="Hours entitled"
               value={`${data.totals.hoursEntitled} h`}
-              sub="Daily cap × days"
+              sub="30 days × plan hours × months"
               color="bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-200"
             />
             <StatCard
@@ -489,13 +514,14 @@ function PaidSubscribersPanel() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm min-w-[820px]">
+                <table className="w-full text-sm min-w-[920px]">
                   <thead className="bg-gray-50 dark:bg-muted text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
                     <tr>
                       <th className="px-4 py-2 font-semibold text-left">#</th>
-                      <th className="px-4 py-2 font-semibold text-left">Subscriber</th>
+                      <th className="px-4 py-2 font-semibold text-left">Subscriber / month</th>
                       <th className="px-4 py-2 font-semibold text-left">Plan</th>
-                      <th className="px-4 py-2 font-semibold text-right">Daily cap</th>
+                      <th className="px-4 py-2 font-semibold text-right">Daily</th>
+                      <th className="px-4 py-2 font-semibold text-right">Months</th>
                       <th className="px-4 py-2 font-semibold text-right">Entitled</th>
                       <th className="px-4 py-2 font-semibold text-right">Used</th>
                       <th className="px-4 py-2 font-semibold text-right">Unused</th>
@@ -504,40 +530,64 @@ function PaidSubscribersPanel() {
                   </thead>
                   <tbody className="divide-y divide-border">
                     {data.users.map((u, i) => (
-                      <tr key={`${u.username}-${u.email ?? i}`} className="hover:bg-muted/30">
-                        <td className="px-4 py-2.5 text-muted-foreground text-xs font-mono">{i + 1}</td>
-                        <td className="px-4 py-2.5">
-                          <div className="font-medium text-sm">{u.username}</div>
-                          {u.email && (
-                            <div className="text-[11px] text-muted-foreground truncate max-w-[220px]">{u.email}</div>
-                          )}
-                        </td>
-                        <td className="px-4 py-2.5">
-                          <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-200">
-                            {paidPlanLabel(u.planType)}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2.5 text-right text-xs text-muted-foreground tabular-nums">
-                          {fmtDailyCapHours(u.dailyCapHours)}
-                        </td>
-                        <td className="px-4 py-2.5 text-right text-xs tabular-nums">
-                          {u.unlimitedStyle ? "Unlimited" : fmtHoursCell(u.hoursEntitled)}
-                        </td>
-                        <td className="px-4 py-2.5 text-right font-semibold text-sm text-primary tabular-nums">
-                          {u.hoursUsed} h
-                        </td>
-                        <td className="px-4 py-2.5 text-right text-xs tabular-nums">
-                          {u.unlimitedStyle ? "—" : fmtHoursCell(u.hoursUnused)}
-                        </td>
-                        <td className="px-4 py-2.5 text-right font-semibold text-sm tabular-nums">
-                          {fmtUsd(u.estTotalUsd)}
-                        </td>
-                      </tr>
+                      <Fragment key={`${u.username}-${u.email ?? i}`}>
+                        <tr className="bg-card hover:bg-muted/30">
+                          <td className="px-4 py-2.5 text-muted-foreground text-xs font-mono">{i + 1}</td>
+                          <td className="px-4 py-2.5">
+                            <div className="font-medium text-sm">{u.username}</div>
+                            {u.email && (
+                              <div className="text-[11px] text-muted-foreground truncate max-w-[220px]">{u.email}</div>
+                            )}
+                            <div className="text-[11px] text-muted-foreground">
+                              Subscribed {format(parseISO(u.subscribedAt), "MMM d, yyyy")}
+                            </div>
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-200">
+                              {paidPlanLabel(u.planType)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 text-right text-xs text-muted-foreground tabular-nums">
+                            {fmtDailyCapHours(u.dailyCapHours)}
+                          </td>
+                          <td className="px-4 py-2.5 text-right text-xs tabular-nums">{u.monthsPaid}</td>
+                          <td className="px-4 py-2.5 text-right text-xs font-semibold tabular-nums">
+                            {fmtHoursCell(u.hoursEntitled)}
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-semibold text-sm text-primary tabular-nums">
+                            {u.hoursUsed} h
+                          </td>
+                          <td className="px-4 py-2.5 text-right text-xs tabular-nums">
+                            {fmtHoursCell(u.hoursUnused)}
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-semibold text-sm tabular-nums">
+                            {fmtUsd(u.estTotalUsd)}
+                          </td>
+                        </tr>
+                        {u.months.map((m) => (
+                          <tr key={`${u.username}-${m.month}`} className="bg-muted/20">
+                            <td className="px-4 py-1.5" />
+                            <td className="px-4 py-1.5 text-[12px] text-muted-foreground pl-8">
+                              {fmtMonthLabel(m.month)}
+                              <span className="ml-2 text-[10px]">
+                                {m.billingDays} days × {m.dailyHours}h
+                              </span>
+                            </td>
+                            <td className="px-4 py-1.5" />
+                            <td className="px-4 py-1.5" />
+                            <td className="px-4 py-1.5 text-right text-[11px] text-muted-foreground">1</td>
+                            <td className="px-4 py-1.5 text-right text-[12px] tabular-nums">{m.hoursEntitled} h</td>
+                            <td className="px-4 py-1.5 text-right text-[12px] tabular-nums">{m.hoursUsed} h</td>
+                            <td className="px-4 py-1.5 text-right text-[12px] tabular-nums">{m.hoursUnused} h</td>
+                            <td className="px-4 py-1.5 text-right text-[12px] tabular-nums">{fmtUsd(m.estTotalUsd)}</td>
+                          </tr>
+                        ))}
+                      </Fragment>
                     ))}
                   </tbody>
                   <tfoot className="bg-emerald-50/80 dark:bg-emerald-500/10 border-t border-emerald-200 dark:border-emerald-500/25">
                     <tr>
-                      <td className="px-4 py-2.5 text-xs font-semibold" colSpan={4}>
+                      <td className="px-4 py-2.5 text-xs font-semibold" colSpan={5}>
                         All users together
                       </td>
                       <td className="px-4 py-2.5 text-right text-xs font-semibold tabular-nums">

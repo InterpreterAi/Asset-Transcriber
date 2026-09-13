@@ -24,6 +24,21 @@ export function appYearMonthContaining(ref: Date = new Date()): string {
   return DateTime.fromJSDate(ref).setZone(APP_TIME_ZONE).toFormat("yyyy-MM");
 }
 
+/** App-calendar `YYYY-MM` keys from the month of `start` through the month of `end` (inclusive). */
+export function iterateAppYearMonthsInclusive(start: Date, end: Date): string[] {
+  const d0 = DateTime.fromJSDate(start).setZone(APP_TIME_ZONE).startOf("month");
+  const endD = DateTime.fromJSDate(end).setZone(APP_TIME_ZONE).startOf("month");
+  if (!d0.isValid || !endD.isValid || d0 > endD) return [];
+  const keys: string[] = [];
+  let cursor = d0;
+  let guard = 0;
+  while (cursor <= endD && guard++ < 120) {
+    keys.push(cursor.toFormat("yyyy-MM"));
+    cursor = cursor.plus({ months: 1 });
+  }
+  return keys;
+}
+
 /** UTC range for an app-calendar month (`YYYY-MM`). `endExclusive` is the first instant of the next month. */
 export function appMonthRangeUtc(yearMonth: string): { start: Date; endExclusive: Date } | null {
   const startDt = DateTime.fromFormat(yearMonth.trim(), "yyyy-MM", { zone: APP_TIME_ZONE });
