@@ -60,4 +60,28 @@ describe("getInterpreterContext Soniox budget", () => {
     const blob = JSON.stringify(ctx);
     expect(/MMR|COVID|vaccine|لقاح/i.test(blob)).toBe(true);
   });
+
+  it("asks Soniox to transcribe verbatim and pins SNAP/EBT/RSDI for en↔ar", () => {
+    const ctx = getInterpreterContext("en", "ar");
+    expect(ctx.general.some((g) => g.key === "domain" && g.value === "Professional interpretation")).toBe(
+      true,
+    );
+    expect(ctx.general.some((g) => g.key === "speakers" && g.value === "2 speakers")).toBe(true);
+    expect(
+      ctx.general.some(
+        (g) => g.key === "instructions" && /Transcribe exactly what is spoken/i.test(g.value),
+      ),
+    ).toBe(true);
+    expect(ctx.general.some((g) => g.key === "no_invented_words")).toBe(false);
+    expect(ctx.general.some((g) => g.key === "full_phrase_meaning")).toBe(false);
+    expect(ctx.terms.some((t) => t === "SNAP")).toBe(true);
+    expect(ctx.terms.some((t) => t === "disabled")).toBe(true);
+    expect(ctx.terms.some((t) => t === "RSDI")).toBe(true);
+    expect(
+      ctx.translation_terms?.some((t) => t.source === "SNAP" && /مساعدة غذائية|المساعدة الغذائية/.test(t.target)),
+    ).toBe(true);
+    expect(
+      ctx.translation_terms?.some((t) => t.source === "checking account" && t.target === "حساب جاري"),
+    ).toBe(true);
+  });
 });

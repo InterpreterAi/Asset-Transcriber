@@ -56,12 +56,14 @@ function tryLongPauseSplit(
 /**
  * Soniox real-time contract + Intercall row timing:
  * - Append finals once; replace non-finals each frame
- * - New row on speaker/language final boundary
- * - Same speaker: new row only after {@link SAME_SPEAKER_LONG_PAUSE_SPLIT_MS} silence (not per-sentence `<end>`)
+ * - Chunk V2: new row on speaker change, language change, or ~5s same-speaker pause
+ * - Other stacks: new row on speaker/language final boundary; same speaker after
+ *   {@link SAME_SPEAKER_LONG_PAUSE_SPLIT_MS} silence (not per-sentence `<end>`)
  */
 export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx: ReduceContext): EngineState {
   const wallMs = ctx.wallMs;
   const speakerBreakConfirmTokens = ctx.chunkV2NativeTranslate ? 1 : SPEAKER_BREAK_CONFIRM_TOKENS;
+  const chunkV2 = ctx.chunkV2NativeTranslate === true;
 
   let next: EngineState = state;
   const pauseSplitMs = ctx.sameSpeakerLongPauseSplitMs ?? SAME_SPEAKER_LONG_PAUSE_SPLIT_MS;
@@ -114,9 +116,7 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
 
     if (next.activeUtterance) {
       const langBreak = rowBreaksForLanguage(next.activeUtterance, ct);
-      // spkBreak is now evaluated independently of langBreak.
-      // A language switch alone (same speaker, interpreter code-switching en↔ar) is NOT
-      // a bubble boundary — only split when BOTH language AND speaker change together.
+      // spkBreak is evaluated independently of langBreak.
       const spkBreak = rowBreaksForSpeaker(next.activeUtterance, ct);
       if (langBreak && spkBreak) {
         // Genuine handoff: different language AND different speaker — hard break.
@@ -127,6 +127,15 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
           endpointPendingAtMs: 0,
           speakerChangeConsecutive: 0,
           metrics: { ...next.metrics, speakerFlipCount: next.metrics.speakerFlipCount + 1 },
+        };
+      } else if (chunkV2 && langBreak) {
+        // Chunk V2 only: same speaker, language switched → new bubble.
+        next = freezeActiveUtterance(next);
+        next = {
+          ...next,
+          endpointPending: false,
+          endpointPendingAtMs: 0,
+          speakerChangeConsecutive: 0,
         };
       } else if (spkBreak) {
         // Speaker changed, language stayed the same — use the confirmation debounce.
@@ -143,8 +152,7 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
         } else {
           next = { ...next, speakerChangeConsecutive: consecutive };
         }
-        // langBreak && !spkBreak: same speaker, language switched (interpreter code-switch).
-        // Fall through — no freeze, token appended to the active row below.
+        // Non-chunk-v2 langBreak && !spkBreak: same-speaker code-switch stays on the row.
       } else {
         next = { ...next, speakerChangeConsecutive: 0 };
       }

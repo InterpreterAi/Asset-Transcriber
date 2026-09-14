@@ -20,13 +20,20 @@ export const CANON_SILENCE_SEGMENT_MS = 2200;
  */
 export const SAME_SPEAKER_LONG_PAUSE_SPLIT_MS = 5000;
 export const MORSY_CLEAN_MT_SAME_SPEAKER_LONG_PAUSE_SPLIT_MS = 4500;
+/** Chunk V2: same speaker, ~5s hold → new bubble. Short pauses stay on the same row. */
+export const CHUNK_V2_SAME_SPEAKER_LONG_PAUSE_SPLIT_MS = 5000;
 
 export const MAX_UTTERANCE_WALL_MS = 120_000;
 
 export const LIVE_RENDER_BATCH_MS = 32;
 export const CHUNK_V2_LIVE_RENDER_BATCH_MS = 8;
 
-export function sameSpeakerLongPauseSplitMs(_morsyUrgent = false, morsyCleanMt = false): number {
+export function sameSpeakerLongPauseSplitMs(
+  _morsyUrgent = false,
+  morsyCleanMt = false,
+  chunkV2NativeTranslate = false,
+): number {
+  if (chunkV2NativeTranslate) return CHUNK_V2_SAME_SPEAKER_LONG_PAUSE_SPLIT_MS;
   if (morsyCleanMt) return MORSY_CLEAN_MT_SAME_SPEAKER_LONG_PAUSE_SPLIT_MS;
   return SAME_SPEAKER_LONG_PAUSE_SPLIT_MS;
 }

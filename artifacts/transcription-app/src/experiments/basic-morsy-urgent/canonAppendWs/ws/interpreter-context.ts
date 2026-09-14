@@ -54,6 +54,28 @@ const MEDICAL_TERMS_EN: string[] = [
   "medical power of attorney", "HIPAA", "malpractice", "liability",
 ];
 
+/** Uncommon phrases expected in interpreter audio — Soniox `context.terms` (not common words). */
+const INTERPRETER_STT_RECOGNITION_PINS: string[] = [
+  "SNAP",
+  "EBT",
+  "SSI",
+  "RSDI",
+  "Railroad Retirement",
+  "Black Lung",
+  "LIHEAP",
+  "Medicaid",
+  "Medicare",
+  "HUD",
+  "Section 8",
+  "checking account",
+  "disabled",
+  "blind",
+  "incapacitated",
+  "Social Security",
+  "child support",
+  "alimony",
+];
+
 const LEGAL_TERMS_EN: string[] = [
   "plaintiff", "defendant", "testimony", "subpoena", "deposition",
   "affidavit", "jurisdiction", "indictment", "prosecution", "defense attorney",
@@ -295,32 +317,60 @@ TERMS_BY_LANG["zh"] = [
 // Fallbacks for other language pairs: keep only EN anchors when pair-specific map missing.
 
 /**
- * Per-language "formal register" reminders, keyed by ISO code.
- * Only the two languages actually in the session's pair are injected into
- * Soniox's `context.general` — mentioning every supported language on every
- * session (regardless of pair) added irrelevant noise that could bias
- * real-time translation/LID toward an unrelated language (e.g. a Spanish
- * register reminder showing up on an English↔Portuguese session).
+ * Translation-column register only (short — Soniox `general` should stay ~10 keys).
+ * Do not tell STT to rewrite dialects; that makes the original column guess.
  */
 const REGISTER_RULE_BY_LANG: Record<string, { key: string; value: string }> = {
-  ar: { key: "arabic_register", value: "Arabic translation output: always use Modern Standard Arabic only (Fusha / الفصحى). Never use Egyptian, Levantine, Gulf, Moroccan Darija, Algerian, Tunisian, Libyan, or any other dialect in the translated Arabic column." },
-  es: { key: "spanish_register", value: "Spanish: always use standard formal Castilian Spanish. Never use regional slang, Chicano, Caribbean, or Latin American colloquial forms." },
-  pt: { key: "portuguese_register", value: "Portuguese: always use standard formal European or Brazilian Portuguese grammar. Never use slang or street-level colloquial forms." },
-  zh: { key: "chinese_register", value: "Chinese: always use Standard Mandarin (普通话 Putonghua) in simplified characters. Never use Cantonese, Hokkien, or regional dialect forms." },
-  fr: { key: "french_register", value: "French: always use standard formal French. Never use Québécois informal speech, Verlan, or African French slang." },
-  de: { key: "german_register", value: "German: always use standard formal German (Hochdeutsch). Never use Austrian, Swiss, or regional dialect forms." },
-  ru: { key: "russian_register", value: "Russian: always use standard literary Russian. Never use slang or informal colloquial forms." },
-  pl: { key: "polish_register", value: "Polish: always use standard formal Polish. Never use regional or colloquial forms." },
-  it: { key: "italian_register", value: "Italian: always use standard formal Italian (italiano standard). Never use regional dialects like Sicilian, Neapolitan, or Venetian." },
-  ko: { key: "korean_register", value: "Korean: always use formal polite Korean (존댓말 / 합쇼체). Never use casual speech (반말)." },
-  ja: { key: "japanese_register", value: "Japanese: always use formal polite Japanese (丁寧語 / です・ます form). Never use casual or informal forms." },
-  hi: { key: "hindi_register", value: "Hindi: always use standard formal Hindi. Avoid heavy Urdu mixing or regional colloquial forms." },
-  vi: { key: "vietnamese_register", value: "Vietnamese: always use standard formal Vietnamese. Never use regional slang." },
-  tr: { key: "turkish_register", value: "Turkish: always use standard formal Turkish. Never use slang or informal colloquial forms." },
-  so: { key: "somali_register", value: "Somali: always use standard formal Somali. Never use regional dialect forms." },
-  tl: { key: "tagalog_register", value: "Tagalog/Filipino: always use standard formal Filipino. Avoid heavy Taglish mixing or colloquial forms." },
-  uk: { key: "ukrainian_register", value: "Ukrainian: always use standard literary Ukrainian. Never use slang or informal forms." },
-  ro: { key: "romanian_register", value: "Romanian: always use standard formal Romanian. Never use regional or colloquial forms." },
+  ar: { key: "arabic_register", value: "Translated Arabic uses Modern Standard Arabic (فصحى)." },
+  es: { key: "spanish_register", value: "Translated Spanish uses formal standard Spanish." },
+  pt: { key: "portuguese_register", value: "Translated Portuguese uses formal standard Portuguese." },
+  zh: { key: "chinese_register", value: "Translated Chinese uses Standard Mandarin (普通话)." },
+  fr: { key: "french_register", value: "Translated French uses formal standard French." },
+  de: { key: "german_register", value: "Translated German uses standard High German." },
+  ru: { key: "russian_register", value: "Translated Russian uses standard literary Russian." },
+  pl: { key: "polish_register", value: "Translated Polish uses formal standard Polish." },
+  it: { key: "italian_register", value: "Translated Italian uses formal standard Italian." },
+  ko: { key: "korean_register", value: "Translated Korean uses formal polite Korean." },
+  ja: { key: "japanese_register", value: "Translated Japanese uses polite です・ます form." },
+  hi: { key: "hindi_register", value: "Translated Hindi uses standard formal Hindi." },
+  vi: { key: "vietnamese_register", value: "Translated Vietnamese uses formal standard Vietnamese." },
+  tr: { key: "turkish_register", value: "Translated Turkish uses formal standard Turkish." },
+  so: { key: "somali_register", value: "Translated Somali uses formal standard Somali." },
+  tl: { key: "tagalog_register", value: "Translated Filipino uses formal standard Filipino." },
+  uk: { key: "ukrainian_register", value: "Translated Ukrainian uses standard literary Ukrainian." },
+  ro: { key: "romanian_register", value: "Translated Romanian uses formal standard Romanian." },
+};
+
+/** Pair-scoped `translation_terms` for benefits / government interpreter calls. */
+const BENEFITS_TRANSLATION_BY_LANG: TermMap = {
+  ar: [
+    { source: "SNAP", target: "برنامج المساعدة الغذائية" },
+    { source: "EBT", target: "بطاقة EBT" },
+    { source: "SSI", target: "دخل الأمن التكميلي" },
+    { source: "RSDI", target: "تأمين التقاعد والورثة والعجز" },
+    { source: "Railroad Retirement", target: "تقاعد السكك الحديدية" },
+    { source: "Black Lung", target: "مرض الرئة السوداء" },
+    { source: "LIHEAP", target: "برنامج مساعدة الطاقة المنزلية" },
+    { source: "checking account", target: "حساب جاري" },
+    { source: "disabled", target: "من ذوي الإعاقة" },
+    { source: "blind", target: "كفيف" },
+    { source: "incapacitated", target: "عاجز" },
+    { source: "Section 8", target: "القسم 8" },
+    { source: "child support", target: "نفقة الأطفال" },
+    { source: "alimony", target: "نفقة زوجية" },
+  ],
+  es: [
+    { source: "EBT", target: "tarjeta EBT" },
+    { source: "SSI", target: "Ingreso de Seguridad Suplementario" },
+    { source: "Railroad Retirement", target: "jubilación ferroviaria" },
+    { source: "checking account", target: "cuenta corriente" },
+    { source: "disabled", target: "persona con discapacidad" },
+    { source: "blind", target: "ciego" },
+    { source: "incapacitated", target: "incapacitado" },
+    { source: "Section 8", target: "Sección 8" },
+    { source: "child support", target: "manutención infantil" },
+    { source: "alimony", target: "pensión alimenticia" },
+  ],
 };
 
 /** Build only the register reminders relevant to this session's actual pair (plus Spanish gender note when `es` is involved). */
@@ -354,11 +404,27 @@ export function getInterpreterContext(
     injectedTerms,
   );
 
-  // 2) Vaccine + ISA medical pack (vaccines ordered first inside the builder).
+  // 2) Benefits / government interpreter mappings (high priority, pair-scoped).
+  const addBenefits = (from: string, to: string) => {
+    if (from === "en" && BENEFITS_TRANSLATION_BY_LANG[to]) {
+      mergeUniqueTranslationTerms(translationTerms, seen, BENEFITS_TRANSLATION_BY_LANG[to]!);
+    }
+    if (to === "en" && BENEFITS_TRANSLATION_BY_LANG[from]) {
+      mergeUniqueTranslationTerms(
+        translationTerms,
+        seen,
+        BENEFITS_TRANSLATION_BY_LANG[from]!.map((t) => ({ source: t.target, target: t.source })),
+      );
+    }
+  };
+  addBenefits(a, b);
+  addBenefits(b, a);
+
+  // 3) Vaccine + ISA medical pack (vaccines ordered first inside the builder).
   const medicalPack = buildChunkV2MedicalPackContext(langA, langB);
   mergeUniqueTranslationTerms(translationTerms, seen, medicalPack.translation_terms);
 
-  // 3) Pair builtin maps (can be large for ar/es expansions — trimmed last among these).
+  // 4) Pair builtin maps (can be large for ar/es expansions — trimmed last among these).
   const addTerms = (from: string, to: string) => {
     if (from === "en" && TERMS_BY_LANG[to]) {
       mergeUniqueTranslationTerms(translationTerms, seen, TERMS_BY_LANG[to]!);
@@ -396,7 +462,15 @@ export function getInterpreterContext(
     ]);
   }
 
-  const recognitionPins = [...MEDICAL_TERMS_EN, ...LEGAL_TERMS_EN];
+  const recognitionPins = [
+    ...INTERPRETER_STT_RECOGNITION_PINS,
+    ...MEDICAL_TERMS_EN,
+    ...LEGAL_TERMS_EN,
+  ];
+  for (const g of injectedTerms) {
+    if (g.source?.trim()) recognitionPins.push(g.source.trim());
+    if (g.target?.trim()) recognitionPins.push(g.target.trim());
+  }
   if (medicalPack.terms.length > 0) {
     const pinSeen = new Set(recognitionPins.map((t) => t.toLowerCase()));
     for (const pin of medicalPack.terms) {
@@ -409,14 +483,18 @@ export function getInterpreterContext(
 
   const ctx: SonioxContext = {
     general: [
-      { key: "domain", value: "Medical and legal interpretation" },
-      { key: "setting", value: "Live professional interpreter session" },
-      { key: "role", value: "Human interpreter relaying speech between two parties" },
-      { key: "accuracy", value: "Preserve exact numbers, drug names, legal terms, and codes" },
-      { key: "language_register", value: "Always translate into formal, professional, standard written language. Never use colloquial, slang, or regional dialect forms in any language." },
+      // Soniox context docs: short key-values (ideally ≤10). Speakers hint improves diarization.
+      { key: "domain", value: "Professional interpretation" },
+      { key: "setting", value: "Live two-speaker interpreter session" },
+      { key: "speakers", value: "2 speakers" },
+      { key: "topic", value: "Live bilingual conversation" },
+      {
+        key: "instructions",
+        value:
+          "Transcribe exactly what is spoken. Do not substitute similar-sounding words. Do not guess or invent words that were not heard.",
+      },
+      { key: "accuracy", value: "Preserve exact numbers, names, spelled letters, and codes." },
       ...registerRulesForPair(a, b),
-      { key: "no_invented_words", value: "Never invent, approximate, or guess a word. If uncertain, use the most common standard formal equivalent. Do not create words that do not exist in the target language." },
-      { key: "full_phrase_meaning", value: "Translate the full clinical meaning of phrases, not word-by-word. 'Safe for fluids' means the patient is medically cleared to receive intravenous fluids — translate the full meaning. 'Good faith exam' is a formal medical examination." },
     ],
     terms: recognitionPins,
   };

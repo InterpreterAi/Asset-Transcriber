@@ -391,6 +391,7 @@ export class CanonAppendWsIsolatedRuntime {
       sameSpeakerLongPauseSplitMs: sameSpeakerLongPauseSplitMs(
         this.morsyUrgentTuning,
         this.morsyCleanMtTuning,
+        this.chunkV2NativeTranslate,
       ),
       chunkV2NativeTranslate: this.chunkV2NativeTranslate,
     });
