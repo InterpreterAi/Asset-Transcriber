@@ -79,6 +79,7 @@
     "zod": "catalog:"
   },
   "dependencies": {
+    "@soniox/speech-to-text-web": "^1.2.0",
     "@workspace/app-timezone": "workspace:*",
     "html-to-image": "^1.11.13",
     "mp4-muxer": "^5.2.2",

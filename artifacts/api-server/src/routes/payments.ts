@@ -660,6 +660,7 @@ const ADMIN_TEST_PLAN_TYPES = [
   "trial",
   "trial-openai",
   "trial-hetzner",
+  "trial-soniox-x",
   "trial-libre",
   "basic",
   "morsy-urgent",
@@ -689,7 +690,8 @@ function dailyLimitMinutesForAdminTestPlan(planType: AdminTestPlanType): number 
     planType === "trial" ||
     planType === "trial-openai" ||
     planType === "trial-libre" ||
-    planType === "trial-hetzner"
+    planType === "trial-hetzner" ||
+    planType === "trial-soniox-x"
   ) {
     return TRIAL_DAILY_LIMIT_MINUTES;
   }

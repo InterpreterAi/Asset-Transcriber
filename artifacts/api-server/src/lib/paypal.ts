@@ -280,7 +280,7 @@ export function dbPlanTypeFromPayPalBilling(plan: BillingPlanType): string {
 /** Maps app `plan_type` (incl. basic-openai) to PayPal billing product key. Trials → null. */
 export function billingProductKeyFromPlanType(planType: string): BillingPlanType | null {
   const p = planType.trim().toLowerCase();
-  if (p === "trial" || p === "trial-openai" || p === "trial-libre" || p === "trial-hetzner") return null;
+  if (p === "trial" || p === "trial-openai" || p === "trial-libre" || p === "trial-hetzner" || p === "trial-soniox-x") return null;
   if (
     p === "basic" ||
     p === "basic-openai" ||

@@ -22,6 +22,7 @@ import {
   isTrialLikePlanType,
   planUsesOpenAiLegacy2CleanStack,
   planUsesTrialHetznerCleanStack,
+  planUsesTrialSonioxX,
   touchActivity,
   translationEnabledForUser,
 } from "../lib/usage.js";
@@ -1812,6 +1813,13 @@ router.post("/translate", requireAuth, async (req, res) => {
   }
 
   const translateUser = await getUserWithResetCheck(req.session.userId!);
+  if (translateUser && planUsesTrialSonioxX(translateUser.planType)) {
+    res.status(409).json({
+      error: "This plan uses Soniox live transcription and translation. Server POST /translate is not used.",
+      code: "TRIAL_SONIOX_X_NATIVE",
+    });
+    return;
+  }
   if (!translateUser || !translationEnabledForUser(translateUser)) {
     res.status(403).json({
       error:

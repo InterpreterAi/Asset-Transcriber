@@ -20,6 +20,7 @@ export function isTrialLikePlanType(planType: string | null | undefined): boolea
     || p === "trial-openai"
     || p === "trial-libre"
     || p === "trial-hetzner"
+    || p === "trial-soniox-x"
     || p === "morsy-urgent"
   );
 }
@@ -30,7 +31,7 @@ export function isTrialLikePlanType(planType: string | null | undefined): boolea
 export function workspacePlanDisplayName(planType: string | undefined | null): string {
   const p = (planType ?? "").toLowerCase();
   if (p === "morsy-urgent") return "Trial";
-  if (p === "trial" || p === "trial-openai" || p === "trial-libre" || p === "trial-hetzner") return "Trial";
+  if (p === "trial" || p === "trial-openai" || p === "trial-libre" || p === "trial-hetzner" || p === "trial-soniox-x") return "Trial";
   if (p === "basic" || p === "basic-openai" || p === "basic-libre" || p === "basic-hetzner" || p === "morsy-basic" || p === "morsy-urgent" || p === "legacy2") return "Basic";
   if (p === "professional" || p === "professional-openai" || p === "professional-libre") return "Unlimited";
   return "Unlimited";
@@ -40,7 +41,7 @@ export function workspacePlanDisplayName(planType: string | undefined | null): s
 export function workspacePlanTierKey(planType: string | null | undefined): "trial" | "basic" | "professional" | "platinum" {
   const p = (planType ?? "").toLowerCase();
   if (p === "morsy-urgent") return "trial";
-  if (p === "trial" || p === "trial-openai" || p === "trial-libre" || p === "trial-hetzner") return "trial";
+  if (p === "trial" || p === "trial-openai" || p === "trial-libre" || p === "trial-hetzner" || p === "trial-soniox-x") return "trial";
   if (p === "basic" || p === "basic-openai" || p === "basic-libre" || p === "basic-hetzner" || p === "morsy-basic" || p === "legacy2") return "basic";
   if (p === "professional" || p === "professional-openai" || p === "professional-libre") return "professional";
   return "platinum";
@@ -61,7 +62,7 @@ export function workspaceUsageShowsSlashUnlimited(planType: string | null | unde
  */
 export function planUsesOpenAiLegacy2CleanTranslation(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
-  if (!p || p === "trial-hetzner") return false;
+  if (!p || p === "trial-hetzner" || p === "trial-soniox-x") return false;
   if (
     p === "trial-libre" ||
     p === "basic-libre" ||
@@ -105,14 +106,26 @@ export function planUsesTrialHetznerCleanTranslation(planType: string | null | u
 /** Trial / Basic / Professional plans that use Soniox STT + Soniox two-way translation. */
 export function planUsesSonioxNativeTranslation(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
-  return p === "trial-openai" || p === "basic-hetzner" || p === "professional-libre";
+  return (
+    p === "trial-openai" ||
+    p === "basic-hetzner" ||
+    p === "professional-libre" ||
+    p === "trial-soniox-x" ||
+    p === "trial-hetzner"
+  );
 }
 
 /** Admin cost / engine map — must match server `stackKeyFromPlanType`. */
 export function adminTranslationStack(planType: string | null | undefined): "soniox" | "hetzner" | "openai" {
   const p = (planType ?? "").trim().toLowerCase();
-  if (p === "trial-openai" || p === "basic-hetzner" || p === "professional-libre") return "soniox";
-  if (p === "trial-hetzner" || p === "basic-libre" || p === "basic" || p === "professional") return "hetzner";
+  if (
+    p === "trial-openai" ||
+    p === "basic-hetzner" ||
+    p === "professional-libre" ||
+    p === "trial-soniox-x" ||
+    p === "trial-hetzner"
+  ) return "soniox";
+  if (p === "basic-libre" || p === "basic" || p === "professional") return "hetzner";
   return "openai";
 }
 
@@ -122,6 +135,8 @@ export function planUsesLibreEngine(planType: string | null | undefined): boolea
     p === "trial" ||
     p === "trial-openai" ||
     p === "trial-libre" ||
+    p === "trial-hetzner" ||
+    p === "trial-soniox-x" ||
     p === "legacy2" ||
     p === "platinum" ||
     p === "platinum-libre" ||

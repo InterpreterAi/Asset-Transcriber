@@ -1,0 +1,22 @@
+import { describe, expect, it } from "vitest";
+import { planUsesTrialSonioxX } from "./gate";
+import { workspaceLangToOfficialSonioxCode } from "./soniox-lang";
+
+describe("trial-soniox-x gate", () => {
+  it("matches the new plan and the retired trial-hetzner slot", () => {
+    expect(planUsesTrialSonioxX("trial-soniox-x")).toBe(true);
+    expect(planUsesTrialSonioxX("trial-hetzner")).toBe(true);
+    expect(planUsesTrialSonioxX("trial-libre")).toBe(false);
+    expect(planUsesTrialSonioxX("basic-hetzner")).toBe(false);
+  });
+});
+
+describe("workspaceLangToOfficialSonioxCode", () => {
+  it("maps workspace codes onto the official live-demo list", () => {
+    expect(workspaceLangToOfficialSonioxCode("en")).toBe("en");
+    expect(workspaceLangToOfficialSonioxCode("ar")).toBe("ar");
+    expect(workspaceLangToOfficialSonioxCode("zh-CN")).toBe("zh");
+    expect(workspaceLangToOfficialSonioxCode("nb")).toBe("no");
+    expect(workspaceLangToOfficialSonioxCode("so")).toBe(null);
+  });
+});

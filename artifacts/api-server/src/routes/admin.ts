@@ -21,6 +21,7 @@ import {
   isTrialLikePlanType,
   liveTranslateUsesMachineTranslation,
   expireAdminComplimentaryIfDue,
+  planUsesTrialSonioxX,
   TRIAL_LIKE_PLAN_TYPES,
 } from "../lib/usage.js";
 import {
@@ -431,10 +432,10 @@ function paidBillingWindowForUser(
 }
 
 const SONIOX_NATIVE_ANALYTICS_WHERE = sql`(
-  LOWER(${usersTable.planType}) IN ('trial-openai', 'basic-hetzner', 'professional-libre')
+  LOWER(${usersTable.planType}) IN ('trial-openai', 'basic-hetzner', 'professional-libre', 'trial-soniox-x', 'trial-hetzner')
 )`;
 const HETZNER_MT_ANALYTICS_WHERE = sql`(
-  LOWER(${usersTable.planType}) IN ('trial-hetzner', 'basic-libre', 'basic', 'professional')
+  LOWER(${usersTable.planType}) IN ('basic-libre', 'basic', 'professional')
 )`;
 const OPENAI_MT_ANALYTICS_WHERE = sql`(
   NOT (${SONIOX_NATIVE_ANALYTICS_WHERE}) AND NOT (${HETZNER_MT_ANALYTICS_WHERE})
@@ -442,8 +443,14 @@ const OPENAI_MT_ANALYTICS_WHERE = sql`(
 
 function stackKeyFromPlanType(planType: string | null | undefined): "soniox" | "hetzner" | "openai" {
   const p = (planType ?? "").trim().toLowerCase();
-  if (p === "trial-openai" || p === "basic-hetzner" || p === "professional-libre") return "soniox";
-  if (p === "trial-hetzner" || p === "basic-libre" || p === "basic" || p === "professional") return "hetzner";
+  if (
+    p === "trial-openai" ||
+    p === "basic-hetzner" ||
+    p === "professional-libre" ||
+    p === "trial-soniox-x" ||
+    p === "trial-hetzner"
+  ) return "soniox";
+  if (p === "basic-libre" || p === "basic" || p === "professional") return "hetzner";
   return "openai";
 }
 
@@ -465,6 +472,7 @@ const PLAN_PRICES: Record<string, number> = {
   "trial-openai":      0,
   "trial-libre":       0,
   "trial-hetzner":     0,
+  "trial-soniox-x":    0,
 };
 
 function defaultDailyLimitMinutesForPlanType(planType: string): number | null {
@@ -595,7 +603,7 @@ function enrichActiveSessionRows<T extends ActiveSessionRow>(
     });
   }
   return rows.map((r) => {
-    const translationStack = planUsesChunkV2SonioxNative(r.planType)
+    const translationStack = planUsesChunkV2SonioxNative(r.planType) || planUsesTrialSonioxX(r.planType)
       ? "soniox"
       : (liveTranslateUsesMachineTranslation(r) ? "libre" : "openai");
     const coreLane = corePlacementBySessionId.get(r.sessionId)?.coreLane ?? null;
@@ -849,7 +857,7 @@ router.get("/users", requireAdmin, async (_req, res) => {
         ), 0)::double precision AS minutes_in_period
       FROM users u
       WHERE u.is_admin = false
-        AND LOWER(TRIM(COALESCE(u.plan_type, ''))) NOT IN ('trial', 'trial-libre', 'trial-openai', 'trial-hetzner')
+        AND LOWER(TRIM(COALESCE(u.plan_type, ''))) NOT IN ('trial', 'trial-libre', 'trial-openai', 'trial-hetzner', 'trial-soniox-x')
     `),
     db.select({
       userId: sessionsTable.userId,
@@ -1431,8 +1439,8 @@ router.get("/stats", requireAdmin, async (_req, res) => {
     db.select({
       stack: sql<string>`
         CASE
-          WHEN LOWER(${usersTable.planType}) IN ('trial-openai', 'basic-hetzner', 'professional-libre') THEN 'soniox'
-          WHEN LOWER(${usersTable.planType}) IN ('trial-hetzner', 'basic-libre', 'basic', 'professional') THEN 'hetzner'
+          WHEN LOWER(${usersTable.planType}) IN ('trial-openai', 'basic-hetzner', 'professional-libre', 'trial-soniox-x', 'trial-hetzner') THEN 'soniox'
+          WHEN LOWER(${usersTable.planType}) IN ('basic-libre', 'basic', 'professional') THEN 'hetzner'
           ELSE 'openai'
         END`,
       minutes: sql<number>`COALESCE(SUM((${sql.raw(effectiveSessionSecondsSqlAliasS())})), 0) / 60.0`,
@@ -1453,8 +1461,8 @@ router.get("/stats", requireAdmin, async (_req, res) => {
       ))
       .groupBy(sql`
         CASE
-          WHEN LOWER(${usersTable.planType}) IN ('trial-openai', 'basic-hetzner', 'professional-libre') THEN 'soniox'
-          WHEN LOWER(${usersTable.planType}) IN ('trial-hetzner', 'basic-libre', 'basic', 'professional') THEN 'hetzner'
+          WHEN LOWER(${usersTable.planType}) IN ('trial-openai', 'basic-hetzner', 'professional-libre', 'trial-soniox-x', 'trial-hetzner') THEN 'soniox'
+          WHEN LOWER(${usersTable.planType}) IN ('basic-libre', 'basic', 'professional') THEN 'hetzner'
           ELSE 'openai'
         END`),
   ]);
@@ -1641,7 +1649,7 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
       minutes:     sql<number>`COALESCE(SUM((${sql.raw(effectiveSessionSecondsSqlAliasS())})), 0) / 60.0`,
       sonioxNativeMinutes: sql<number>`
         COALESCE(SUM(CASE
-          WHEN LOWER(${usersTable.planType}) IN ('trial-openai', 'basic-hetzner', 'professional-libre')
+          WHEN LOWER(${usersTable.planType}) IN ('trial-openai', 'basic-hetzner', 'professional-libre', 'trial-soniox-x', 'trial-hetzner')
             THEN (${sql.raw(effectiveSessionSecondsSqlAliasS())})
           ELSE 0
         END), 0) / 60.0`,
@@ -1938,7 +1946,7 @@ router.get("/analytics/extended", requireAdmin, async (req, res) => {
       translationCost: sql<number>`COALESCE(SUM(COALESCE(s.translation_cost, 0)), 0)`,
       sonioxNativeMinutes: sql<number>`
         COALESCE(SUM(CASE
-          WHEN LOWER(${usersTable.planType}) IN ('trial-openai', 'basic-hetzner', 'professional-libre')
+          WHEN LOWER(${usersTable.planType}) IN ('trial-openai', 'basic-hetzner', 'professional-libre', 'trial-soniox-x', 'trial-hetzner')
             THEN (${sql.raw(effectiveSessionSecondsSqlAliasS())})
           ELSE 0
         END), 0) / 60.0`,
@@ -2424,11 +2432,12 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
     defaultLangB?: string;
   };
 
-  /** Canonical tiers (includes explicit `trial-hetzner` as full Hetzner trial). */
+  /** Canonical tiers (includes `trial-soniox-x` official live STT+translation). */
   const ADMIN_ASSIGNABLE_PLAN_TYPES = new Set([
     "trial",
     "trial-openai",
     "trial-hetzner",
+    "trial-soniox-x",
     "trial-libre",
     "basic",
     "morsy-urgent",

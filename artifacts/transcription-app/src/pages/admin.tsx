@@ -464,6 +464,7 @@ function lastSeen(date: string | null | undefined) {
 
 /** Current product defaults: Soniox STT + Soniox translation. */
 const ADMIN_PLAN_OPTIONS_DEFAULTS: { value: string; label: string }[] = [
+  { value: "trial-soniox-x", label: "Trial · Soniox X (official live STT+translation)" },
   { value: "trial-openai", label: "Trial (Soniox)" },
   { value: "basic-hetzner", label: "Basic (Soniox, 5h/day)" },
   { value: "professional-libre", label: "Professional (Soniox — customers see Unlimited; default 12h/day)" },
@@ -472,7 +473,7 @@ const ADMIN_PLAN_OPTIONS_DEFAULTS: { value: string; label: string }[] = [
 const ADMIN_PLAN_OPTIONS_LEGACY: { value: string; label: string }[] = [
   { value: "trial", label: "Trial · OpenAI (legacy)" },
   { value: "trial-libre", label: "Trial · Mixed (legacy)" },
-  { value: "trial-hetzner", label: "Trial · Hetzner (legacy)" },
+  { value: "trial-hetzner", label: "Trial · Hetzner (legacy — now Soniox X)" },
   { value: "basic-openai", label: "Basic · OpenAI (legacy)" },
   { value: "basic-libre", label: "Basic · Hetzner (legacy)" },
   { value: "morsy-urgent", label: "Basic · Morsy Urgent (legacy)" },

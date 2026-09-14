@@ -65,8 +65,14 @@ export function getPaidCycleDaysRemaining(user: User): number | null {
   return Math.max(0, Math.ceil((endDate.getTime() - now) / 86_400_000));
 }
 
+/** Isolated official Soniox live STT+translation (no POST /translate, no Hetzner/Libre/OpenAI MT). */
+export function planUsesTrialSonioxX(planType: string | null | undefined): boolean {
+  const p = (planType ?? "").trim().toLowerCase();
+  return p === "trial-soniox-x" || p === "trial-hetzner";
+}
+
 /** DB `plan_type` values treated as trial for expiry, reminders, and admin filters. */
-export const TRIAL_LIKE_PLAN_TYPES = ["trial", "trial-openai", "trial-libre", "trial-hetzner"] as const;
+export const TRIAL_LIKE_PLAN_TYPES = ["trial", "trial-openai", "trial-libre", "trial-hetzner", "trial-soniox-x"] as const;
 
 /** Trial-like plans: default signup `trial-libre` (Final Boss 3), legacy `trial` / `trial-openai`, or `trial-libre`. */
 export function isTrialLikePlanType(planType: string | null | undefined): boolean {
@@ -76,11 +82,13 @@ export function isTrialLikePlanType(planType: string | null | undefined): boolea
 
 /**
  * True when POST /translate must use the Libre/machine stack (not OpenAI).
- * Final Boss 3: Basic and Professional (*-libre paid tiers) use Libre/machine; `trial-hetzner` uses machine.
+ * Final Boss 3: Basic and Professional (*-libre paid tiers) use Libre/machine.
+ * `trial-soniox-x` / `trial-hetzner` use isolated Soniox live translation (not this stack).
  * OpenAI interpreter: `trial`, `trial-openai`, `trial-libre` (full trial window), platinum family, unlimited, etc.
  */
 export function planUsesMachineTranslationStack(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
+  if (p === "trial-soniox-x" || p === "trial-hetzner") return false;
   if (
     p === "trial" ||
     p === "trial-openai" ||
@@ -102,7 +110,7 @@ export function planUsesMachineTranslationStack(planType: string | null | undefi
  */
 export function planUsesOpenAiLegacy2CleanStack(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
-  if (!p || p === "trial-hetzner") return false;
+  if (!p || p === "trial-hetzner" || p === "trial-soniox-x") return false;
   if (
     p === "trial-libre" ||
     p === "basic-libre" ||
