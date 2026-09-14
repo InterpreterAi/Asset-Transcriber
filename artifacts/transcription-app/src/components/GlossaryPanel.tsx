@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { BookOpen, Plus, Trash2, X, ArrowRight, Loader2 } from "lucide-react";
-import { emitGlossaryChanged } from "@/lib/glossary-strict-storage";
+import { readGlossaryStrictEnabled, writeGlossaryStrictEnabled, emitGlossaryChanged } from "@/lib/glossary-strict-storage";
 import { glossaryPreferredTranslationPlaceholder } from "@/lib/glossary-translation-placeholder-example";
 import { workspaceLanguageLabel } from "@/lib/workspace-languages";
 
@@ -32,6 +32,7 @@ export function GlossaryPanel({ onClose, langA, langB }: Props) {
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [glossaryStrict, setGlossaryStrict] = useState(() => readGlossaryStrictEnabled());
 
   const translationPlaceholder = useMemo(
     () => glossaryPreferredTranslationPlaceholder(langA, langB),
@@ -134,15 +135,36 @@ export function GlossaryPanel({ onClose, langA, langB }: Props) {
 
       <div className="p-3 border-b-2 border-border dark:border-b dark:border-white/[0.06] bg-muted/30 dark:bg-muted/35 shrink-0 space-y-2">
         <p className="text-[10px] text-muted-foreground leading-relaxed">
-          Saved words replace the live translation for this account on{" "}
+          Add source phrases and your preferred target wording for{" "}
           <span className="font-medium text-foreground/80">
-            {workspaceLanguageLabel(langA)} ↔ {workspaceLanguageLabel(langB)}
+            {workspaceLanguageLabel(langA)} → {workspaceLanguageLabel(langB)}
           </span>
-          . Put the original word <span className="font-medium text-foreground/80">or</span> the wrong
-          translated word that keeps appearing, then the wording you want. One row applies both
-          directions. Use commas for aliases, e.g.{" "}
-          <span className="font-mono">claim number, claim #</span>. Transcription (STT) is unchanged.
+          . Every row is sent as a{" "}
+          <span className="font-medium text-foreground/80">prompt hint</span>.{" "}
+          <span className="font-medium text-foreground/80">Strict</span> rows also get lightweight output fixes (when enabled below);{" "}
+          <span className="font-medium text-foreground/80">Hint</span> rows never change the model text after the fact. Use commas for alternate
+          source phrases, e.g. <span className="font-mono">claim number, claim #</span>. Higher <span className="font-mono">priority</span> runs first
+          when several strict rows apply. For the reverse direction, add a separate entry with the workspace languages swapped. Transcription (STT) is unchanged.
         </p>
+        <label className="flex items-start gap-2 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            className="mt-0.5 rounded border-2 border-border text-primary accent-primary"
+            checked={glossaryStrict}
+            onChange={e => {
+              const v = e.target.checked;
+              setGlossaryStrict(v);
+              writeGlossaryStrictEnabled(v);
+            }}
+          />
+          <span className="text-[10px] text-foreground leading-snug">
+            <span className="font-semibold">Force glossary on output</span>
+            <span className="text-muted-foreground">
+              {" "}
+              (recommended) — replaces leaked source phrases in-line when possible; otherwise appends at most two preferred terms per segment (no extra AI calls).
+            </span>
+          </span>
+        </label>
       </div>
 
       <form
@@ -242,7 +264,7 @@ export function GlossaryPanel({ onClose, langA, langB }: Props) {
                   </p>
                 ) : (
                   <p className="text-[9px] text-amber-700/90 mt-0.5 truncate">
-                    No language pair saved
+                    No direction saved — edit to set languages for chunk-v2
                   </p>
                 )}
               </div>

@@ -12,7 +12,8 @@ describe("chunk-v2 medical term pack", () => {
 
   it("builds en↔ar translation terms for MMR and vaccines", () => {
     const ctx = buildChunkV2MedicalPackContext("en", "ar");
-    expect(ctx.terms).toEqual([]);
+    expect(ctx.terms.some((t) => /MMR/i.test(t))).toBe(true);
+    expect(ctx.terms.some((t) => /COVID-19/i.test(t))).toBe(true);
     const mmr = ctx.translation_terms.find(
       (t) => t.source === "MMR" || /الحصبة/.test(t.target) || /الحصبة/.test(t.source),
     );
@@ -32,15 +33,16 @@ describe("chunk-v2 medical term pack", () => {
     expect(ctx.translation_terms.some((t) => /[\u0600-\u06FF]/.test(t.source + t.target))).toBe(false);
   });
 
-  it("does not pin vaccine brand names into STT recognition", () => {
+  it("includes corrected ISA immunisation aliases as EN pins", () => {
     const ctx = buildChunkV2MedicalPackContext("en", "fr");
-    expect(ctx.terms).toEqual([]);
-    expect(ctx.translation_terms.some((t) => /Hib|Haemophilus|BCG|MMR|vacuna/i.test(`${t.source} ${t.target}`))).toBe(true);
+    expect(ctx.terms.some((t) => /Hib|Haemophilus/i.test(t))).toBe(true);
+    expect(ctx.terms.some((t) => /DTaP|DTP/i.test(t))).toBe(true);
+    expect(ctx.terms.some((t) => /BCG/i.test(t))).toBe(true);
   });
 
   it("respects translation_terms budget", () => {
     const ctx = buildChunkV2MedicalPackContext("en", "ar");
-    expect(ctx.translation_terms.length).toBeLessThanOrEqual(24);
-    expect(ctx.terms).toEqual([]);
+    expect(ctx.translation_terms.length).toBeLessThanOrEqual(72);
+    expect(ctx.terms.length).toBeLessThanOrEqual(96);
   });
 });

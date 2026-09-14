@@ -29,7 +29,9 @@ const pack = packJson as MedicalTermPack;
  * Keep pack small; vaccines are ordered first so ISA fills only leftover slots.
  * Final hard trim lives in `fitSonioxContextToBudget`.
  */
-const MAX_PACK_TRANSLATION_TERMS = 24;
+const MAX_PACK_TRANSLATION_TERMS = 72;
+/** Soft cap for extra EN recognition pins from this pack (vaccines/abbr first). */
+const MAX_PACK_EN_PINS = 96;
 
 function baseLang(code: string): string {
   return (code || "").trim().split("-")[0]!.toLowerCase();
@@ -73,6 +75,15 @@ function pushUnique(
   return true;
 }
 
+function pushPin(pins: string[], seen: Set<string>, term: string): void {
+  const t = term.trim();
+  if (t.length < 2) return;
+  const k = t.toLowerCase();
+  if (seen.has(k)) return;
+  seen.add(k);
+  pins.push(t);
+}
+
 /**
  * Build pair-scoped Soniox context additions from the vaccine + ISA pack.
  * Prefer vaccines, then ISA terms that have a real non-English translation.
@@ -86,13 +97,21 @@ export function buildChunkV2MedicalPackContext(
   const aIsEn = baseLang(langA) === "en";
   const bIsEn = baseLang(langB) === "en";
 
+  const pins: string[] = [];
+  const pinSeen = new Set<string>();
   const translationTerms: SonioxContextTerm[] = [];
   const termSeen = new Set<string>();
-  const vaccineEntries = pack.vaccines;
-  const isaEntries = pack.isaTerms;
-  const ordered: PackEntry[] = [...vaccineEntries, ...isaEntries];
+
+  // Phase 1: vaccines first (higher priority), then ISA glossary terms.
+  const ordered: PackEntry[] = [...pack.vaccines, ...pack.isaTerms];
 
   for (const entry of ordered) {
+    if (pins.length < MAX_PACK_EN_PINS) {
+      pushPin(pins, pinSeen, entry.en);
+      for (const ab of entry.abbr ?? []) pushPin(pins, pinSeen, ab);
+      if (entry.sourceRaw) pushPin(pins, pinSeen, entry.sourceRaw);
+    }
+
     if (translationTerms.length >= MAX_PACK_TRANSLATION_TERMS) continue;
 
     const trA = aKey && !aIsEn ? translationFor(entry, aKey) : null;
@@ -121,11 +140,7 @@ export function buildChunkV2MedicalPackContext(
   }
 
   return {
-    // Do not pin vaccine brand names into STT recognition — Soniox then
-    // hallucinates Spikevax / Tetanus / acellular onto Arabic (or any
-    // unclear audio) before LID settles. Translation pairs still apply
-    // when the word was actually spoken.
-    terms: [],
+    terms: pins.slice(0, MAX_PACK_EN_PINS),
     translation_terms: translationTerms.slice(0, MAX_PACK_TRANSLATION_TERMS),
   };
 }

@@ -4,7 +4,7 @@ import type { SonioxFrame } from "./frame-types";
 import { stableSonioxTokenId } from "../policies/token-identity";
 
 function isSonioxEndpointPiece(text: unknown): boolean {
-  return typeof text === "string" && (/<(?:end|fin)>/i.test(text));
+  return typeof text === "string" && /<end>/i.test(text);
 }
 
 interface RawSonioxToken {

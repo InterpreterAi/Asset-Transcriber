@@ -5,7 +5,6 @@ import { buildSonioxInterpreterContext } from "@/lib/interpreter-stt-context";
 import {
   buildSonioxLanguageHints,
   sonioxHintCorrespondsToWorkspaceLang,
-  sonioxRealtimeLanguageHintConfig,
   sonioxRealtimeSessionTuning,
   stableSonioxBilingualOrder,
   workspacePairMemberForSonioxHint,
@@ -3427,8 +3426,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const dispatchMorsyChunkV2LivePreviewRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
   const dispatchMorsyChunkV2EndpointFlushRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
   const chunkV2GlossaryEntriesRef = useRef<ChunkV2GlossaryEntry[]>([]);
-  /** Sticky EN→AR patient/addressee gender for the open call (he/him vs she/her). */
-  const chunkV2ArabicAddresseeGenderRef = useRef<"m" | "f" | undefined>(undefined);
   /** Stable call site for engine hooks (defined later in this hook). */
   const applyChunkV2FinalGlossaryPostProcessRef = useRef<
     (translationText: string, committedOriginal: string, rowSourceLanguage: string) => string
@@ -3928,7 +3925,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             );
             if (!painted.length && !baseTx.length) continue;
             paintCanonRowTranslationIfAllowed(row.row_id, painted, {
-              force: true,
+              force: row.finalized,
             });
           }
           // Track the active row ID — do NOT clear translation on transition.
@@ -4000,8 +3997,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const audioCtxRef  = useRef<AudioContext | null>(null);
   const wsRef        = useRef<WebSocket | null>(null);
   const workletRef   = useRef<AudioWorkletNode | null>(null);
-  /** Resolves when pcm-processor.js acknowledges `{ type: "flush" }` after draining its partial buffer. */
-  const workletFlushDoneRef = useRef<(() => void) | null>(null);
   const streamsRef   = useRef<MediaStream[]>([]);
   const isRecRef     = useRef(false);
   const startInFlightRef = useRef(false);
@@ -4071,10 +4066,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         rowSourceLanguage,
         langA: pair.a,
         langB: pair.b,
-        sessionAddresseeGender: chunkV2ArabicAddresseeGenderRef.current,
-        onInferredAddresseeGender: (g) => {
-          chunkV2ArabicAddresseeGenderRef.current = g;
-        },
       },
     );
   }, []);
@@ -4082,9 +4073,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   const clearChunkV2GlossaryState = useCallback(() => {
     chunkV2GlossaryEntriesRef.current = [];
-    chunkV2ArabicAddresseeGenderRef.current = undefined;
     canonWsIsolationEngineRef.current?.setChunkV2GlossaryTerms([]);
-    canonWsIsolationEngineRef.current?.setChunkV2GlossaryEntries([], langPairRef.current);
   }, []);
 
   const loadAndApplyChunkV2Glossary = useCallback(async (
@@ -4098,25 +4087,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     canonWsIsolationEngineRef.current?.setChunkV2GlossaryTerms(
       chunkV2GlossaryToSonioxTerms(entries),
     );
-    canonWsIsolationEngineRef.current?.setChunkV2GlossaryEntries(entries, { a: langA, b: langB });
   }, []);
 
-  // Mid-session glossary edits: reload force list and restart Soniox so
-  // translation_terms pick up the new preferred wording immediately.
+  // Mid-session glossary edits: refresh client force entries immediately (Soniox
+  // translation_terms still need a session restart / pair change to update upstream).
   useEffect(() => {
     const onGlossaryChanged = () => {
       if (!isRecRef.current || !canonWsIsolationRecordingRef.current) return;
       if (!morsyUsesChunkTranslationV2Experiment()) return;
       const apiKey = sonioxSessionApiKeyRef.current;
-      const eng = canonWsIsolationEngineRef.current;
-      if (!apiKey || !eng) return;
+      if (!apiKey) return;
       const pair = langPairRef.current;
-      void (async () => {
-        await loadAndApplyChunkV2Glossary(pair.a, pair.b, apiKey);
-        if (sonioxSessionApiKeyRef.current !== apiKey) return;
-        if (!isRecRef.current || !canonWsIsolationRecordingRef.current) return;
-        eng.restartSoniox(apiKey, pair, TARGET_RATE, sonioxRtUrlRef.current ?? undefined);
-      })();
+      void loadAndApplyChunkV2Glossary(pair.a, pair.b, apiKey);
     };
     window.addEventListener(GLOSSARY_CHANGED_EVENT, onGlossaryChanged);
     return () => window.removeEventListener(GLOSSARY_CHANGED_EVENT, onGlossaryChanged);
@@ -8262,57 +8244,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       heartbeatIntervalRef.current = null;
     }
     stopTranslationInterval();
-
-    const usedCanonEngine = canonWsIsolationRecordingRef.current;
-    const eng = canonWsIsolationEngineRef.current;
-
-    // Stop capturing new mic audio first, then drain pcm-processor.js's partial
-    // buffer. Flushing the WebSocket alone does not empty that worklet buffer.
-    streamsRef.current.forEach(s => s.getTracks().forEach(t => t.stop()));
-    streamsRef.current = [];
-    setMicLevel(0);
-
-    const worklet = workletRef.current;
-    if (worklet) {
-      await new Promise<void>((resolve) => {
-        let settled = false;
-        const finish = () => {
-          if (settled) return;
-          settled = true;
-          workletFlushDoneRef.current = null;
-          window.clearTimeout(timer);
-          resolve();
-        };
-        const timer = window.setTimeout(finish, 800);
-        workletFlushDoneRef.current = finish;
-        try {
-          worklet.port.postMessage({ type: "flush" });
-        } catch {
-          finish();
-        }
-      });
-    }
-
-    // Await Soniox completion so final results land before freeze/export/teardown.
-    if (usedCanonEngine && eng && typeof eng.stopSonioxGraceful === "function") {
-      await eng.stopSonioxGraceful();
-      eng.setHooks({ onSpeechToken: undefined });
-    } else {
-      eng?.stopSoniox();
-      eng?.setHooks({ onSpeechToken: undefined });
-      if (wsRef.current) {
-        try { wsRef.current.send(new ArrayBuffer(0)); } catch (_) { /* eof */ }
-        wsRef.current.close();
-        wsRef.current = null;
-      }
-    }
-
     finalizeLiveBubble();
 
     canonWsIsolationRecordingRef.current = false;
     sonioxSessionApiKeyRef.current = null;
     sonioxRtUrlRef.current = null;
     clearChunkV2GlossaryState();
+
+    canonWsIsolationEngineRef.current?.stopSoniox();
+    canonWsIsolationEngineRef.current?.setHooks({ onSpeechToken: undefined });
 
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     const transcriptSegIsolationStop =
@@ -8338,10 +8278,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     workletRef.current?.disconnect();
     workletRef.current = null;
-    workletFlushDoneRef.current = null;
 
     if (wsRef.current) {
-      try { wsRef.current.close(); } catch (_) { /* ignore */ }
+      try { wsRef.current.send(new ArrayBuffer(0)); } catch (_) { /* eof */ }
+      wsRef.current.close();
       wsRef.current = null;
     }
     pcmBacklogRef.current = [];
@@ -8350,6 +8290,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       await audioCtxRef.current.close();
       audioCtxRef.current = null;
     }
+
+    streamsRef.current.forEach(s => s.getTracks().forEach(t => t.stop()));
+    streamsRef.current = [];
+    setMicLevel(0);
 
     if (sessionIdRef.current) {
       const wallSec = Math.floor((Date.now() - startTimeRef.current) / 1000);
@@ -8416,7 +8360,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     doClear,
     flushFinalTextRenderQueue,
     cancelOpenAiLiveDebounce,
-    clearChunkV2GlossaryState,
   ]);
 
   useEffect(() => {
@@ -8490,7 +8433,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         audio_format:                   "pcm_s16le",
         sample_rate:                    TARGET_RATE,
         num_channels:                   1,
-        ...sonioxRealtimeLanguageHintConfig(language_hints),
+        language_hints,
+        language_hints_strict:          true,
         context:                        interpreterCtx,
         enable_language_identification: tuning.enableLanguageIdentification,
         enable_speaker_diarization:     true,
@@ -9944,13 +9888,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       worklet.connect(ctx.destination);
 
       worklet.port.onmessage = (e) => {
-        const data = e.data;
-        if (data && typeof data === "object" && (data as { type?: string }).type === "flushed") {
-          workletFlushDoneRef.current?.();
-          return;
-        }
-        const raw = data as ArrayBuffer;
-        if (!(raw instanceof ArrayBuffer)) return;
+        const raw = e.data as ArrayBuffer;
         if (canonWsIsolationRecordingRef.current && canonWsIsolationEngineRef.current) {
           canonWsIsolationEngineRef.current.sendPcm(raw);
         } else {

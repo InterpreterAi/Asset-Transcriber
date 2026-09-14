@@ -10,12 +10,8 @@ import type { SonioxContext, SonioxContextTerm } from "./interpreter-context";
 
 /** Absolute Soniox API ceiling. */
 export const SONIOX_CONTEXT_MAX_CHARS = 10_000;
-/**
- * Operating budget — stay well under the hard 10k ceiling.
- * Oversized / noisy context makes Soniox ignore or reject pins (vaccines,
- * cholesterol, claims, etc.). Prefer a tight high-signal payload.
- */
-export const SONIOX_CONTEXT_SAFE_CHARS = 7_500;
+/** Leave headroom for JSON punctuation / Unicode edge cases. */
+export const SONIOX_CONTEXT_SAFE_CHARS = 9_800;
 
 export function sonioxContextCharLength(ctx: SonioxContext): number {
   return JSON.stringify(ctx).length;
@@ -30,7 +26,7 @@ export type FitSonioxContextOptions = {
 /**
  * Trim lowest-priority context until serialized size ≤ maxChars.
  * Drop order: trailing translation_terms (ISA/pack), then recognition pins.
- * Never removes protected register `general` keys; never invents context.text.
+ * Never removes `general` or protected leading glossary translation_terms until last resort.
  */
 export function fitSonioxContextToBudget(
   ctx: SonioxContext,
@@ -38,14 +34,6 @@ export function fitSonioxContextToBudget(
 ): SonioxContext {
   const maxChars = opts.maxChars ?? SONIOX_CONTEXT_SAFE_CHARS;
   const protectedCount = Math.max(0, opts.protectedTranslationTermCount ?? 0);
-  const PROTECTED_GENERAL = new Set([
-    "domain",
-    "topic",
-    "setting",
-    "speakers",
-    "language",
-    "instructions",
-  ]);
 
   const next: SonioxContext = {
     general: ctx.general.map((g) => ({ ...g })),
@@ -54,8 +42,6 @@ export function fitSonioxContextToBudget(
   if (ctx.translation_terms && ctx.translation_terms.length > 0) {
     next.translation_terms = ctx.translation_terms.map((t) => ({ ...t }));
   }
-  // Never send free-form session memory / prior-transcript text into Soniox context.
-  // (Soniox `context.text` would condition style on prior dialect turns.)
 
   if (sonioxContextCharLength(next) <= maxChars) return next;
 
@@ -91,25 +77,15 @@ export function fitSonioxContextToBudget(
   }
   if (sonioxContextCharLength(next) <= maxChars) return next;
 
-  // 4) Extreme: shorten verbose non-protected general values, then drop non-protected keys.
+  // 4) Extreme: shorten verbose general values (keep keys).
   for (let i = next.general.length - 1; i >= 0 && sonioxContextCharLength(next) > maxChars; i--) {
     const item = next.general[i]!;
-    if (!PROTECTED_GENERAL.has(item.key) && item.value.length > 80) {
+    if (item.value.length > 80) {
       item.value = `${item.value.slice(0, 77)}...`;
     }
   }
-  for (let i = next.general.length - 1; i >= 0 && sonioxContextCharLength(next) > maxChars; i--) {
-    const item = next.general[i]!;
-    if (!PROTECTED_GENERAL.has(item.key)) {
-      next.general.splice(i, 1);
-    }
-  }
-  // Absolute last resort: shorten protected values but keep the keys.
-  for (let i = next.general.length - 1; i >= 0 && sonioxContextCharLength(next) > maxChars; i--) {
-    const item = next.general[i]!;
-    if (item.value.length > 120) {
-      item.value = `${item.value.slice(0, 117)}...`;
-    }
+  while (next.general.length > 2 && sonioxContextCharLength(next) > maxChars) {
+    next.general.pop();
   }
 
   return next;

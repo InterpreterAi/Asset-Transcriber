@@ -1,22 +1,12 @@
 import type { AppendOnlyCanonLedger } from "../ledger/append-ledger";
-import type { CanonToken } from "../types/canon-token";
 import type { EngineState } from "../types/transcript";
 import type { SonioxFrame } from "../ws/frame-types";
 
-import { isChunkV2OpenRowMidWord } from "../policies/mid-word-open";
-import { localizeFillersInCanonTokens } from "../policies/localize-speech-fillers";
 import { SAME_SPEAKER_LONG_PAUSE_SPLIT_MS } from "../policies/segmentation-constants";
-import { isChunkV2ShortAcknowledgement } from "../policies/short-acknowledgement";
-import {
-  collapseConsecutiveShortAckSegments,
-  collapseInternalShortAckSpam,
-  shouldSkipDuplicateShortAckFinal,
-} from "../policies/short-ack-collapse";
 import {
   appendFinalToActive,
   freezeActiveUtterance,
   openActiveUtterance,
-  retractOverlappingWrongScriptTokens,
   rowBreaksForLanguage,
   rowBreaksForSpeaker,
 } from "./row-lifecycle";
@@ -27,9 +17,14 @@ import {
   translationTextFromFrame,
   inferTailSpeakerLang,
   nonFinalsForRow,
-  stabilizeCanonSpeakers,
 } from "./soniox-frame-split";
-import { reduceCanonAppendWsNonChunkV2 } from "./reducer.non-chunk-v2";
+
+const SPEAKER_BREAK_CONFIRM_TOKENS = 1;
+
+function normalizedSpeakerId(s?: string): string | undefined {
+  const t = s?.trim();
+  return t && t.length > 0 ? t : undefined;
+}
 
 export type ReduceContext = {
   ledger: AppendOnlyCanonLedger;
@@ -38,137 +33,40 @@ export type ReduceContext = {
   chunkV2NativeTranslate?: boolean;
 };
 
-function clearChunkV2Pending(state: EngineState): EngineState {
-  return {
-    ...state,
-    pendingSpeakerId: undefined,
-    pendingLanguage: undefined,
-    pendingSpeakerFinals: [],
-    speakerChangeConsecutive: 0,
-  };
-}
-
-function tokenAudioStartMs(t: CanonToken): number | undefined {
-  return typeof t.start_ms === "number" && Number.isFinite(t.start_ms) ? t.start_ms : undefined;
-}
-
-/** Prefer end_ms; fall back to start_ms when Soniox omits end. */
-function tokenAudioEndMs(t: CanonToken): number | undefined {
-  if (typeof t.end_ms === "number" && Number.isFinite(t.end_ms)) return t.end_ms;
-  return tokenAudioStartMs(t);
-}
-
-function minTokenAudioStartMs(tokens: readonly CanonToken[]): number | undefined {
-  let min: number | undefined;
-  for (const t of tokens) {
-    const start = tokenAudioStartMs(t);
-    if (start === undefined) continue;
-    if (min === undefined || start < min) min = start;
-  }
-  return min;
-}
-
-function maxTokenAudioEndMs(tokens: readonly CanonToken[]): number | undefined {
-  let max: number | undefined;
-  for (const t of tokens) {
-    const end = tokenAudioEndMs(t);
-    if (end === undefined) continue;
-    if (max === undefined || end > max) max = end;
-  }
-  return max;
-}
-
-function normSpeaker(s: string | undefined): string | undefined {
-  const t = s?.trim();
-  return t?.length ? t : undefined;
-}
-
-/**
- * Same speaker resumes after a long quiet — new row.
- * Split if EITHER Soniox audio gap OR client wall quiet since last *speech*
- * tokens reaches the threshold (wall-only silence was invisible when we only
- * measured audio, and audio-only missed real pauses when delayed finals filled time).
- */
+/** Same speaker, speech resumes after a long gap — new row (not every short Soniox `<end>`). */
 function tryLongPauseSplit(
   state: EngineState,
-  incomingAudioStartMs: number | undefined,
-  pauseSplitMs: number,
   wallMs: number,
+  pauseSplitMs: number,
 ): EngineState {
   const au = state.activeUtterance;
-  if (!au) return state;
+  if (!au || state.lastTokenActivityWallMs <= 0) return state;
+  const gap = wallMs - state.lastTokenActivityWallMs;
+  if (gap < pauseSplitMs) return state;
   const hasContent =
     utteranceCommittedText(au).trim().length > 0 || utteranceLiveText(au).trim().length > 0;
   if (!hasContent) return state;
-  const committed = utteranceCommittedText(au);
-  if (isChunkV2ShortAcknowledgement(committed)) return state;
-  if (isChunkV2OpenRowMidWord(committed)) return state;
-
-  let shouldSplit = false;
-  const audioGap =
-    incomingAudioStartMs !== undefined && state.lastTokenAudioEndMs !== null
-      ? incomingAudioStartMs - state.lastTokenAudioEndMs
-      : undefined;
-  if (audioGap !== undefined && audioGap >= pauseSplitMs) {
-    shouldSplit = true;
-  } else if (
-    state.lastTokenActivityWallMs > 0 &&
-    wallMs - state.lastTokenActivityWallMs >= pauseSplitMs
-  ) {
-    // Wall quiet counts only when audio also looks interrupted (or timestamps
-    // missing). Pure delivery delay = long wall + tiny audio gap → stay.
-    const MIN_AUDIO_GAP_FOR_WALL_SPLIT_MS = 800;
-    if (audioGap === undefined || audioGap >= MIN_AUDIO_GAP_FOR_WALL_SPLIT_MS) {
-      shouldSplit = true;
-    }
-  }
-  if (!shouldSplit) return state;
-
   return {
-    ...freezeActiveUtterance(clearChunkV2Pending(state)),
+    ...freezeActiveUtterance(state),
     endpointPending: false,
     endpointPendingAtMs: 0,
-  };
-}
-
-/** Freeze current row and prepare a clean handoff (no pending buffer / chunk dump). */
-function freezeForSpeakerHandoff(state: EngineState): EngineState {
-  return {
-    ...freezeActiveUtterance(clearChunkV2Pending(state)),
-    endpointPending: false,
-    endpointPendingAtMs: 0,
-    metrics: {
-      ...state.metrics,
-      speakerFlipCount: state.metrics.speakerFlipCount + 1,
-    },
   };
 }
 
 /**
- * Soniox-faithful chunk-v2 bubbles:
- * - New speaker → open new colored row immediately (N=1) so non-finals keep typing live
- *   (Soniox docs: display NF instantly; finals append). No pending freeze→chunk dump.
- * - Intra-frame flicker collapsed via stabilizeCanonSpeakers
- * - Language-only code-switch stays on the same row
- * - Same speaker long quiet (~5s audio OR wall) → new row
+ * Soniox real-time contract + Intercall row timing:
+ * - Append finals once; replace non-finals each frame
+ * - New row on speaker/language final boundary
+ * - Same speaker: new row only after {@link SAME_SPEAKER_LONG_PAUSE_SPLIT_MS} silence (not per-sentence `<end>`)
  */
-function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: ReduceContext): EngineState {
+export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx: ReduceContext): EngineState {
   const wallMs = ctx.wallMs;
+  const speakerBreakConfirmTokens = ctx.chunkV2NativeTranslate ? 1 : SPEAKER_BREAK_CONFIRM_TOKENS;
 
   let next: EngineState = state;
   const pauseSplitMs = ctx.sameSpeakerLongPauseSplitMs ?? SAME_SPEAKER_LONG_PAUSE_SPLIT_MS;
-  const rowHint = state.activeUtterance
-    ? {
-        text: utteranceCommittedText(state.activeUtterance),
-        language: state.activeUtterance.language,
-      }
-    : undefined;
-  const canon = localizeFillersInCanonTokens(
-    stabilizeCanonSpeakers(canonTokensFromFrame(frame.tokens, frame.seq)),
-    rowHint,
-  );
-  if (canon.length > 0) {
-    next = tryLongPauseSplit(next, minTokenAudioStartMs(canon), pauseSplitMs, wallMs);
+  if (frame.tokens.length > 0) {
+    next = tryLongPauseSplit(next, wallMs, pauseSplitMs);
   }
 
   const finProc =
@@ -190,102 +88,88 @@ function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: Redu
     lastHypothesisLagMs: lagComputed !== null ? lagComputed : next.lastHypothesisLagMs,
   };
 
-  const translationChunk = collapseInternalShortAckSpam(
-    translationTextFromFrame(frame.tokens),
-  );
+  const translationChunk = translationTextFromFrame(frame.tokens);
   const translationPreview = translationPreviewTextFromFrame(frame.tokens);
-  const nextFinalTranslation = collapseConsecutiveShortAckSegments(
+  const nextFinalTranslation =
     translationChunk.length > 0
       ? (next.activeTranslationText ?? "") + translationChunk
-      : next.activeTranslationText ?? "",
-  );
-  let nextPreviewTranslation: string;
-  if (translationPreview.length > 0) {
-    nextPreviewTranslation = collapseConsecutiveShortAckSegments(
-      `${nextFinalTranslation}${translationPreview}`,
-    );
-  } else if (translationChunk.length > 0) {
-    nextPreviewTranslation = nextFinalTranslation;
-  } else {
-    const prevPreview = next.activeTranslationPreviewText ?? "";
-    nextPreviewTranslation =
-      prevPreview.length > nextFinalTranslation.length ? prevPreview : nextFinalTranslation;
-  }
+      : next.activeTranslationText ?? "";
   next = {
     ...next,
     activeTranslationText: nextFinalTranslation,
-    activeTranslationPreviewText: nextPreviewTranslation,
+    activeTranslationPreviewText:
+      translationPreview.length > 0
+        ? `${nextFinalTranslation}${translationPreview}`
+        : nextFinalTranslation,
   };
 
+  const canon = canonTokensFromFrame(frame.tokens);
   const frameFinals = canon.filter(t => t.is_final);
   const frameNonFinals = canon.filter(t => !t.is_final);
 
   for (const ct of frameFinals) {
     if (next.seenFinalTokenIds.includes(ct.token_id)) continue;
     next = { ...next, seenFinalTokenIds: [...next.seenFinalTokenIds, ct.token_id] };
-    const cleanedText = collapseInternalShortAckSpam(ct.text);
-    const cleaned: CanonToken =
-      cleanedText === ct.text ? ct : { ...ct, text: cleanedText };
-
-    // Identical short-ack loop across frames (message-scoped ids never collide).
-    if (shouldSkipDuplicateShortAckFinal(next, cleaned)) {
-      continue;
-    }
-
-    ctx.ledger.appendFinalCanon(cleaned);
+    ctx.ledger.appendFinalCanon(ct);
 
     if (next.activeUtterance) {
-      const openMidWord = isChunkV2OpenRowMidWord(utteranceCommittedText(next.activeUtterance));
-      const langBreak = rowBreaksForLanguage(next.activeUtterance, cleaned);
-      const spkBreak = rowBreaksForSpeaker(next.activeUtterance, cleaned);
-
-      if (openMidWord && langBreak && !spkBreak) {
-        // Mid-word LID flicker — stay.
-        next = clearChunkV2Pending(next);
+      const langBreak = rowBreaksForLanguage(next.activeUtterance, ct);
+      // spkBreak is now evaluated independently of langBreak.
+      // A language switch alone (same speaker, interpreter code-switching en↔ar) is NOT
+      // a bubble boundary — only split when BOTH language AND speaker change together.
+      const spkBreak = rowBreaksForSpeaker(next.activeUtterance, ct);
+      if (langBreak && spkBreak) {
+        // Genuine handoff: different language AND different speaker — hard break.
+        next = freezeActiveUtterance(next);
+        next = {
+          ...next,
+          endpointPending: false,
+          endpointPendingAtMs: 0,
+          speakerChangeConsecutive: 0,
+          metrics: { ...next.metrics, speakerFlipCount: next.metrics.speakerFlipCount + 1 },
+        };
       } else if (spkBreak) {
-        // Real or diarized speaker change: open immediately so live typing never stalls.
-        // stabilizeCanonSpeakers already collapsed one-token A→B→A flicker inside the frame.
-        next = freezeForSpeakerHandoff(next);
-      } else {
-        const lidFix = retractOverlappingWrongScriptTokens(next.activeUtterance, cleaned);
-        if (lidFix.retracted) {
+        // Speaker changed, language stayed the same — use the confirmation debounce.
+        const consecutive = (next.speakerChangeConsecutive ?? 0) + 1;
+        if (consecutive >= speakerBreakConfirmTokens) {
+          next = freezeActiveUtterance(next);
           next = {
             ...next,
-            activeUtterance: lidFix.row,
-            activeTranslationText: translationChunk,
-            activeTranslationPreviewText: translationPreview || translationChunk,
+            endpointPending: false,
+            endpointPendingAtMs: 0,
+            speakerChangeConsecutive: 0,
+            metrics: { ...next.metrics, speakerFlipCount: next.metrics.speakerFlipCount + 1 },
           };
+        } else {
+          next = { ...next, speakerChangeConsecutive: consecutive };
         }
-        next = clearChunkV2Pending(next);
+        // langBreak && !spkBreak: same speaker, language switched (interpreter code-switch).
+        // Fall through — no freeze, token appended to the active row below.
+      } else {
+        next = { ...next, speakerChangeConsecutive: 0 };
       }
     }
 
     if (!next.activeUtterance) {
-      next = openActiveUtterance(next, cleaned.speaker, cleaned.language);
+      next = openActiveUtterance(next, ct.speaker, ct.language);
     }
 
-    next = appendFinalToActive(next, cleaned, { preserveEstablishedSpeaker: true });
+    next = appendFinalToActive(next, ct);
   }
 
   const tail = inferTailSpeakerLang(canon.length ? canon : frameNonFinals);
-  const activeSp = normSpeaker(next.activeUtterance?.speaker);
-  const tailSp = normSpeaker(tail.speaker);
-  const openCommitted = next.activeUtterance
-    ? utteranceCommittedText(next.activeUtterance)
-    : "";
 
-  // Non-finals already show a new speaker — open the new colored row now so
-  // typing follows speech before the first final (Soniox: display NF instantly).
+  const tailLang = tail.language?.split("-")[0]?.toLowerCase();
+  const activeLang = next.activeUtterance?.language;
   if (
-    next.activeUtterance &&
-    activeSp &&
-    tailSp &&
-    activeSp !== tailSp &&
+    activeLang &&
+    tailLang &&
+    tailLang !== activeLang &&
     frameNonFinals.length > 0 &&
-    openCommitted.trim().length > 0 &&
-    !isChunkV2OpenRowMidWord(openCommitted)
+    utteranceCommittedText(next.activeUtterance!).trim().length > 0
   ) {
-    next = freezeForSpeakerHandoff(next);
+    next = freezeActiveUtterance(next);
+    next = { ...next, endpointPending: false, endpointPendingAtMs: 0 };
   }
 
   if (!next.activeUtterance && frameNonFinals.length > 0) {
@@ -306,21 +190,8 @@ function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: Redu
     };
   }
 
-  // Only original speech advances "activity" — translation-only frames must not
-  // hide a real wall-clock pause from the 5s split.
-  if (canon.length > 0) {
+  if (frame.tokens.length > 0) {
     next = { ...next, lastTokenActivityWallMs: wallMs };
-  }
-
-  const audioEnd = maxTokenAudioEndMs(canon);
-  if (audioEnd !== undefined) {
-    next = {
-      ...next,
-      lastTokenAudioEndMs:
-        next.lastTokenAudioEndMs === null
-          ? audioEnd
-          : Math.max(next.lastTokenAudioEndMs, audioEnd),
-    };
   }
 
   if (frame.endpoint) {
@@ -332,17 +203,6 @@ function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: Redu
   }
 
   return next;
-}
-
-/**
- * Dispatch: restored chunk-v2 behavior vs daffcfbf non-chunk canonAppendWs path.
- * Trial / Basic / Professional Soniox defaults use chunk-v2 (`chunkV2NativeTranslate`).
- */
-export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx: ReduceContext): EngineState {
-  if (ctx.chunkV2NativeTranslate) {
-    return reduceChunkV2Restored(state, frame, ctx);
-  }
-  return reduceCanonAppendWsNonChunkV2(state, frame, ctx);
 }
 
 /** PCM tick hook — row splits happen on speech resume in {@link reduceCanonAppendWs}, not on idle PCM. */

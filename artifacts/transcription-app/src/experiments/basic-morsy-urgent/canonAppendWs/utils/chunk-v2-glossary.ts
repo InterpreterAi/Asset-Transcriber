@@ -38,47 +38,6 @@ function glossaryRowLanguages(row: GlossaryApiRow): {
   return { sourceLanguage: rawSrc, targetLanguage: rawTgt };
 }
 
-function looksArabicScript(s: string): boolean {
-  return /[\u0600-\u06FF]/.test(s);
-}
-
-function pairMemberMatchingScript(
-  text: string,
-  langA: string,
-  langB: string,
-): string | null {
-  const arabic = looksArabicScript(text);
-  const latin = /[A-Za-z]/.test(text);
-  const aAr = normalizeWorkspaceLanguageCode(langA) === "ar";
-  const bAr = normalizeWorkspaceLanguageCode(langB) === "ar";
-  const aEn = normalizeWorkspaceLanguageCode(langA) === "en";
-  const bEn = normalizeWorkspaceLanguageCode(langB) === "en";
-  if (arabic && aAr) return langA;
-  if (arabic && bAr) return langB;
-  if (latin && !arabic && aEn) return langA;
-  if (latin && !arabic && bEn) return langB;
-  return null;
-}
-
-/** Infer langA→langB, or flip when term/translation scripts clearly match the pair. */
-function inferLegacyGlossaryDirection(
-  term: string,
-  translation: string,
-  langA: string,
-  langB: string,
-): { sourceLanguage: string; targetLanguage: string } {
-  const srcGuess = pairMemberMatchingScript(term, langA, langB);
-  const tgtGuess = pairMemberMatchingScript(translation, langA, langB);
-  if (
-    srcGuess &&
-    tgtGuess &&
-    !workspaceLanguagesEqual(srcGuess, tgtGuess)
-  ) {
-    return { sourceLanguage: srcGuess, targetLanguage: tgtGuess };
-  }
-  return { sourceLanguage: langA, targetLanguage: langB };
-}
-
 export function filterGlossaryForLanguagePair(
   rows: readonly GlossaryApiRow[],
   langA: string,
@@ -90,15 +49,10 @@ export function filterGlossaryForLanguagePair(
 
   for (const row of rows) {
     let { sourceLanguage: rawSrc, targetLanguage: rawTgt } = glossaryRowLanguages(row);
+    // Legacy rows saved before direction metadata: treat as current workspace langA→langB.
     if (!rawSrc || !rawTgt) {
-      const inferred = inferLegacyGlossaryDirection(
-        `${row.term ?? ""}`,
-        `${row.translation ?? ""}`,
-        a,
-        b,
-      );
-      rawSrc = inferred.sourceLanguage;
-      rawTgt = inferred.targetLanguage;
+      rawSrc = a;
+      rawTgt = b;
     }
 
     const sourceLanguage = normalizeWorkspaceLanguageCode(rawSrc);

@@ -29,7 +29,7 @@ describe("fitSonioxContextToBudget", () => {
   });
 });
 
-describe("getInterpreterContext Soniox budget (tight 7.5k operating cap)", () => {
+describe("getInterpreterContext Soniox budget", () => {
   const pairs: [string, string][] = [
     ["en", "ar"],
     ["en", "es"],
@@ -48,25 +48,16 @@ describe("getInterpreterContext Soniox budget (tight 7.5k operating cap)", () =>
       const len = sonioxContextCharLength(ctx);
       expect(len).toBeLessThanOrEqual(SONIOX_CONTEXT_SAFE_CHARS);
       expect(len).toBeLessThanOrEqual(SONIOX_CONTEXT_MAX_CHARS);
+      // Personal glossary retained when space allows
       expect(
         ctx.translation_terms?.some((t) => t.source === "MyClinic") ?? false,
       ).toBe(true);
     });
   }
 
-  it("uses official short Soniox general keys and does not send context.text", () => {
+  it("still includes vaccine pins for en↔ar when under budget", () => {
     const ctx = getInterpreterContext("en", "ar");
-    const keys = ctx.general.map((g) => g.key);
-    expect(keys).toContain("domain");
-    expect(keys).toContain("topic");
-    expect(keys).toContain("setting");
-    expect(keys).toContain("speakers");
-    expect(keys).toContain("instructions");
-    expect(keys).toContain("language");
-    expect(ctx.general.length).toBeLessThanOrEqual(10);
-    expect(ctx.general.every((g) => g.value.length <= 320)).toBe(true);
-    expect((ctx as { text?: string }).text).toBeUndefined();
-    expect(ctx.terms.length).toBeGreaterThan(0);
-    expect(ctx.translation_terms?.some((t) => t.source === "interpreter")).toBe(true);
+    const blob = JSON.stringify(ctx);
+    expect(/MMR|COVID|vaccine|لقاح/i.test(blob)).toBe(true);
   });
 });

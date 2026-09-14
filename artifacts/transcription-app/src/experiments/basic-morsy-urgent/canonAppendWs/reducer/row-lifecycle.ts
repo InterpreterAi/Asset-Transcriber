@@ -18,10 +18,7 @@ function trimTrailingSubwordTokens(tokens: CanonToken[]): CanonToken[] {
   return tokens;
 }
 
-/**
- * Language changed — used with speaker break in the reducer.
- * Language alone (same speaker code-switch) is NOT a bubble boundary (Aug / a029).
- */
+/** Language changed → always split immediately */
 export function rowBreaksForLanguage(row: CanonUtterance, tok: CanonToken): boolean {
   if (!row.finalTokens.length) return false;
   const rlg = langBase(row.language);
@@ -30,70 +27,15 @@ export function rowBreaksForLanguage(row: CanonUtterance, tok: CanonToken): bool
 }
 
 /**
- * Speaker changed — evaluated independently of language.
- * Reducer opens a new colored bubble immediately when this is true (Aug 25 / a029).
+ * Speaker changed — evaluated independently of language now (reducer combines
+ * this with `rowBreaksForLanguage` itself to distinguish a genuine handoff
+ * from a same-speaker language code-switch).
  */
 export function rowBreaksForSpeaker(row: CanonUtterance, tok: CanonToken): boolean {
   if (!row.finalTokens.length) return false;
   const rsp = norm(row.speaker);
   const tsp = norm(tok.speaker);
   return !!(rsp && tsp && rsp !== tsp);
-}
-
-function tokenScript(t: CanonToken): "ar" | "la" | "other" {
-  const text = t.text ?? "";
-  if (/[\u0600-\u06FF]/.test(text)) return "ar";
-  if (/[A-Za-z]/.test(text)) return "la";
-  const lg = langBase(t.language);
-  if (lg === "ar") return "ar";
-  if (lg) return "la";
-  return "other";
-}
-
-/**
- * Same speaker, different script, overlapping audio = LID catch-up, not a
- * real code-switch. Drop the wrong-script finals (English hallucination)
- * so the Arabic (or other script) can own the bubble.
- * Requires start_ms + end_ms. Sequential code-switch without overlap is kept.
- */
-export function retractOverlappingWrongScriptTokens(
-  row: CanonUtterance,
-  incoming: CanonToken,
-): { row: CanonUtterance; retracted: boolean } {
-  const inStart = incoming.start_ms;
-  const inEnd = incoming.end_ms ?? incoming.start_ms;
-  if (inStart === undefined || inEnd === undefined) return { row, retracted: false };
-  const inScript = tokenScript(incoming);
-  if (inScript === "other") return { row, retracted: false };
-
-  let retracted = false;
-  const keep: CanonToken[] = [];
-  for (const t of row.finalTokens) {
-    const tStart = t.start_ms;
-    const tEnd = t.end_ms ?? t.start_ms;
-    const tScript = tokenScript(t);
-    if (
-      tStart !== undefined &&
-      tEnd !== undefined &&
-      tScript !== "other" &&
-      tScript !== inScript &&
-      tStart < inEnd + 80 &&
-      inStart < tEnd + 80
-    ) {
-      retracted = true;
-      continue;
-    }
-    keep.push(t);
-  }
-  if (!retracted) return { row, retracted: false };
-  return {
-    retracted: true,
-    row: {
-      ...row,
-      finalTokens: keep,
-      language: langBase(incoming.language) ?? row.language,
-    },
-  };
 }
 
 export function openActiveUtterance(
@@ -114,26 +56,14 @@ export function openActiveUtterance(
     activeUtterance: u,
     nextUtteranceSeq: state.nextUtteranceSeq + 1,
     speakerChangeConsecutive: 0,
-    pendingSpeakerId: undefined,
-    pendingLanguage: undefined,
-    pendingSpeakerFinals: [],
   };
 }
 
-export function appendFinalToActive(
-  state: EngineState,
-  tok: CanonToken,
-  opts?: { preserveEstablishedSpeaker?: boolean },
-): EngineState {
+export function appendFinalToActive(state: EngineState, tok: CanonToken): EngineState {
   const au = state.activeUtterance;
   if (!au) return state;
-  // Chunk-v2 integrity: never overwrite a confirmed row speaker/language label.
-  // Non-chunk paths keep prior behavior (incoming token may refresh labels).
-  const preserve = opts?.preserveEstablishedSpeaker === true;
-  const sp = preserve ? (au.speaker ?? norm(tok.speaker)) : (norm(tok.speaker) ?? au.speaker);
-  const lg = preserve
-    ? (au.language ?? langBase(tok.language))
-    : (langBase(tok.language) ?? au.language);
+  const sp = norm(tok.speaker) ?? au.speaker;
+  const lg = langBase(tok.language) ?? au.language;
   let start_ms = au.start_ms;
   let end_ms = au.end_ms;
   if (typeof tok.start_ms === "number") {
@@ -156,93 +86,28 @@ export function appendFinalToActive(
   };
 }
 
-/**
- * Force-confirm buffered language/speaker finals onto a new active row.
- * Used by freeze (Stop/pause) and by chunk-v2 N-token break confirmation.
- */
-export function confirmPendingBreakToActive(state: EngineState): EngineState {
-  const pending = state.pendingSpeakerFinals;
-  if (!pending.length) {
-    return {
-      ...state,
-      pendingSpeakerId: undefined,
-      pendingLanguage: undefined,
-      pendingSpeakerFinals: [],
-      speakerChangeConsecutive: 0,
-    };
-  }
-  const first = pending[0]!;
-  const speaker = state.pendingSpeakerId ?? first.speaker;
-  const language = state.pendingLanguage ?? first.language;
-  let next: EngineState = {
-    ...state,
-    pendingSpeakerId: undefined,
-    pendingLanguage: undefined,
-    pendingSpeakerFinals: [],
-    speakerChangeConsecutive: 0,
-  };
-  // Freeze the old row without re-entering pending promotion.
-  const au = next.activeUtterance;
-  if (au && (utteranceCommittedText(au).length > 0 || utteranceLiveText(au).length > 0)) {
-    const frozen: CanonUtterance = {
-      ...au,
-      finalTokens: trimTrailingSubwordTokens([...au.finalTokens]),
-      nonFinalTokens: [],
-      is_final: true,
-      translationText:
-        (next.activeTranslationPreviewText ?? next.activeTranslationText)?.trim() || undefined,
-    };
-    next = {
-      ...next,
-      finalizedUtterances: [...next.finalizedUtterances, frozen],
-      activeUtterance: null,
-      activeTranslationText: "",
-      activeTranslationPreviewText: "",
-      metrics: {
-        ...next.metrics,
-        rowsFrozen: next.metrics.rowsFrozen + 1,
-        speakerFlipCount: next.metrics.speakerFlipCount + 1,
-      },
-    };
-  } else {
-    next = { ...next, activeUtterance: null };
-  }
-  next = openActiveUtterance(next, speaker, language);
-  for (const tok of pending) {
-    next = appendFinalToActive(next, tok, { preserveEstablishedSpeaker: true });
-  }
-  return next;
-}
-
 /** Hard-close active row — Intercall-style immutable block. */
 export function freezeActiveUtterance(state: EngineState): EngineState {
-  // If a chunk-v2 debounce is holding finals off-row, promote them onto a new
-  // active row first so Stop / pause-split do not drop the handoff.
-  let next = confirmPendingBreakToActive(state);
-  const au = next.activeUtterance;
-  if (!au) return next;
+  const au = state.activeUtterance;
+  if (!au) return state;
   if (!utteranceCommittedText(au).length && !utteranceLiveText(au).length) {
-    return { ...next, activeUtterance: null };
+    return { ...state, activeUtterance: null };
   }
   const frozen: CanonUtterance = {
     ...au,
     finalTokens: trimTrailingSubwordTokens([...au.finalTokens]),
     nonFinalTokens: [],
     is_final: true,
-    translationText:
-      (next.activeTranslationPreviewText ?? next.activeTranslationText)?.trim() || undefined,
+    translationText: state.activeTranslationText?.trim() || undefined,
   };
   return {
-    ...next,
-    finalizedUtterances: [...next.finalizedUtterances, frozen],
+    ...state,
+    finalizedUtterances: [...state.finalizedUtterances, frozen],
     activeUtterance: null,
     activeTranslationText: "",
     activeTranslationPreviewText: "",
     speakerChangeConsecutive: 0,
-    pendingSpeakerId: undefined,
-    pendingLanguage: undefined,
-    pendingSpeakerFinals: [],
-    metrics: { ...next.metrics, rowsFrozen: next.metrics.rowsFrozen + 1 },
+    metrics: { ...state.metrics, rowsFrozen: state.metrics.rowsFrozen + 1 },
   };
 }
 

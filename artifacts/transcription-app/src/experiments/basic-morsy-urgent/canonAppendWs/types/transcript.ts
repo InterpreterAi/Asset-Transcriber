@@ -1,4 +1,3 @@
-import type { CanonToken } from "./canon-token";
 import type { CanonUtterance } from "./canon-utterance";
 
 /**
@@ -11,11 +10,6 @@ export type EngineState = {
   activeTranslationText: string;
   activeTranslationPreviewText: string;
   speakerChangeConsecutive: number;
-  /** First new-speaker finals held off the old row until the handoff is real. */
-  pendingSpeakerId: string | undefined;
-  /** Chunk-v2: pending language-break base code (mutually exclusive with pendingSpeakerId). */
-  pendingLanguage: string | undefined;
-  pendingSpeakerFinals: CanonToken[];
   nextUtteranceSeq: number;
   /** Dedupe — Soniox sends each final token once. */
   seenFinalTokenIds: string[];
@@ -28,13 +22,7 @@ export type EngineState = {
   /** Soniox `<end>` seen — row closes only after quiet + finalized tail (Intercall-style). */
   endpointPending: boolean;
   endpointPendingAtMs: number;
-  /** Client arrival time of last frame that carried tokens (endpoint quiet / lag only). */
   lastTokenActivityWallMs: number;
-  /**
-   * Soniox audio timeline: max end_ms (else start_ms) seen on any token so far.
-   * Pause-split uses this vs the next token's start_ms — never wall-clock.
-   */
-  lastTokenAudioEndMs: number | null;
 
   metrics: {
     speakerFlipCount: number;
@@ -50,9 +38,6 @@ export function createInitialEngineState(): EngineState {
     activeTranslationText: "",
     activeTranslationPreviewText: "",
     speakerChangeConsecutive: 0,
-    pendingSpeakerId: undefined,
-    pendingLanguage: undefined,
-    pendingSpeakerFinals: [],
     nextUtteranceSeq: 0,
     seenFinalTokenIds: [],
 
@@ -64,7 +49,6 @@ export function createInitialEngineState(): EngineState {
     endpointPending: false,
     endpointPendingAtMs: 0,
     lastTokenActivityWallMs: 0,
-    lastTokenAudioEndMs: null,
 
     metrics: {
       speakerFlipCount: 0,

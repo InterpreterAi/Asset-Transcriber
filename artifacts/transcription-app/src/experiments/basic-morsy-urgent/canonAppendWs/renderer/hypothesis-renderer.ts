@@ -1,5 +1,3 @@
-import { isolateLtrRunsInRtl, LRI, RLI } from "@/lib/wrap-ltr-numbers";
-
 function ensureHypothesisText(span: HTMLElement): Text {
   const first = span.firstChild;
   if (first && span.childNodes.length === 1 && first.nodeType === Node.TEXT_NODE) {
@@ -19,15 +17,16 @@ export function renderHypothesisLcp(span: HTMLElement, next: string): void {
       span.getAttribute("dir") === "rtl" ||
       span.closest('[dir="rtl"]') !== null;
   }
-  const alreadyIsolated = next.includes(LRI) || next.includes(RLI);
-  const shouldWrapRtl = !alreadyIsolated && ((span as any)._isRtl as boolean);
-  const safeNext = shouldWrapRtl ? isolateLtrRunsInRtl(next) : next;
+  const shouldWrapRtl = (span as any)._isRtl as boolean;
+  const safeNext = shouldWrapRtl ? isolateLtrInRtl(next) : next;
   const tn = ensureHypothesisText(span);
   if (tn.data === safeNext) return;
   tn.replaceData(0, tn.data.length, safeNext);
 }
 
-/** @deprecated Prefer isolateLtrRunsInRtl — kept for existing imports. */
 export function isolateLtrInRtl(text: string): string {
-  return isolateLtrRunsInRtl(text);
+  return text.replace(
+    /([A-Za-z][A-Za-z0-9._@+\-/]*(?:\s[A-Za-z][A-Za-z0-9._@+\-/]*)*|\d[\d.,/:%-]*(?:\s*(?:mg|mL|kg|mmHg|bpm|%|dL|mcg|m2|USD|\$))?)/g,
+    "\u2066$1\u2069",
+  );
 }

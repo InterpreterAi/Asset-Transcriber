@@ -1,7 +1,5 @@
 /** Single committed originals node — append-only growth. */
 
-import { isolateLtrRunsInRtl, LRI, RLI } from "@/lib/wrap-ltr-numbers";
-
 function ensureCommittedTextHost(row: HTMLElement): Text {
   const fin = row.querySelector<HTMLElement>(`[data-caw-engine="committed"]`);
   if (!fin) throw new Error("CanonAppendWs: missing committed host");
@@ -23,13 +21,16 @@ export function createCommittedMirror(): CommittedDomMirror {
   return { lastUtf16Committed: 0 };
 }
 
+function isolateLtrInRtl(text: string): string {
+  return text.replace(
+    /([A-Za-z][A-Za-z0-9._@+\-/]*(?:\s[A-Za-z][A-Za-z0-9._@+\-/]*)*|\d[\d.,/:%-]*(?:\s*(?:mg|mL|kg|mmHg|bpm|%|dL|mcg|m2|USD|\$))?)/g,
+    "\u2066$1\u2069",
+  );
+}
+
 export function renderCommittedAppendOnly(row: HTMLElement, fullCommittedUtf16: string, mirror: CommittedDomMirror): void {
-  const alreadyIsolated =
-    fullCommittedUtf16.includes(LRI) || fullCommittedUtf16.includes(RLI);
-  const shouldWrapRtl =
-    !alreadyIsolated &&
-    (row.getAttribute("dir") === "rtl" || row.closest('[dir="rtl"]') !== null);
-  const nextCommitted = shouldWrapRtl ? isolateLtrRunsInRtl(fullCommittedUtf16) : fullCommittedUtf16;
+  const shouldWrapRtl = row.getAttribute("dir") === "rtl" || row.closest('[dir="rtl"]') !== null;
+  const nextCommitted = shouldWrapRtl ? isolateLtrInRtl(fullCommittedUtf16) : fullCommittedUtf16;
   const tn = ensureCommittedTextHost(row);
   if (mirror.lastUtf16Committed === nextCommitted.length) return;
   if (nextCommitted.startsWith(tn.data) && nextCommitted.length >= tn.data.length) {

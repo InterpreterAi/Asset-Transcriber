@@ -1,8 +1,6 @@
 import type { CanonUtterance } from "../types/canon-utterance";
 import { utteranceCommittedText, utteranceLiveText } from "../types/canon-utterance";
-import { joinCanonText, joinCanonTextParts } from "../types/canon-token";
 import type { EngineState } from "../types/transcript";
-import { repairChunkV2FalsePeriods } from "../policies/chunk-v2-false-period-repair";
 export type RowProjection = {
   row_id: string;
   speaker?: string;
@@ -176,17 +174,11 @@ function cleanChunkV2Final(text: string): string {
   return t.replace(/\s{2,}/g, " ").trim();
 }
 
-function cleanSonioxPunctuation(text: string, opts: TranscriptProjectionOptions, _finalized = false): string {
-  // Chunk-v2: display-only false-period repair (Soniox may finalize `.` mid-phrase;
-  // finals are immutable per docs). Ledger stays append-only / identity-preserving.
-  if (opts.chunkV2NativeTranslate) {
-    return repairChunkV2FalsePeriods(text);
+function cleanSonioxPunctuation(text: string, opts: TranscriptProjectionOptions, finalized = false): string {
+  if (!opts.chunkV2NativeTranslate) {
+    return legacyCleanSonioxPunctuation(text, opts);
   }
-  return legacyCleanSonioxPunctuation(text, opts);
-}
-
-function cleanChunkV2TranslationDisplay(text: string): string {
-  return repairChunkV2FalsePeriods(text);
+  return finalized ? cleanChunkV2Final(text) : cleanChunkV2Realtime(text);
 }
 
 const PUNCTUATION_ONLY = /^[\s.,!?;:—–\-"'()[\]{}]+$/;
@@ -208,7 +200,6 @@ export function projectTranscriptView(
       const rawCommitted = utteranceCommittedText(fu);
       const committedText = cleanSonioxPunctuation(rawCommitted, opts, true);
       if (!committedText.length || PUNCTUATION_ONLY.test(committedText)) continue;
-      const rawTx = (fu.translationText ?? "").trim();
       rows.push({
         row_id: fu.utterance_id,
         speaker: norm(fu.speaker),
@@ -216,24 +207,14 @@ export function projectTranscriptView(
         committedText,
         liveText: "",
         finalized: true,
-        translationText: rawTx ? cleanChunkV2TranslationDisplay(rawTx) : undefined,
+        translationText: (fu.translationText ?? "").trim() || undefined,
       });
     }
     if (state.activeUtterance) {
       const rawCommitted = utteranceCommittedText(state.activeUtterance);
-      // While speaker-break is debouncing, paint pending finals + non-finals as live
-      // typing so the UI does not freeze then dump a chunk on confirm.
-      const pendingLive = joinCanonText(state.pendingSpeakerFinals);
-      const hypoLive = utteranceLiveText(state.activeUtterance);
-      const liveText = cleanSonioxPunctuation(
-        joinCanonTextParts([pendingLive, hypoLive]),
-        opts,
-        false,
-      );
+      const liveText = utteranceLiveText(state.activeUtterance);
       const committedText = cleanSonioxPunctuation(rawCommitted, opts, false);
-      const translationPreview = cleanChunkV2TranslationDisplay(
-        (state.activeTranslationPreviewText ?? state.activeTranslationText ?? "").trim(),
-      );
+      const translationPreview = (state.activeTranslationPreviewText ?? state.activeTranslationText ?? "").trim();
       if (committedText.trim().length || liveText.trim().length) {
         rows.push({
           row_id: state.activeUtterance.utterance_id,

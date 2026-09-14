@@ -5,8 +5,6 @@
  * layout; the REST websocket schema does not expose that field — reducer rows group from token metadata.
  */
 
-import { sonioxRealtimeLanguageHintConfig } from "@/lib/soniox-stt-language-hints";
-
 import type { SonioxFrame } from "./frame-types";
 import { parseSonioxWebSocketPayload } from "./soniox-parser";
 
@@ -18,11 +16,6 @@ export type SonioxClientConfig = {
   sampleRate?: number;
   languageHints?: string[];
   enableLanguageIdentification?: boolean;
-  /**
-   * Chunk-v2 restored path only. Non-chunk keeps endpoint detection off
-   * (daffcfbf default) for diarization accuracy.
-   */
-  enableEndpointDetection?: boolean;
   maxEndpointDelayMs?: number;
   /** Basic · Morsy Urgent — faster endpoint fallback when maxEndpointDelayMs omitted. */
   morsyUrgentTuning?: boolean;
@@ -36,8 +29,6 @@ export type SonioxClientConfig = {
   };
 };
 
-export type SonioxFlushResult = "completed" | "timeout" | "closed" | "error";
-
 export class SonioxRealtimeClient {
   private ws: WebSocket | null = null;
 
@@ -49,23 +40,14 @@ export class SonioxRealtimeClient {
 
   private seq = 0;
 
-  /** Connection generation — token ids / speaker maps stay scoped to this socket. */
-  private connectionGen = 0;
-
   private allocateSeq(): number {
     this.seq += 1;
     return this.seq;
   }
 
-  get connectionId(): number {
-    return this.connectionGen;
-  }
-
   connect(config: SonioxClientConfig): void {
     this.disconnect(false);
     this.closed = false;
-    this.connectionGen += 1;
-    this.seq = 0;
     const rtUrl = config.rtUrl?.trim();
     if (!rtUrl) {
       throw new Error("Live session endpoint is not available.");
@@ -84,12 +66,10 @@ export class SonioxRealtimeClient {
         sample_rate:                    config.sampleRate ?? 16_000,
         num_channels:                   1,
         ...(language_hints
-          ? sonioxRealtimeLanguageHintConfig(language_hints)
+          ? { language_hints, language_hints_strict: true }
           : {}),
         enable_speaker_diarization:     true,
-        // Endpoint ON + 1000ms only when explicitly requested (chunk-v2 restore).
-        // Non-chunk: leave endpoint off — matches daffcfbf / Soniox diarization guidance.
-        enable_endpoint_detection:      config.enableEndpointDetection === true,
+        enable_endpoint_detection:      true,
         enable_language_identification: config.enableLanguageIdentification ?? true,
         ...(config.translationConfig
           ? { translation: config.translationConfig }
@@ -97,9 +77,7 @@ export class SonioxRealtimeClient {
         ...(config.interpreterContext
           ? { context: config.interpreterContext }
           : {}),
-        ...(config.enableEndpointDetection === true
-          ? { max_endpoint_delay_ms: config.maxEndpointDelayMs ?? 1000 }
-          : {}),
+        max_endpoint_delay_ms:          config.maxEndpointDelayMs ?? 1000,
       }));
       this.flushPcmQueue();
     };
@@ -120,6 +98,12 @@ export class SonioxRealtimeClient {
           if (!import.meta.env.PROD) {
             console.error("[canonAppendWs/engine] realtime STT error:", errText);
           }
+          // Context overflow kills the whole chunk-v2 session (no tokens arrive).
+          if (/context is too long/i.test(errText)) {
+            console.error(
+              "[canonAppendWs/engine] Soniox rejected oversized context — STT/translation will stay silent until context is trimmed under 10k chars.",
+            );
+          }
           return;
         }
         const seq = this.allocateSeq();
@@ -127,23 +111,11 @@ export class SonioxRealtimeClient {
         if (frame && (frame.tokens.length > 0 || frame.endpoint)) {
           this.frameCb?.(frame);
         }
-        // Notify flush waiters when Soniox signals finished.
-        if ((payload as { finished?: unknown }).finished === true) {
-          this.resolveFlushWaiters("completed");
-        }
       }
     };
   }
 
-  private flushWaiters: Array<(r: SonioxFlushResult) => void> = [];
-
-  private resolveFlushWaiters(result: SonioxFlushResult): void {
-    const waiters = this.flushWaiters.splice(0);
-    for (const w of waiters) w(result);
-  }
-
   disconnect(fireClosed = true): void {
-    this.resolveFlushWaiters("closed");
     if (this.ws) {
       try {
         this.ws.close();
@@ -178,61 +150,14 @@ export class SonioxRealtimeClient {
     }
   }
 
-  /** Ask Soniox to finalize trailing non-finals (incl. translation) without ending the session. */
-  sendFinalize(): void {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      try {
-        this.ws.send(JSON.stringify({ type: "finalize" }));
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-
-  /**
-   * Flush remaining buffered audio and request Soniox completion (empty buffer).
-   * Does not wait — prefer {@link flushEndAndWait} on stop.
-   */
   flushEnd(): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
       try {
-        this.flushPcmQueue();
-        this.sendFinalize();
         this.ws.send(new ArrayBuffer(0));
       } catch {
         /* ignore */
       }
     }
-  }
-
-  /**
-   * Flush buffered PCM, send end-of-audio, keep the socket open long enough to
-   * process remaining Soniox results, then resolve. Timeout / error handled explicitly.
-   */
-  flushEndAndWait(timeoutMs = 2500): Promise<SonioxFlushResult> {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      return Promise.resolve(this.closed ? "closed" : "error");
-    }
-    try {
-      this.flushPcmQueue();
-      this.ws.send(new ArrayBuffer(0));
-    } catch {
-      return Promise.resolve("error");
-    }
-    return new Promise<SonioxFlushResult>((resolve) => {
-      let settled = false;
-      const finish = (r: SonioxFlushResult) => {
-        if (settled) return;
-        settled = true;
-        window.clearTimeout(timer);
-        resolve(r);
-      };
-      this.flushWaiters.push(finish);
-      const timer = window.setTimeout(() => {
-        // Timeout is not silent discard — caller still freezes remaining confirmed rows.
-        finish("timeout");
-      }, timeoutMs);
-    });
   }
 
   get isOpen(): boolean {
