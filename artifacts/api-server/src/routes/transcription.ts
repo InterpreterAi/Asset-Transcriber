@@ -50,7 +50,7 @@ import { runTrialHetznerCleanTranslation } from "../lib/trial-hetzner-clean-tran
 import { runMorsyChunkV2Translation } from "../lib/morsy-chunk-translation-v2.js";
 import { applyInterpreterPhrasePretranslate } from "../lib/interpreter-phrase-pretranslate.js";
 import { logger } from "../lib/logger.js";
-import { sessionStore } from "../lib/session-store.js";
+import { sessionStore, ensureLiveSnapshot } from "../lib/session-store.js";
 import { lockTranslationToOfficialRegister } from "../lib/official-translation-register.js";
 import { sessionContinuityPromptBlock } from "../lib/session-translation-continuity.js";
 import { isOpenAiConfigured } from "../lib/ai-env.js";
@@ -1336,6 +1336,12 @@ router.post("/session/start", requireAuth, async (req, res) => {
 
   void touchActivity(userForCap.id);
 
+  ensureLiveSnapshot(result.id, {
+    langA: srcLang,
+    langB: tgtLang,
+    micLabel: "Live",
+  });
+
   try {
     const liveCountRows = await db
       .select({ count: sql<number>`COUNT(*)::int` })
@@ -1386,6 +1392,8 @@ router.post("/session/heartbeat", requireAuth, async (req, res) => {
     res.status(404).json({ error: "Session not found or already ended" });
     return;
   }
+
+  ensureLiveSnapshot(sessionId);
 
   const audioSeconds =
     rawAudio !== undefined && Number.isFinite(Number(rawAudio))

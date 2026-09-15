@@ -29,6 +29,7 @@ import { computeTrialEndsAt, TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-cons
 import { formatEmailDate } from "../lib/email-template.js";
 import { sendSubscriptionConfirmationEmail, sendSubscriptionRenewalEmail } from "../lib/transactional-email.js";
 import { isTrialLikePlanType } from "../lib/usage.js";
+import { closeOpenSessionsForUser, planSwitchRemountsWorkspace } from "../lib/close-open-sessions.js";
 import { stripeService } from "../lib/stripeService.js";
 
 const router: IRouter = Router();
@@ -710,6 +711,8 @@ router.post("/test-activate-plan", requireAuth, async (req: any, res) => {
     }
 
     const dailyLimitMinutes = dailyLimitMinutesForAdminTestPlan(planType);
+    const previousPlanType = user.planType;
+    const remountsWorkspace = planSwitchRemountsWorkspace(previousPlanType, planType);
 
     if (isTrialLikePlanType(planType)) {
       const now = new Date();
@@ -728,6 +731,7 @@ router.post("/test-activate-plan", requireAuth, async (req: any, res) => {
           paypalSubscriptionId: null,
         })
         .where(eq(usersTable.id, userId));
+      if (remountsWorkspace) await closeOpenSessionsForUser(userId);
       res.json({
         ok: true,
         planType,
@@ -750,6 +754,7 @@ router.post("/test-activate-plan", requireAuth, async (req: any, res) => {
         subscriptionPeriodEndsAt: subscriptionPeriodEndFallback(now),
       })
       .where(eq(usersTable.id, userId));
+    if (remountsWorkspace) await closeOpenSessionsForUser(userId);
     res.json({ ok: true, planType, dailyLimitMinutes });
   } catch (err) {
     logger.error({ err }, "POST /api/payments/test-activate-plan failed");

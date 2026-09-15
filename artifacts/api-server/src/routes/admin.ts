@@ -24,6 +24,7 @@ import {
   planUsesTrialSonioxX,
   TRIAL_LIKE_PLAN_TYPES,
 } from "../lib/usage.js";
+import { closeOpenSessionsForUser, planSwitchRemountsWorkspace } from "../lib/close-open-sessions.js";
 import {
   effectiveSessionSecondsSql,
   effectiveSessionSecondsSqlAliasS,
@@ -44,7 +45,7 @@ import {
   PUBLIC_PROFESSIONAL_DAILY_LIMIT_MINUTES,
   subscriptionPeriodEndFallback,
 } from "../lib/paypal.js";
-import { sessionStore } from "../lib/session-store.js";
+import { sessionStore, liveSessionPresence } from "../lib/session-store.js";
 import { logger } from "../lib/logger.js";
 import { deactivateUserAccount } from "../lib/erase-user-account.js";
 import { effectiveMtLane } from "../lib/hetzner-mt-db-routing.js";
@@ -505,6 +506,7 @@ type ActiveSessionRow = {
   sessionId: number;
   userId: number;
   startedAt: Date;
+  lastActivityAt?: Date | null;
   langPair: string | null;
   username: string;
   email: string | null;
@@ -1379,6 +1381,7 @@ router.get("/stats", requireAdmin, async (_req, res) => {
       sessionId:  sessionsTable.id,
       userId:     sessionsTable.userId,
       startedAt:  sessionsTable.startedAt,
+      lastActivityAt: sessionsTable.lastActivityAt,
       langPair:   sessionsTable.langPair,
       username:   usersTable.username,
       email:      usersTable.email,
@@ -1595,8 +1598,7 @@ router.get("/stats", requireAdmin, async (_req, res) => {
         langPair: s.langPair ?? null,
         startedAt: s.startedAt,
         durationSeconds: Math.round((Date.now() - s.startedAt.getTime()) / 1000),
-        hasSnapshot: sessionStore.has(s.sessionId),
-        micLabel: sessionStore.get(s.sessionId)?.micLabel ?? null,
+        ...liveSessionPresence(s.sessionId, s.lastActivityAt),
         openSessionsForUser: s.openSessionsForUser,
         openSessionOrdinal: s.openSessionOrdinal,
         translationStack: s.translationStack,
@@ -2078,6 +2080,7 @@ router.get("/active-sessions", requireAdmin, async (req, res) => {
       sessionId:  sessionsTable.id,
       userId:     sessionsTable.userId,
       startedAt:  sessionsTable.startedAt,
+      lastActivityAt: sessionsTable.lastActivityAt,
       langPair:   sessionsTable.langPair,
       username:   usersTable.username,
       email:      usersTable.email,
@@ -2110,8 +2113,7 @@ router.get("/active-sessions", requireAdmin, async (req, res) => {
         langPair: s.langPair ?? null,
         startedAt: s.startedAt,
         durationSeconds: Math.round((Date.now() - s.startedAt.getTime()) / 1000),
-        hasSnapshot: sessionStore.has(s.sessionId),
-        micLabel: sessionStore.get(s.sessionId)?.micLabel ?? null,
+        ...liveSessionPresence(s.sessionId, s.lastActivityAt),
         openSessionsForUser: s.openSessionsForUser,
         openSessionOrdinal: s.openSessionOrdinal,
         translationStack: s.translationStack,
@@ -2581,6 +2583,9 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
   const user = result[0]!;
   const previousPlanType = (existing.planType ?? "").trim().toLowerCase();
   const nextPlanType = (user.planType ?? "").trim().toLowerCase();
+  if (planSwitchRemountsWorkspace(previousPlanType, nextPlanType)) {
+    await closeOpenSessionsForUser(userId);
+  }
   const previousTrialEndsAtMs = existing.trialEndsAt?.getTime() ?? null;
   const nextTrialEndsAtMs = user.trialEndsAt?.getTime() ?? null;
   const nowMs = Date.now();

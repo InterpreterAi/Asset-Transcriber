@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Token } from "@soniox/speech-to-text-web";
-import { rowsFromSonioxTokens } from "./rows-from-tokens";
+import { rowsFromSonioxTokens, snapshotLinesFromSonioxXRows } from "./rows-from-tokens";
 
 function tok(partial: Partial<Token> & Pick<Token, "text">): Token {
   return {
@@ -212,5 +212,24 @@ describe("rowsFromSonioxTokens", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.origFinal).toBe("Hello again");
     expect(rows[0]?.transFinal).toBe("مرحبا");
+  });
+});
+
+describe("snapshotLinesFromSonioxXRows", () => {
+  it("keeps original and translation lines aligned", () => {
+    expect(
+      snapshotLinesFromSonioxXRows([
+        {
+          id: "sx-1",
+          origFinal: "Hello",
+          origPartial: " there",
+          transFinal: "مرحبا",
+          transPartial: "",
+        },
+      ]),
+    ).toEqual({
+      transcriptLines: ["Hello there"],
+      translationLines: ["مرحبا"],
+    });
   });
 });

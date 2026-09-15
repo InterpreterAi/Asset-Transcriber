@@ -2046,7 +2046,9 @@ export default function Admin() {
                         </div>
                       )}
                       {!s.hasSnapshot && !s.micLabel && (
-                        <p className="text-xs text-amber-700 dark:text-amber-300 mb-1">No active connection — may be a ghost session</p>
+                        <p className="text-xs text-amber-700 dark:text-amber-300 mb-1">
+                          No recent heartbeat — this row is still open in billing and may be stale.
+                        </p>
                       )}
                       <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
                         <span>Duration: <span className="font-medium text-foreground">{fmtDuration(s.durationSeconds)}</span></span>

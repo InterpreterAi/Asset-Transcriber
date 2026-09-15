@@ -22,6 +22,7 @@ import {
   type MorsyTranslationStackFlags,
 } from "@/experiments/basic-morsy-urgent/translationStackMode";
 import { loginUrlForReturnTo } from "@/lib/auth-redirect";
+import { captureTabAudio, isFirefoxBrowser, isGetDisplayMediaCancel } from "@/lib/capture-tab-audio";
 import { useUrlEnumState } from "@/lib/url-page-state";
 import { useSessionHeartbeat } from "@/hooks/use-session-heartbeat";
 import { AudioMeter } from "@/components/AudioMeter";
@@ -380,6 +381,8 @@ export default function WorkspaceDefault() {
   const [referralsLoading, setReferralsLoading] = useState(false);
   const [inputMode, setInputMode]               = useState<"mic" | "tab">("mic");
   const [tabStream, setTabStream]               = useState<MediaStream | null>(null);
+  const [tabCaptureError, setTabCaptureError]   = useState<string | null>(null);
+  const tabCaptureStopRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -974,6 +977,16 @@ export default function WorkspaceDefault() {
     };
   }, [transcription.isRecording, transcription.sessionId]);
 
+  const stopRecordingRef = useRef(transcription.stop);
+  stopRecordingRef.current = transcription.stop;
+  useEffect(() => {
+    return () => {
+      void stopRecordingRef.current().catch(() => { /* unmount / stack switch */ });
+      tabCaptureStopRef.current?.();
+      tabCaptureStopRef.current = null;
+    };
+  }, []);
+
   useEffect(() => {
     snapshotSeqRef.current = 0;
   }, [transcription.sessionId]);
@@ -992,10 +1005,13 @@ export default function WorkspaceDefault() {
     if (transcription.isRecording) {
       void transcription.stop().catch(() => { /* stop should never crash UI */ });
       // Stop tab stream tracks when we stop recording
-      if (tabStream) {
+      if (tabCaptureStopRef.current) {
+        tabCaptureStopRef.current();
+        tabCaptureStopRef.current = null;
+      } else if (tabStream) {
         tabStream.getTracks().forEach(t => t.stop());
-        setTabStream(null);
       }
+      setTabStream(null);
       queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
       setNotes("");
       setClearedForPrivacy(true);
@@ -1010,57 +1026,29 @@ export default function WorkspaceDefault() {
   };
 
   const handleStartTabAudio = async () => {
+    setTabCaptureError(null);
     try {
-      // Request display media capturing only the browser tab's audio.
-      // displaySurface: "browser" pre-selects the "Tab" option in the browser's
-      //   share picker so the user is less likely to accidentally share the whole
-      //   screen (which can include system/mic audio).
-      // Microphone access is never requested here — getUserMedia is only called
-      //   in mic mode (when no providedStream is given to transcription.start).
-      const displayStream = await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          // @ts-ignore — displaySurface is a valid MediaTrackConstraint in modern browsers
-          displaySurface: "browser",
-        },
-        audio: {
-          // suppressLocalAudioPlayback: false — keep the captured tab's audio playing
-          // normally in the browser while it is also being sent to Soniox for
-          // transcription. Setting this to true would MUTE the captured tab, which
-          // is the opposite of what interpreters need (they must hear the caller).
-          // @ts-ignore — suppressLocalAudioPlayback is a Chrome-supported constraint
-          suppressLocalAudioPlayback: false,
-          echoCancellation:  false,
-          noiseSuppression:  false,
-          autoGainControl:   false,
-        },
-      });
-
-      // Drop video tracks immediately — we only use audio for transcription
-      displayStream.getVideoTracks().forEach(t => t.stop());
-
-      const audioTracks = displayStream.getAudioTracks();
-      if (audioTracks.length === 0) {
-        // User shared a tab/window but didn't enable "Share tab audio"
-        void transcription.stop().catch(() => { /* stop should never crash UI */ });
-        return;
-      }
-
-      // Build a clean stream containing only the remote tab's audio tracks
-      const audioStream = new MediaStream(audioTracks);
-      setTabStream(audioStream);
-
-      // If the user clicks "Stop sharing" in the browser chrome, clean up
-      audioTracks[0]!.addEventListener("ended", () => {
+      const captured = await captureTabAudio();
+      tabCaptureStopRef.current = captured.stop;
+      setTabStream(captured.displayStream);
+      captured.audioStream.getAudioTracks()[0]?.addEventListener("ended", () => {
+        tabCaptureStopRef.current?.();
+        tabCaptureStopRef.current = null;
         void transcription.stop().catch(() => { /* stop should never crash UI */ });
         setTabStream(null);
         queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
       });
-
-      // Pass the tab-only stream directly — use-transcription will NOT call
-      // getUserMedia, so the local microphone is never accessed or mixed in.
-      transcription.start("", audioStream);
-    } catch {
-      // User cancelled the picker — nothing to do
+      try {
+        await Promise.resolve(transcription.start("", captured.audioStream));
+      } catch (startErr) {
+        captured.stop();
+        tabCaptureStopRef.current = null;
+        setTabStream(null);
+        throw startErr;
+      }
+    } catch (err) {
+      if (isGetDisplayMediaCancel(err)) return;
+      setTabCaptureError(err instanceof Error ? err.message : "Could not capture tab audio.");
     }
   };
 
@@ -2397,7 +2385,7 @@ export default function WorkspaceDefault() {
             >
               <button
                 disabled={transcription.isRecording}
-                onClick={() => setInputMode("mic")}
+                onClick={() => { setTabCaptureError(null); setInputMode("mic"); }}
                 className={cn(
                   "flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium transition-all",
                   inputMode === "mic"
@@ -2414,7 +2402,7 @@ export default function WorkspaceDefault() {
               </button>
               <button
                 disabled={transcription.isRecording}
-                onClick={() => setInputMode("tab")}
+                onClick={() => { setTabCaptureError(null); setInputMode("tab"); }}
                 className={cn(
                   "flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium transition-all",
                   inputMode === "tab"
@@ -2507,7 +2495,9 @@ export default function WorkspaceDefault() {
                     </li>
                     <li className="flex items-center gap-1">
                       <span className="w-4 h-4 rounded-full bg-muted-foreground/20 text-[9px] font-bold flex items-center justify-center shrink-0">3</span>
-                      Select the tab &amp; enable "Share tab audio" — your mic is excluded
+                      {isFirefoxBrowser()
+                        ? "Select a tab and turn on Share audio — if Firefox captures no sound, use Chrome/Edge or Mic"
+                        : "Select the tab and enable “Share tab audio” — your mic is excluded"}
                     </li>
                   </ol>
                 ) : (
@@ -2677,11 +2667,11 @@ export default function WorkspaceDefault() {
           </div>
 
           {/* Error bar */}
-          {transcription.error && (
+          {(transcription.error || tabCaptureError) && (
             <div className="px-4 pb-3">
               <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-2.5 flex items-center gap-2 text-xs text-destructive">
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                {transcription.error}
+                {tabCaptureError ?? transcription.error}
               </div>
             </div>
           )}

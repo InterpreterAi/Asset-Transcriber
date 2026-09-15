@@ -34,12 +34,13 @@ import {
   workspaceUsageShowsSlashUnlimited,
 } from "@/lib/utils";
 import { getWorkspacePlanTestOptions } from "@/lib/workspace-plan-test-options";
+import { captureTabAudio, isFirefoxBrowser, isGetDisplayMediaCancel } from "@/lib/capture-tab-audio";
 import { workspaceLanguageOptions } from "@/lib/workspace-languages";
 import { useSessionHeartbeat } from "@/hooks/use-session-heartbeat";
 import useSonioxClient from "./useSonioxClient";
 import { getLanguage } from "./languages";
 import { workspaceLangToOfficialSonioxCode } from "./soniox-lang";
-import { langDir, rowsFromSonioxTokens, stripeClassForSpeaker } from "./rows-from-tokens";
+import { langDir, rowsFromSonioxTokens, snapshotLinesFromSonioxXRows, stripeClassForSpeaker } from "./rows-from-tokens";
 import { BidiText } from "./BidiText";
 import { buildStableDialectContext } from "./stable-dialect-context";
 import {
@@ -174,6 +175,7 @@ export default function TrialSonioxXWorkspace() {
   const [selectedDeviceId, setSelectedDeviceId] = useState("");
   const [inputMode, setInputMode] = useState<"mic" | "tab">("mic");
   const [tabStream, setTabStream] = useState<MediaStream | null>(null);
+  const tabCaptureStopRef = useRef<(() => void) | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [testPlanLoading, setTestPlanLoading] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
@@ -216,6 +218,14 @@ export default function TrialSonioxXWorkspace() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const tailPinnedRef = useRef(true);
   const [elapsedMs, setElapsedMs] = useState(0);
+  const [liveSessionId, setLiveSessionId] = useState<number | null>(null);
+  const snapshotSeqRef = useRef(0);
+  const rowsRef = useRef<ReturnType<typeof rowsFromSonioxTokens>>([]);
+  const langARef = useRef(langA);
+  const langBRef = useRef(langB);
+  const micLabelRef = useRef("Microphone");
+  const workspaceThemeRef = useRef(workspaceTheme);
+  const workspaceFontPxRef = useRef(workspaceFontPx);
 
   const sonioxA = workspaceLangToOfficialSonioxCode(langA);
   const sonioxB = workspaceLangToOfficialSonioxCode(langB);
@@ -368,6 +378,7 @@ export default function TrialSonioxXWorkspace() {
     const startedAt = startTimeRef.current;
     sessionIdRef.current = null;
     sessionIdHolder.current = null;
+    setLiveSessionId(null);
     clearHeartbeat();
     startTimeRef.current = null;
     if (!sid) return;
@@ -392,10 +403,13 @@ export default function TrialSonioxXWorkspace() {
   const stopLive = useCallback(async () => {
     stopTranscription();
     stopOwnedMic();
-    if (tabStream) {
+    if (tabCaptureStopRef.current) {
+      tabCaptureStopRef.current();
+      tabCaptureStopRef.current = null;
+    } else if (tabStream) {
       tabStream.getTracks().forEach((t) => t.stop());
-      setTabStream(null);
     }
+    setTabStream(null);
     await closeBillingSession();
     setHistoryRefreshKey((k) => k + 1);
     setNotes("");
@@ -471,7 +485,19 @@ export default function TrialSonioxXWorkspace() {
     [finalTokens, nonFinalTokens],
   );
   const rows = useMemo(() => rowsFromSonioxTokens(allTokens), [allTokens]);
+  rowsRef.current = rows;
+  langARef.current = langA;
+  langBRef.current = langB;
+  workspaceThemeRef.current = workspaceTheme;
+  workspaceFontPxRef.current = workspaceFontPx;
   const hasTranscript = rows.length > 0;
+
+  useEffect(() => {
+    const micDev = devices.find((d) => d.deviceId === selectedDeviceId);
+    micLabelRef.current = inputMode === "tab"
+      ? "Browser Tab Audio"
+      : (micDev?.label || "Microphone");
+  }, [inputMode, devices, selectedDeviceId]);
 
   const stickToLatest = useCallback(() => {
     const el = scrollRef.current;
@@ -499,8 +525,41 @@ export default function TrialSonioxXWorkspace() {
         }),
       }).catch(() => { /* best-effort */ });
     };
+    sendHeartbeat();
     heartbeatRef.current = setInterval(sendHeartbeat, 10_000);
   }, [clearHeartbeat]);
+
+  useEffect(() => {
+    if (liveSessionId == null) return;
+    const push = () => {
+      const sessionId = sessionIdRef.current;
+      if (!sessionId) return;
+      const { transcriptLines, translationLines } = snapshotLinesFromSonioxXRows(rowsRef.current);
+      snapshotSeqRef.current += 1;
+      void fetch("/api/transcription/session/snapshot", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          sessionId,
+          langA: langARef.current,
+          langB: langBRef.current,
+          micLabel: micLabelRef.current,
+          transcript: transcriptLines.join("\n"),
+          translation: translationLines.join("\n"),
+          transcriptLines,
+          translationLines,
+          snapshotSeq: snapshotSeqRef.current,
+          viewerTheme: workspaceThemeRef.current,
+          workspaceFontPx: workspaceFontPxRef.current,
+          layoutMode: "stacked",
+        }),
+      }).catch(() => { /* best-effort */ });
+    };
+    push();
+    const interval = setInterval(push, 2_500);
+    return () => clearInterval(interval);
+  }, [liveSessionId]);
 
   const startLive = useCallback(async (providedStream?: MediaStream) => {
     if (starting || recording) return;
@@ -528,6 +587,8 @@ export default function TrialSonioxXWorkspace() {
       });
       sessionIdRef.current = sessionRes.sessionId;
       sessionIdHolder.current = sessionRes.sessionId;
+      snapshotSeqRef.current = 0;
+      setLiveSessionId(sessionRes.sessionId);
       startTimeRef.current = Date.now();
       setElapsedMs(0);
       startHeartbeat(sessionRes.sessionId);
@@ -545,6 +606,10 @@ export default function TrialSonioxXWorkspace() {
           stream.getTracks().forEach((t) => t.stop());
         }).catch(() => { /* permission denied or already stopped */ });
         stopOwnedMic();
+      } else {
+        tabCaptureStopRef.current?.();
+        tabCaptureStopRef.current = null;
+        setTabStream(null);
       }
       setSessionError(errMessage(err, "Could not start a live session."));
       await closeBillingSession();
@@ -569,28 +634,18 @@ export default function TrialSonioxXWorkspace() {
   ]);
 
   const handleStartTabAudio = async () => {
+    setSessionError(null);
     try {
-      const displayStream = await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          displaySurface: "browser",
-        } as MediaTrackConstraints,
-        audio: true,
-      });
-      const audioTracks = displayStream.getAudioTracks();
-      displayStream.getVideoTracks().forEach((t) => t.stop());
-      if (audioTracks.length === 0) {
-        displayStream.getTracks().forEach((t) => t.stop());
-        setSessionError("Enable “Share tab audio” in the browser picker, then try again.");
-        return;
-      }
-      const audioStream = new MediaStream(audioTracks);
-      setTabStream(audioStream);
-      audioTracks[0]!.addEventListener("ended", () => {
+      const captured = await captureTabAudio();
+      tabCaptureStopRef.current = captured.stop;
+      setTabStream(captured.displayStream);
+      captured.audioStream.getAudioTracks()[0]?.addEventListener("ended", () => {
         void stopLive();
       });
-      await startLive(audioStream);
-    } catch {
-      /* user cancelled picker */
+      await startLive(captured.audioStream);
+    } catch (err) {
+      if (isGetDisplayMediaCancel(err)) return;
+      setSessionError(err instanceof Error ? err.message : "Could not capture tab audio.");
     }
   };
 
@@ -1354,7 +1409,7 @@ export default function TrialSonioxXWorkspace() {
               <button
                 type="button"
                 disabled={recording}
-                onClick={() => setInputMode("mic")}
+                onClick={() => { setSessionError(null); setInputMode("mic"); }}
                 className={cn(
                   "flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium transition-all",
                   inputMode === "mic"
@@ -1372,7 +1427,7 @@ export default function TrialSonioxXWorkspace() {
               <button
                 type="button"
                 disabled={recording}
-                onClick={() => setInputMode("tab")}
+                onClick={() => { setSessionError(null); setInputMode("tab"); }}
                 className={cn(
                   "flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium transition-all",
                   inputMode === "tab"
@@ -1447,7 +1502,9 @@ export default function TrialSonioxXWorkspace() {
                     </li>
                     <li className="flex items-center gap-1">
                       <span className="w-4 h-4 rounded-full bg-muted-foreground/20 text-[9px] font-bold flex items-center justify-center shrink-0">3</span>
-                      Select the tab & enable "Share tab audio" — your mic is excluded
+                      {isFirefoxBrowser()
+                        ? "Select a tab and turn on Share audio — if Firefox captures no sound, use Chrome/Edge or Mic"
+                        : "Select the tab and enable “Share tab audio” — your mic is excluded"}
                     </li>
                   </ol>
                 ) : (

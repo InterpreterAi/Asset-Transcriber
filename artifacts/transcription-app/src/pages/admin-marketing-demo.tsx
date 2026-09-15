@@ -23,6 +23,7 @@ import {
 import { useTranscription } from "@/hooks/use-transcription";
 import { GlossaryPanel } from "@/components/GlossaryPanel";
 import { loginUrlForReturnTo } from "@/lib/auth-redirect";
+import { captureTabAudio, isFirefoxBrowser, isGetDisplayMediaCancel } from "@/lib/capture-tab-audio";
 import { workspaceLanguageOptions } from "@/lib/workspace-languages";
 import { cn, formatMinutes } from "@/lib/utils";
 
@@ -148,6 +149,7 @@ export default function AdminMarketingDemo() {
   const [langA, setLangA] = useState("en");
   const [langB, setLangB] = useState("ar");
   const [tabStream, setTabStream] = useState<MediaStream | null>(null);
+  const tabCaptureStopRef = useRef<(() => void) | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [fontPx, setFontPx] = useState<DemoFontPx>(() => readDemoFontPx());
   const [theme, setTheme] = useState<"dark" | "light">(() => readDemoTheme());
@@ -324,48 +326,30 @@ export default function AdminMarketingDemo() {
   }, [transcription.containerRef]);
 
   const stopTabStream = () => {
-    if (!tabStream) return;
-    tabStream.getTracks().forEach((t) => t.stop());
+    if (tabCaptureStopRef.current) {
+      tabCaptureStopRef.current();
+      tabCaptureStopRef.current = null;
+    } else if (tabStream) {
+      tabStream.getTracks().forEach((t) => t.stop());
+    }
     setTabStream(null);
   };
 
   /** Same Tab Audio path as workspace: open the browser share picker, capture tab audio only. */
   const handleStartTabAudio = async () => {
-    const displayStream = await navigator.mediaDevices.getDisplayMedia({
-      video: {
-        displaySurface: "browser",
-      } as MediaTrackConstraints,
-      audio: {
-        suppressLocalAudioPlayback: false,
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
-      } as MediaTrackConstraints,
-    });
-
-    displayStream.getVideoTracks().forEach((t) => t.stop());
-
-    const audioTracks = displayStream.getAudioTracks();
-    if (audioTracks.length === 0) {
-      displayStream.getTracks().forEach((t) => t.stop());
-      setLocalError(
-        'No tab audio captured. In the share picker, choose a Chrome tab and enable "Share tab audio".',
-      );
-      return;
-    }
-
-    const audioStream = new MediaStream(audioTracks);
-    setTabStream(audioStream);
+    const captured = await captureTabAudio();
+    tabCaptureStopRef.current = captured.stop;
+    setTabStream(captured.displayStream);
     stickToBottomRef.current = true;
 
-    audioTracks[0]!.addEventListener("ended", () => {
+    captured.audioStream.getAudioTracks()[0]?.addEventListener("ended", () => {
       void transcription.stop().catch(() => {});
-      setTabStream(null);
+      stopTabStream();
       setNotes("");
       void queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
     });
 
-    await transcription.start("", audioStream);
+    await transcription.start("", captured.audioStream);
   };
 
   const handleToggleRecording = async () => {
@@ -380,12 +364,8 @@ export default function AdminMarketingDemo() {
     try {
       await handleStartTabAudio();
     } catch (err) {
-      if (err instanceof DOMException && err.name === "NotAllowedError") {
-        return;
-      }
-      setLocalError(
-        "Could not open Tab Audio picker. Use Chrome/Edge and allow screen/tab sharing, then try again.",
-      );
+      if (isGetDisplayMediaCancel(err)) return;
+      setLocalError(err instanceof Error ? err.message : "Could not capture tab audio.");
     }
   };
 
@@ -627,7 +607,9 @@ export default function AdminMarketingDemo() {
                     : "Press Start to share a browser tab"}
                 </p>
                 <p className={cn("text-xs max-w-[15rem]", dark ? "text-slate-500" : "text-slate-500")}>
-                  Choose the call tab and enable “Share tab audio”.
+                  {isFirefoxBrowser()
+                    ? "Firefox cannot capture another tab’s audio. Use Chrome or Edge, or switch this demo to Mic."
+                    : "Choose the call tab and enable “Share tab audio”."}
                 </p>
               </div>
             )}

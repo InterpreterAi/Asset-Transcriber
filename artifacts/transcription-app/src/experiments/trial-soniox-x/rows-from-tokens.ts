@@ -214,6 +214,17 @@ export function langDir(langCode: string | undefined): "rtl" | "ltr" {
   return RTL_LANGS.has(base) ? "rtl" : "ltr";
 }
 
+export function snapshotLinesFromSonioxXRows(rows: SonioxXRow[]): {
+  transcriptLines: string[];
+  translationLines: string[];
+} {
+  const transcriptLines = rows.map((r) => `${r.origFinal}${r.origPartial}`);
+  const translationLines = rows.map((r) => `${r.transFinal}${r.transPartial}`);
+  while (translationLines.length < transcriptLines.length) translationLines.push("");
+  while (transcriptLines.length < translationLines.length) transcriptLines.push("");
+  return { transcriptLines, translationLines };
+}
+
 export function stripeClassForSpeaker(speaker: string | undefined, index: number): string {
   if (speaker) {
     const n = Number.parseInt(speaker, 10);
