@@ -74,6 +74,7 @@ export default function Signup() {
         error?: string;
         accountAutoDisabled?: boolean;
         message?: string;
+        user?: unknown;
       };
       if (!res.ok) {
         if (res.status === 429) {
@@ -89,7 +90,10 @@ export default function Signup() {
         throw new Error(data.message || "This account could not be activated automatically. Contact support if you need help.");
       }
 
-      await queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+      if (data.user) {
+        queryClient.setQueryData(getGetMeQueryKey(), data.user);
+      }
+      void queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
       setLocation(postLoginDestination(search));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Signup failed");

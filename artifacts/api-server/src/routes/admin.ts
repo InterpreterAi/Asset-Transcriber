@@ -798,10 +798,12 @@ router.get("/users", requireAdmin, async (_req, res) => {
   const now = new Date();
   const todayStartNy = startOfAppDay(now);
   const monthStartNy = startOfAppMonth(now);
-  await db
+  // Do not await — a table-wide users UPDATE here blocked login/GET /me while admin was open.
+  void db
     .update(usersTable)
     .set({ minutesUsedToday: 0, lastUsageResetAt: now })
-    .where(lt(usersTable.lastUsageResetAt, todayStartNy));
+    .where(lt(usersTable.lastUsageResetAt, todayStartNy))
+    .catch((err) => logger.warn({ err }, "admin GET /users: daily usage reset skipped"));
 
   const [usersRaw, shareCounts, todayUsageRows, lifetimeUsageRows, loginIpStats, userLoginIps, paidBillingRows, calendarMonthUsageRows] = await Promise.all([
     db.select().from(usersTable).orderBy(usersTable.createdAt),

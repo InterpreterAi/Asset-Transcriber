@@ -141,7 +141,8 @@ export default function Login() {
         setTimeout(() => otpRef.current?.focus(), 120);
         return;
       }
-      await queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+      if (data?.user) queryClient.setQueryData(getGetMeQueryKey(), data.user);
+      void queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
       setLocation(postLoginDestination(search));
     } catch (err: unknown) {
       // customFetch throws ApiError with JSON on `.data` (not axios `.response.data`).
@@ -215,7 +216,8 @@ export default function Login() {
         otpRef.current?.focus();
         return;
       }
-      await queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+      if (data?.user) queryClient.setQueryData(getGetMeQueryKey(), data.user);
+      void queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
       setLocation(postLoginDestination(search));
     } catch {
       setError("Connection error — please try again");

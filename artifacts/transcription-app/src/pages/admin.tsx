@@ -666,6 +666,15 @@ export default function Admin() {
   const { data: me, isLoading: meLoading, isFetched: meFetched, error: meError } = useGetMe({
     query: { queryKey: getGetMeQueryKey(), retry: false, staleTime: 15_000 },
   });
+  const [meTimedOut, setMeTimedOut] = useState(false);
+  useEffect(() => {
+    if (!meLoading) {
+      setMeTimedOut(false);
+      return;
+    }
+    const t = window.setTimeout(() => setMeTimedOut(true), 12_000);
+    return () => window.clearTimeout(t);
+  }, [meLoading]);
 
   // ── Main tabs (persisted in ?tab= so refresh stays on the same section) ──
   const ADMIN_MAIN_TABS = [
@@ -1285,7 +1294,9 @@ export default function Admin() {
 
   // ── User handlers ──────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!meFetched || meLoading) return;
+    if (!meFetched || meLoading) {
+      if (!(meTimedOut && !me)) return;
+    }
     if (!me) {
       if (meError && !(meError instanceof ApiError)) return;
       setLocation(loginUrlForReturnTo("/admin"));
@@ -1294,9 +1305,9 @@ export default function Admin() {
     if (!me.isAdmin) {
       setLocation("/workspace");
     }
-  }, [me, meLoading, meFetched, meError, setLocation]);
+  }, [me, meLoading, meFetched, meError, meTimedOut, setLocation]);
 
-  if (meLoading || (me?.isAdmin && usersLoading)) {
+  if (meLoading && !meTimedOut) {
     return (
       <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary" />
@@ -2359,7 +2370,9 @@ export default function Admin() {
 
                 {/* Result count */}
                 <span className="text-[11px] text-muted-foreground ml-auto">
-                  {filteredUsers.length} of {allUsers.length} users
+                  {usersLoading && allUsers.length === 0
+                    ? "Loading users…"
+                    : `${filteredUsers.length} of ${allUsers.length} users`}
                 </span>
               </div>
 

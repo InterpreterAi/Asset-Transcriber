@@ -1069,35 +1069,67 @@ router.post("/logout", (req, res) => {
   });
 });
 
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error("timeout")), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(t);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(t);
+        reject(err);
+      },
+    );
+  });
+}
+
 // ── Me ─────────────────────────────────────────────────────────────────────
 router.get("/me", requireAuth, async (req, res) => {
-  const user = await getUserWithResetCheck(req.session.userId!);
-  if (!user) {
-    res.status(401).json({ error: "Not authenticated" });
-    return;
-  }
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  const sessionsTodayRows = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(sessionsTable)
-    .where(
-      and(eq(sessionsTable.userId, user.id), gte(sessionsTable.startedAt, todayStart)),
+  try {
+    const user = await withTimeout(getUserWithResetCheck(req.session.userId!), 8_000);
+    if (!user) {
+      res.status(401).json({ error: "Not authenticated" });
+      return;
+    }
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const usedFallback = Number(user.minutesUsedToday) || 0;
+    let sessionsToday = 0;
+    let minutesUsedTodayLive = usedFallback;
+    try {
+      const extras = Promise.all([
+        db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(sessionsTable)
+          .where(
+            and(eq(sessionsTable.userId, user.id), gte(sessionsTable.startedAt, todayStart)),
+          ),
+        getBillableMinutesUsedToday(user.id),
+      ]);
+      const [sessionsTodayRows, minutes] = await withTimeout(extras, 5_000);
+      sessionsToday = Number(sessionsTodayRows[0]?.count ?? 0);
+      minutesUsedTodayLive = Number(minutes ?? usedFallback);
+    } catch (extraErr) {
+      logger.warn({ err: extraErr, userId: user.id }, "GET /me: usage extras timed out; using stored minutes");
+    }
+    const base = buildUserInfo(user);
+    const dailyLimit = Number(base.dailyLimitMinutes);
+    const minutesRemainingToday = Math.max(
+      0,
+      (Number.isFinite(dailyLimit) ? dailyLimit : 0) - minutesUsedTodayLive,
     );
-  const sessionsToday = Number(sessionsTodayRows[0]?.count ?? 0);
-  const minutesUsedTodayLive = await getBillableMinutesUsedToday(user.id);
-  const base = buildUserInfo(user);
-  const dailyLimit = Number(base.dailyLimitMinutes);
-  const minutesRemainingToday = Math.max(
-    0,
-    (Number.isFinite(dailyLimit) ? dailyLimit : 0) - minutesUsedTodayLive,
-  );
-  res.json({
-    ...base,
-    minutesUsedToday: minutesUsedTodayLive,
-    minutesRemainingToday,
-    sessionsToday,
-  });
+    res.json({
+      ...base,
+      minutesUsedToday: minutesUsedTodayLive,
+      minutesRemainingToday,
+      sessionsToday,
+    });
+  } catch (err) {
+    logger.error({ err, userId: req.session.userId }, "GET /me failed");
+    res.status(500).json({ error: "Could not load your account. Please try again.", code: "me_failed" });
+  }
 });
 
 // ── Change Password ────────────────────────────────────────────────────────

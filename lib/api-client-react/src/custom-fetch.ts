@@ -341,6 +341,51 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === "AbortError";
+}
+
+function requestPathname(url: string): string {
+  try {
+    if (url.startsWith("http://") || url.startsWith("https://")) return new URL(url).pathname;
+  } catch {
+    /* relative */
+  }
+  return url.split("?")[0] ?? url;
+}
+
+/** Auth bootstrap and admin user list must not spin forever if Postgres is busy. */
+function getRequestTimeoutMs(method: string, url: string): number | null {
+  const path = requestPathname(url);
+  if (method === "GET") {
+    if (path === "/api/auth/me" || path.startsWith("/api/auth/me/")) return 12_000;
+    if (path === "/api/admin/users") return 25_000;
+    return null;
+  }
+  if (method === "POST" && (path === "/api/auth/login" || path === "/api/auth/2fa/verify")) {
+    return 20_000;
+  }
+  return null;
+}
+
+function mergeAbortSignals(a?: AbortSignal | null, b?: AbortSignal | null): AbortSignal | undefined {
+  const signals = [a, b].filter((s): s is AbortSignal => Boolean(s));
+  if (signals.length === 0) return undefined;
+  if (signals.length === 1) return signals[0];
+  const anyFn = (AbortSignal as typeof AbortSignal & { any?: (s: AbortSignal[]) => AbortSignal }).any;
+  if (typeof anyFn === "function") return anyFn(signals);
+  const ctrl = new AbortController();
+  const abort = () => ctrl.abort();
+  for (const s of signals) {
+    if (s.aborted) {
+      ctrl.abort();
+      return ctrl.signal;
+    }
+    s.addEventListener("abort", abort, { once: true });
+  }
+  return ctrl.signal;
+}
+
 export async function customFetch<T = unknown>(
   input: RequestInfo | URL,
   options: CustomFetchOptions = {},
@@ -376,6 +421,7 @@ export async function customFetch<T = unknown>(
   }
 
   const requestInfo = { method, url: resolveUrl(input) };
+  const timeoutMs = getRequestTimeoutMs(method, requestInfo.url);
 
   let lastError: unknown;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -383,13 +429,19 @@ export async function customFetch<T = unknown>(
       await sleep(RETRY_BASE_MS * Math.pow(2, attempt - 1));
     }
 
+    const timeoutSignal =
+      timeoutMs != null && typeof AbortSignal.timeout === "function"
+        ? AbortSignal.timeout(timeoutMs)
+        : undefined;
+    const signal = mergeAbortSignals(init.signal, timeoutSignal);
+
     let response: Response;
     try {
-      response = await fetch(input, { ...init, method, headers, credentials: "include" });
+      response = await fetch(input, { ...init, method, headers, credentials: "include", signal });
     } catch (networkErr) {
       lastError = networkErr;
-      if (attempt < MAX_RETRIES) continue;
-      throw networkErr;
+      if (isAbortError(networkErr) || attempt >= MAX_RETRIES) throw networkErr;
+      continue;
     }
 
     // Retry transient proxy/server errors, but not on the last attempt.

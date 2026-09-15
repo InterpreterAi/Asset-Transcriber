@@ -172,6 +172,15 @@ export default function WorkspaceDefault() {
   const { data: user, isLoading: userLoading, error: userError, isFetched: userFetched } = useGetMe({
     query: { queryKey: getGetMeQueryKey(), retry: false, staleTime: 15_000 },
   });
+  const [meTimedOut, setMeTimedOut] = useState(false);
+  useEffect(() => {
+    if (!userLoading) {
+      setMeTimedOut(false);
+      return;
+    }
+    const t = window.setTimeout(() => setMeTimedOut(true), 12_000);
+    return () => window.clearTimeout(t);
+  }, [userLoading]);
   const logoutMut         = useLogout();
 
   const { devices, loading: devicesLoading, error: devicesError, refresh: refreshDevices } = useAudioDevices();
@@ -904,10 +913,12 @@ export default function WorkspaceDefault() {
   }, [userError, setLocation]);
 
   useEffect(() => {
-    if (!userFetched || userLoading || user) return;
+    if (!userFetched || userLoading || user) {
+      if (!(meTimedOut && !user)) return;
+    }
     if (userError && !(userError instanceof ApiError)) return;
     setLocation(loginUrlForReturnTo());
-  }, [userFetched, userLoading, user, userError, setLocation]);
+  }, [userFetched, userLoading, user, userError, meTimedOut, setLocation]);
 
   useEffect(() => {
     if (devices.length > 0 && !selectedDeviceId) setSelectedDeviceId(devices[0]!.deviceId);
@@ -1052,7 +1063,7 @@ export default function WorkspaceDefault() {
     }
   };
 
-  if (userLoading) {
+  if (userLoading && !meTimedOut) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary" />

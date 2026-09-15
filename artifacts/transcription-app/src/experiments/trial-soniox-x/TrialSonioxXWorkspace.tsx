@@ -164,6 +164,15 @@ export default function TrialSonioxXWorkspace() {
   const { data: user, isLoading: userLoading, error: userError, isFetched: userFetched } = useGetMe({
     query: { queryKey: getGetMeQueryKey(), retry: false, staleTime: 15_000 },
   });
+  const [meTimedOut, setMeTimedOut] = useState(false);
+  useEffect(() => {
+    if (!userLoading) {
+      setMeTimedOut(false);
+      return;
+    }
+    const t = window.setTimeout(() => setMeTimedOut(true), 12_000);
+    return () => window.clearTimeout(t);
+  }, [userLoading]);
   const logoutMut = useLogout();
   const startSessionMut = useStartSession();
   const stopSessionMut = useStopSession();
@@ -446,9 +455,10 @@ export default function TrialSonioxXWorkspace() {
   }, [recording]);
 
   useEffect(() => {
-    if (!userFetched || userLoading || user) return;
+    if (user) return;
+    if (!meTimedOut && (!userFetched || userLoading)) return;
     setLocation(loginUrlForReturnTo());
-  }, [userFetched, userLoading, user, userError, setLocation]);
+  }, [userFetched, userLoading, user, userError, meTimedOut, setLocation]);
 
   useEffect(() => {
     let cancelled = false;
@@ -702,7 +712,7 @@ export default function TrialSonioxXWorkspace() {
     el.scrollTop = el.scrollHeight;
   };
 
-  if (userLoading) {
+  if (userLoading && !meTimedOut) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary" />
