@@ -1,7 +1,7 @@
 import { runMigrations } from "stripe-replit-sync";
 import { getStripeSync } from "./lib/stripeClient.js";
-import { db, pool, resolvedDatabaseUrl, sessionsTable, usersTable } from "@workspace/db";
-import { isNull, sql, eq } from "drizzle-orm";
+import { db, pool, resolvedDatabaseUrl, usersTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
 import { hashPassword } from "./lib/password.js";
 import app from "./app.js";
 import { logger } from "./lib/logger.js";
@@ -505,28 +505,9 @@ async function requireDatabaseReadyForApi(): Promise<void> {
 
 // ── Stale session cleanup on startup ─────────────────────────────────────────
 async function clearStaleSessions() {
-  try {
-    const now = new Date();
-    const result = await db
-      .update(sessionsTable)
-      .set({
-        endedAt: now,
-        hetznerMtManualLane: null,
-        hetznerMtAssignedLane: null,
-      })
-      .where(
-        sql`${sessionsTable.endedAt} IS NULL
-            AND COALESCE(${sessionsTable.lastActivityAt}, ${sessionsTable.startedAt})
-                < NOW() - INTERVAL '60 seconds'`
-      )
-      .returning({ id: sessionsTable.id });
-
-    if (result.length > 0) {
-      logger.info({ count: result.length }, "Closed stale sessions on startup");
-    }
-  } catch (err) {
-    logger.error({ err }, "Failed to clear stale sessions on startup");
-  }
+  // Deploy restarts used to mass-close every open billing row older than 60s.
+  // Interpreters were still talking; admin went blind. Leave open rows in place.
+  logger.info("Startup: leaving open billing sessions in place so live interpreters stay on the admin board");
 }
 
 // ── Stripe initialization (graceful — server still starts if Stripe not connected) ──

@@ -22,6 +22,7 @@ import {
   type MorsyTranslationStackFlags,
 } from "@/experiments/basic-morsy-urgent/translationStackMode";
 import { loginUrlForReturnTo } from "@/lib/auth-redirect";
+import { presenceFields } from "@/lib/session-presence";
 import { captureTabAudio, isFirefoxBrowser, isGetDisplayMediaCancel } from "@/lib/capture-tab-audio";
 import { useUrlEnumState } from "@/lib/url-page-state";
 import { useSessionHeartbeat } from "@/hooks/use-session-heartbeat";
@@ -169,16 +170,21 @@ function FontSizePxStepper({
 export default function WorkspaceDefault() {
   const [, setLocation]   = useLocation();
   const queryClient       = useQueryClient();
-  const { data: user, isLoading: userLoading, error: userError, isFetched: userFetched } = useGetMe({
+  const { data: meUser, isLoading: userLoading, error: userError, isFetched: userFetched } = useGetMe({
     query: { queryKey: getGetMeQueryKey(), retry: false, staleTime: 15_000 },
   });
+  const [cachedUser, setCachedUser] = useState(meUser);
+  useEffect(() => {
+    if (meUser) setCachedUser(meUser);
+  }, [meUser]);
+  const user = meUser ?? cachedUser;
   const [meTimedOut, setMeTimedOut] = useState(false);
   useEffect(() => {
     if (!userLoading) {
       setMeTimedOut(false);
       return;
     }
-    const t = window.setTimeout(() => setMeTimedOut(true), 12_000);
+    const t = window.setTimeout(() => setMeTimedOut(true), 4_000);
     return () => window.clearTimeout(t);
   }, [userLoading]);
   const logoutMut         = useLogout();
@@ -344,7 +350,7 @@ export default function WorkspaceDefault() {
           headers:     { "Content-Type": "application/json" },
           credentials: "include",
           body:        JSON.stringify({
-            sessionId:   t.sessionId,
+            ...presenceFields(t.sessionId),
             langA:       langARef.current,
             langB:       langBRef.current,
             micLabel:    micLabelRef.current,
@@ -903,6 +909,13 @@ export default function WorkspaceDefault() {
 
 
   useEffect(() => {
+    if (transcription.isRecording) return;
+    if (!meUser) {
+      if (userError instanceof ApiError && userError.status === 401) {
+        setLocation(loginUrlForReturnTo());
+        return;
+      }
+    }
     if (!userError) return;
     if (userError instanceof ApiError) {
       if (userError.status === 401) {
@@ -910,15 +923,16 @@ export default function WorkspaceDefault() {
       }
       return;
     }
-  }, [userError, setLocation]);
+  }, [userError, transcription.isRecording, meUser, setLocation]);
 
   useEffect(() => {
-    if (!userFetched || userLoading || user) {
-      if (!(meTimedOut && !user)) return;
+    if (transcription.isRecording) return;
+    if (!userFetched || userLoading || meUser) {
+      if (!(meTimedOut && !meUser)) return;
     }
     if (userError && !(userError instanceof ApiError)) return;
     setLocation(loginUrlForReturnTo());
-  }, [userFetched, userLoading, user, userError, meTimedOut, setLocation]);
+  }, [userFetched, userLoading, meUser, userError, meTimedOut, transcription.isRecording, setLocation]);
 
   useEffect(() => {
     if (devices.length > 0 && !selectedDeviceId) setSelectedDeviceId(devices[0]!.deviceId);
@@ -961,7 +975,7 @@ export default function WorkspaceDefault() {
         headers:     { "Content-Type": "application/json" },
         credentials: "include",
         body:        JSON.stringify({
-          sessionId:   t.sessionId,
+          ...presenceFields(t.sessionId),
           langA:       langARef.current,
           langB:       langBRef.current,
           micLabel:    micLabelRef.current,
@@ -1063,14 +1077,20 @@ export default function WorkspaceDefault() {
     }
   };
 
-  if (userLoading && !meTimedOut) {
+  if (userLoading && !meTimedOut && !user) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary" />
       </div>
     );
   }
-  if (!user) return null;
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center text-sm text-muted-foreground">
+        Redirecting to sign in…
+      </div>
+    );
+  }
 
   /** True unlimited (dailyLimit ≥ 9000, e.g. public Professional) or Pro/Platinum plan_type: UI shows "/ unlimited". */
   const usageShowsUnlimitedCap =

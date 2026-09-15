@@ -51,6 +51,11 @@ import { runMorsyChunkV2Translation } from "../lib/morsy-chunk-translation-v2.js
 import { applyInterpreterPhrasePretranslate } from "../lib/interpreter-phrase-pretranslate.js";
 import { logger } from "../lib/logger.js";
 import { sessionStore, ensureLiveSnapshot, applyLiveSnapshotMicLabel } from "../lib/session-store.js";
+import {
+  presenceKeyFromBody,
+  sessionPresenceKey,
+  userIdForOpenSession,
+} from "../lib/session-presence.js";
 import { lockTranslationToOfficialRegister } from "../lib/official-translation-register.js";
 import { sessionContinuityPromptBlock } from "../lib/session-translation-continuity.js";
 import { isOpenAiConfigured } from "../lib/ai-env.js";
@@ -652,17 +657,22 @@ router.post("/token", requireAuth, async (req, res) => {
   }
 });
 
-// How old a session's last heartbeat must be before we consider it abandoned.
-// Set to 60 s — matches the requirement in the feature spec.
+// How old a session's last heartbeat must be before we consider it abandoned
+// (tab closed). Deploy / MemoryStore cookie wipes are NOT abandon — those rows
+// started before this process and must stay on the admin live board.
 const STALE_SESSION_MS = 60_000;
+const PROCESS_BOOT_MS = Date.now();
+/** Keep pre-restart open rows visible (and billing) until the client stops or this elapses. */
+const PRE_BOOT_KEEP_MS = 6 * 60 * 60 * 1000;
 
 // ── Stale session cleanup ───────────────────────────────────────────────────
-// Runs every 60 s and auto-closes any sessions whose lastActivityAt is older
-// than STALE_SESSION_MS. This handles tab closes, page refreshes, and network
-// drops where the client never sent an explicit /session/stop.
+// Closes sessions whose lastActivityAt is older than STALE_SESSION_MS, except
+// rows that began before this process (deploy). Closing those on boot hid live
+// interpreters from admin while they were still talking.
 async function sweepStaleSessions(): Promise<void> {
   try {
-    const cutoff = new Date(Date.now() - STALE_SESSION_MS);
+    const now = Date.now();
+    const cutoff = new Date(now - STALE_SESSION_MS);
     const stale = await db
       .select({
         id: sessionsTable.id,
@@ -681,14 +691,17 @@ async function sweepStaleSessions(): Promise<void> {
 
     if (stale.length === 0) return;
 
+    let closed = 0;
     for (const s of stale) {
-      // Bill reconstructed usage (PCM and/or last-activity span) so admin TODAY/caps
-      // match session history instead of zeroing unstopped sessions.
+      const startedMs = s.startedAt instanceof Date ? s.startedAt.getTime() : Date.parse(String(s.startedAt));
+      const startedBeforeBoot = Number.isFinite(startedMs) && startedMs < PROCESS_BOOT_MS - 2_000;
+      if (startedBeforeBoot && now - PROCESS_BOOT_MS < PRE_BOOT_KEEP_MS) continue;
       const creditSec = computeBillableSecondsFromSessionRow(s);
       await closeOpenSessionWithBillingIfNeeded(s.id, s.userId, creditSec);
       sessionStore.delete(s.id);
+      closed += 1;
     }
-    logger.info(`Swept ${stale.length} stale session(s)`);
+    if (closed > 0) logger.info(`Swept ${closed} stale session(s)`);
   } catch (err) {
     logger.error({ err }, "Stale session sweep failed");
   }
@@ -1361,13 +1374,17 @@ router.post("/session/start", requireAuth, async (req, res) => {
     );
   }
 
-  res.json({ sessionId: result.id, message: "Session started" });
+  res.json({
+    sessionId: result.id,
+    message: "Session started",
+    presenceKey: sessionPresenceKey(userForCap.id, result.id),
+  });
 });
 
 // ── /session/heartbeat ──────────────────────────────────────────────────────
 // Frontend calls this every 30 s while recording to keep the session alive.
 // Without a heartbeat the session is considered stale after STALE_SESSION_MS.
-router.post("/session/heartbeat", requireAuth, async (req, res) => {
+router.post("/session/heartbeat", async (req, res) => {
   const { sessionId, audioSecondsProcessed: rawAudio, micLabel: rawMicLabel } = (req.body ?? {}) as {
     sessionId?: number;
     /** Cumulative PCM seconds sent to Soniox this session (client-measured). */
@@ -1377,13 +1394,19 @@ router.post("/session/heartbeat", requireAuth, async (req, res) => {
   };
   if (!sessionId) { res.status(400).json({ error: "sessionId required" }); return; }
 
+  const userId = await userIdForOpenSession(req, sessionId, presenceKeyFromBody(req.body));
+  if (!userId) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+
   const rows = await db
     .select({ id: sessionsTable.id })
     .from(sessionsTable)
     .where(
       and(
         eq(sessionsTable.id, sessionId),
-        eq(sessionsTable.userId, req.session.userId!),
+        eq(sessionsTable.userId, userId),
         isNull(sessionsTable.endedAt),
       )
     )
@@ -1410,9 +1433,8 @@ router.post("/session/heartbeat", requireAuth, async (req, res) => {
     })
     .where(eq(sessionsTable.id, sessionId));
 
-  void touchActivity(req.session.userId!);
+  void touchActivity(userId);
 
-  const userId = req.session.userId!;
   const hbUser = await getUserWithResetCheck(userId);
   if (!hbUser) {
     res.status(401).json({ error: "Not authenticated" });
@@ -1464,7 +1486,7 @@ router.post("/session/heartbeat", requireAuth, async (req, res) => {
 });
 
 // ── /session/stop ──────────────────────────────────────────────────────────
-router.post("/session/stop", requireAuth, async (req, res) => {
+router.post("/session/stop", async (req, res) => {
   const body = req.body as {
     sessionId?: number;
     durationSeconds?: number;
@@ -1475,11 +1497,17 @@ router.post("/session/stop", requireAuth, async (req, res) => {
     return;
   }
 
+  const userId = await userIdForOpenSession(req, sessionId, presenceKeyFromBody(req.body));
+  if (!userId) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+
   const audioSeconds = Math.min(Math.max(0, Math.floor(Number(durationSeconds) || 0)), MAX_SESSION_AUDIO_SECONDS);
 
   const { closed, minutesUsed } = await closeOpenSessionWithBillingIfNeeded(
     sessionId,
-    req.session.userId!,
+    userId,
     audioSeconds,
   );
   if (!closed) {
@@ -1494,7 +1522,7 @@ router.post("/session/stop", requireAuth, async (req, res) => {
 // Client pushes a live snapshot every 5 s so admin can view the session.
 // The snapshot is held in-memory only (sessionStore) — never persisted to DB.
 // langPair is recorded to the sessions table for historical reporting.
-router.put("/session/snapshot", requireAuth, async (req, res) => {
+router.put("/session/snapshot", async (req, res) => {
   const body = req.body as {
     sessionId?: number;
     langA?: string;
@@ -1516,13 +1544,19 @@ router.put("/session/snapshot", requireAuth, async (req, res) => {
     return;
   }
 
+  const snapshotUserId = await userIdForOpenSession(req, sessionId, presenceKeyFromBody(req.body));
+  if (!snapshotUserId) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+
   // Verify this session belongs to the requesting user and is still open.
   const rows = await db
     .select({ id: sessionsTable.id, langPair: sessionsTable.langPair })
     .from(sessionsTable)
     .where(and(
       eq(sessionsTable.id, sessionId),
-      eq(sessionsTable.userId, req.session.userId!),
+      eq(sessionsTable.userId, snapshotUserId),
       isNull(sessionsTable.endedAt),
     ))
     .limit(1);

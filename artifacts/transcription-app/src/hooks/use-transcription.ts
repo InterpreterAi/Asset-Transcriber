@@ -1,6 +1,6 @@
 /** Client transcription + translation dispatch (single canonical hook). dailyCapRef + heartbeat cap for daily limits. */
 import { useRef, useState, useCallback, useEffect, useLayoutEffect, type MutableRefObject } from "react";
-import { useGetTranscriptionToken, useStartSession, useStopSession } from "@workspace/api-client-react";
+import { useGetTranscriptionToken, useStartSession } from "@workspace/api-client-react";
 import { buildSonioxInterpreterContext } from "@/lib/interpreter-stt-context";
 import {
   buildSonioxLanguageHints,
@@ -23,6 +23,7 @@ import {
   shouldPauseWorkspaceDomPaint,
 } from "@/lib/workspace-text-selection";
 import { readTerminologyMode } from "@/lib/terminology-mode-storage";
+import { forgetSessionPresence, presenceFields, rememberSessionPresence } from "@/lib/session-presence";
 import {
   logSttPipelineReportConsole,
   recordSttSegmentClose,
@@ -4702,7 +4703,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const MAX_SESSION_MS        = 3 * 60 * 60 * 1000; // 3 hours
 
   const startSessionMut = useStartSession();
-  const stopSessionMut  = useStopSession();
   const getTokenMut     = useGetTranscriptionToken();
 
   const translationConfigReporterRef = useRef<(msg: string) => void>(() => {});
@@ -8301,12 +8301,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const pcmSec = Math.floor(audioPcmSecondsRef.current);
       const durationSeconds = Math.max(0, Math.min(pcmSec, wallSec));
       try {
-        await stopSessionMut.mutateAsync({
-          data: {
-            sessionId: sessionIdRef.current,
-            durationSeconds,
-          },
+        const sid = sessionIdRef.current;
+        await fetch("/api/transcription/session/stop", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...presenceFields(sid), durationSeconds }),
         });
+        forgetSessionPresence(sid);
       } catch { /* session stop error — silenced (HIPAA) */ }
       sessionIdRef.current = null;
       setSessionId(null);
@@ -8355,7 +8357,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     setTranslationServiceError(null);
     onRecordingStoppedRef.current?.();
   }, [
-    stopSessionMut,
     finalizeLiveBubble,
     stopTranslationInterval,
     doClear,
@@ -9752,6 +9753,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         },
       });
       const sessionRes = await sessionStartPromise;
+      rememberSessionPresence(
+        sessionRes.sessionId,
+        (sessionRes as { presenceKey?: string }).presenceKey,
+      );
       sessionIdRef.current = sessionRes.sessionId;
       setSessionId(sessionRes.sessionId);
       audioInputLabelRef.current = providedStream ? "Browser Tab Audio" : "Microphone";
@@ -9780,7 +9785,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           headers:     { "Content-Type": "application/json" },
           credentials: "include",
           body:        JSON.stringify({
-            sessionId: sid,
+            ...presenceFields(sid),
             audioSecondsProcessed: Math.floor(audioPcmSecondsRef.current),
             micLabel: audioInputLabelRef.current,
           }),
@@ -10017,9 +10022,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const pcmSec = Math.floor(audioPcmSecondsRef.current);
         const durationSeconds = Math.max(0, Math.min(pcmSec, wallSec));
         try {
-          await stopSessionMut.mutateAsync({
-            data: { sessionId: ghostId, durationSeconds },
+          await fetch("/api/transcription/session/stop", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...presenceFields(ghostId), durationSeconds }),
           });
+          forgetSessionPresence(ghostId);
         } catch { /* ignore — server will auto-close on next start */ }
         sessionIdRef.current = null;
         setSessionId(null);
@@ -10029,7 +10038,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       startInFlightRef.current = false;
       setStartBusy(false);
     }
-  }, [getTokenMut, startSessionMut, stopSessionMut, buildWs, stop]);
+  }, [getTokenMut, startSessionMut, buildWs, stop]);
 
   // ── setLangPair ────────────────────────────────────────────────────────────
   // Called by workspace whenever the user changes either language selector.

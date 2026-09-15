@@ -674,7 +674,7 @@ export default function Admin() {
       setMeTimedOut(false);
       return;
     }
-    const t = window.setTimeout(() => setMeTimedOut(true), 12_000);
+    const t = window.setTimeout(() => setMeTimedOut(true), 4_000);
     return () => window.clearTimeout(t);
   }, [meLoading]);
 
@@ -1316,7 +1316,13 @@ export default function Admin() {
       </div>
     );
   }
-  if (!me?.isAdmin) return null;
+  if (!me?.isAdmin) {
+    return (
+      <div className="min-h-screen bg-background text-foreground flex items-center justify-center text-sm text-muted-foreground">
+        Redirecting to sign in…
+      </div>
+    );
+  }
 
   const feedback  = feedbackData?.feedback ?? [];
   const stats     = statsData;
@@ -1962,14 +1968,17 @@ export default function Admin() {
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {sessions.map(s => (
-                    <Card key={s.sessionId} className={`p-4 border-none shadow-sm ${s.hasSnapshot ? "bg-card" : "bg-amber-50/60 dark:bg-amber-500/10"}`}>
+                    <Card key={s.sessionId} className="p-4 border-none shadow-sm bg-card">
                       <div className="flex items-center gap-2 mb-2 flex-wrap">
-                        {s.hasSnapshot
-                          ? <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
-                          : <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />}
+                        <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
                         <span className="font-semibold text-sm truncate">{s.username}</span>
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-200 flex-shrink-0">
+                          Live
+                        </span>
                         {!s.hasSnapshot && (
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-100 flex-shrink-0">stale</span>
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-100 flex-shrink-0">
+                            preview catching up
+                          </span>
                         )}
                         {(s.openSessionsForUser ?? 1) > 1 && (
                           <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-200 flex-shrink-0" title="Multiple DB rows with ended_at null for this user">
@@ -2060,8 +2069,8 @@ export default function Admin() {
                         </div>
                       )}
                       {!s.hasSnapshot && !s.micLabel && (
-                        <p className="text-xs text-amber-700 dark:text-amber-300 mb-1">
-                          No recent heartbeat — this row is still open in billing and may be stale.
+                        <p className="text-xs text-muted-foreground mb-1">
+                          Still live and billing. Preview reconnects after a server restart.
                         </p>
                       )}
                       <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">

@@ -7,7 +7,6 @@ import {
   useGetTranscriptionToken,
   useLogout,
   useStartSession,
-  useStopSession,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -25,6 +24,7 @@ import { SupportPanel } from "@/components/SupportPanel";
 import { SessionHistoryPanel } from "@/components/SessionHistoryPanel";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
 import { loginUrlForReturnTo } from "@/lib/auth-redirect";
+import { forgetSessionPresence, presenceFields, rememberSessionPresence } from "@/lib/session-presence";
 import {
   cn,
   formatMinutes,
@@ -162,21 +162,25 @@ function FontSizePxStepper({
 export default function TrialSonioxXWorkspace() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
-  const { data: user, isLoading: userLoading, error: userError, isFetched: userFetched } = useGetMe({
+  const { data: meUser, isLoading: userLoading, error: userError, isFetched: userFetched } = useGetMe({
     query: { queryKey: getGetMeQueryKey(), retry: false, staleTime: 15_000 },
   });
+  const [cachedUser, setCachedUser] = useState(meUser);
+  useEffect(() => {
+    if (meUser) setCachedUser(meUser);
+  }, [meUser]);
+  const user = meUser ?? cachedUser;
   const [meTimedOut, setMeTimedOut] = useState(false);
   useEffect(() => {
     if (!userLoading) {
       setMeTimedOut(false);
       return;
     }
-    const t = window.setTimeout(() => setMeTimedOut(true), 12_000);
+    const t = window.setTimeout(() => setMeTimedOut(true), 4_000);
     return () => window.clearTimeout(t);
   }, [userLoading]);
   const logoutMut = useLogout();
   const startSessionMut = useStartSession();
-  const stopSessionMut = useStopSession();
   const getTokenMut = useGetTranscriptionToken();
   const { devices, loading: devicesLoading, error: devicesError, refresh: refreshDevices } = useAudioDevices();
 
@@ -396,14 +400,18 @@ export default function TrialSonioxXWorkspace() {
       ? Math.max(0, Math.floor((Date.now() - startedAt) / 1000))
       : 0;
     try {
-      await stopSessionMut.mutateAsync({
-        data: { sessionId: sid, durationSeconds },
+      await fetch("/api/transcription/session/stop", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...presenceFields(sid), durationSeconds }),
       });
     } catch {
-      /* session may already be closed by stale sweep */
+      /* session may already be closed */
     }
+    forgetSessionPresence(sid);
     void queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
-  }, [clearHeartbeat, queryClient, stopSessionMut]);
+  }, [clearHeartbeat, queryClient]);
 
   const stopOwnedMic = useCallback(() => {
     micStreamRef.current?.getTracks().forEach((t) => t.stop());
@@ -456,10 +464,11 @@ export default function TrialSonioxXWorkspace() {
   }, [recording]);
 
   useEffect(() => {
-    if (user) return;
+    if (recording) return;
+    if (meUser) return;
     if (!meTimedOut && (!userFetched || userLoading)) return;
     setLocation(loginUrlForReturnTo());
-  }, [userFetched, userLoading, user, userError, meTimedOut, setLocation]);
+  }, [userFetched, userLoading, meUser, userError, meTimedOut, recording, setLocation]);
 
   useEffect(() => {
     let cancelled = false;
@@ -529,7 +538,7 @@ export default function TrialSonioxXWorkspace() {
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          sessionId,
+          ...presenceFields(sessionId),
           audioSecondsProcessed: startTimeRef.current
             ? Math.floor((Date.now() - startTimeRef.current) / 1000)
             : 0,
@@ -553,7 +562,7 @@ export default function TrialSonioxXWorkspace() {
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          sessionId,
+          ...presenceFields(sessionId),
           langA: langARef.current,
           langB: langBRef.current,
           micLabel: micLabelRef.current,
@@ -597,6 +606,10 @@ export default function TrialSonioxXWorkspace() {
       const sessionRes = await startSessionMut.mutateAsync({
         data: { srcLang: langA, tgtLang: langB },
       });
+      rememberSessionPresence(
+        sessionRes.sessionId,
+        (sessionRes as { presenceKey?: string }).presenceKey,
+      );
       sessionIdRef.current = sessionRes.sessionId;
       sessionIdHolder.current = sessionRes.sessionId;
       snapshotSeqRef.current = 0;
@@ -713,14 +726,20 @@ export default function TrialSonioxXWorkspace() {
     el.scrollTop = el.scrollHeight;
   };
 
-  if (userLoading && !meTimedOut) {
+  if (userLoading && !meTimedOut && !user) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary" />
       </div>
     );
   }
-  if (!user) return null;
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center text-sm text-muted-foreground">
+        Redirecting to sign in…
+      </div>
+    );
+  }
 
   const isLimitReached = user.minutesUsedToday > 0 && user.minutesRemainingToday <= 0;
   const isBlocked = user.trialExpired || isLimitReached;
