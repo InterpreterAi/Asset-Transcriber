@@ -40,6 +40,7 @@ import { useSessionHeartbeat } from "@/hooks/use-session-heartbeat";
 import useSonioxClient from "./useSonioxClient";
 import { getLanguage } from "./languages";
 import { sonioxTwoWayLanguageHints, workspaceLangToOfficialSonioxCode } from "./soniox-lang";
+import { dominantBidiDir } from "./bidi-islands";
 import { langDir, rowsFromSonioxTokens, snapshotLinesFromSonioxXRows, stripeClassForSpeaker } from "./rows-from-tokens";
 import { BidiText } from "./BidiText";
 import { buildStableDialectContext } from "./stable-dialect-context";
@@ -1229,8 +1230,8 @@ export default function TrialSonioxXWorkspace() {
                     const orig = row.origFinal + row.origPartial;
                     const transRaw = row.transFinal + row.transPartial;
                     const trans = applyExactGlossaryPins(orig, transRaw, pinPairs);
-                    const origDir = langDir(row.origLang);
-                    const transDir = langDir(row.transLang);
+                    const origDir = dominantBidiDir(orig, langDir(row.origLang));
+                    const transDir = dominantBidiDir(trans, langDir(row.transLang));
                     return (
                       <div
                         key={row.id}

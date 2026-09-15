@@ -1,10 +1,9 @@
 /**
  * Trial · Soniox X only.
  *
- * Soniox has a single `ar` / `es` / … code (no dialect IDs). Pin the
- * TRANSLATION column to the standard written variety via `context`.
- * Originals stay as spoken — including dialect — so we do not ask STT to
- * rewrite Egyptian into فصحى (that would pollute the original column).
+ * Soniox has a single `ar` code (no dialect IDs). Context applies to BOTH
+ * recognition and translation, so فصحى belongs only in translation-labeled
+ * keys. Originals must keep every spoken Arabic dialect.
  *
  * https://soniox.com/docs/stt/concepts/context
  */
@@ -21,7 +20,7 @@ export type SonioxStartContext = {
 export const STABLE_WRITTEN_DIALECT: Record<string, string> = {
   af: "Standard Afrikaans (translation only)",
   sq: "Standard Albanian / Tosk (translation only)",
-  ar: "Modern Standard Arabic (فصحى / fuṣḥā) for translation only. Spoken Egyptian, Levantine, Gulf, and Maghrebi must still be transcribed in the original.",
+  ar: "Modern Standard Arabic (فصحى / fuṣḥā) for the TRANSLATION column only.",
   az: "Standard Azerbaijani (translation only)",
   eu: "Standard Basque / Euskara Batua (translation only)",
   be: "Standard Belarusian (translation only)",
@@ -99,13 +98,34 @@ function registerKey(code: string): string {
   return `${name}_translation_register`;
 }
 
+/** Spoken Arabic the original column must keep. Not a ban list — STT must write these. */
+const AR_SPOKEN_DIALECTS =
+  "Yemeni, Iraqi, Gulf, Hijazi, Najdi, Levantine, Egyptian, Sudanese, Moroccan Darija, Algerian, Tunisian, Libyan, Hassaniya, and every other Maghrebi or Arabian variety";
+
+/** High-frequency dialect particles so Soniox treats them as Arabic, not noise or French. */
+const AR_DIALECT_RECOGNITION_TERMS = [
+  "شلون",
+  "وين",
+  "واش",
+  "بزاف",
+  "برشا",
+  "قديش",
+  "هسه",
+  "ازاي",
+  "يعني",
+  "علاش",
+  "هلق",
+  "كده",
+];
+
 /** Extra translation-only guidance when the pair includes a high-drift language. */
 const PAIR_TRANSLATION_TEXT: Record<string, string> = {
   ar:
     "TRANSLATION COLUMN into Arabic: Modern Standard Arabic only (الفصحى), like news/subtitles. " +
-    "Do not copy dialect into the translation even if the audio is Egyptian, Levantine, Gulf, or Maghrebi. " +
+    `Do not copy dialect into the translation even if the audio is ${AR_SPOKEN_DIALECTS}. ` +
     "Never repeat English words or Latin abbreviations in the Arabic translation (Sonogram → تصوير بالموجات فوق الصوتية). " +
-    "ORIGINAL COLUMN: always transcribe spoken Arabic, including dialect. Do not drop Egyptian/Levantine/Gulf/Maghrebi speech.",
+    `ORIGINAL COLUMN: write every Arabic dialect as spoken (${AR_SPOKEN_DIALECTS}). ` +
+    "Maghrebi, Algerian, Tunisian, and Darija are Arabic, not French. Never skip or silence Arabic speech.",
   es:
     "TRANSLATION COLUMN into Spanish: neutral standard Spanish (español estándar), like news/subtitles. " +
     "Do not copy Rioplatense, Caribbean, Mexican slang, or voseo into the translation. " +
@@ -164,25 +184,28 @@ export function buildStableDialectContext(langA: string, langB: string): SonioxS
   const b = langBase(langB);
   const pinA = pinFor(a);
   const pinB = pinFor(b);
+  const arabicPair = a === "ar" || b === "ar";
   const general: { key: string; value: string }[] = [
     { key: "domain", value: "Live two-way interpretation" },
     {
       key: "languages",
-      value:
-        `Two-way ${LANG_NAME[a] ?? a} and ${LANG_NAME[b] ?? b}. Both languages will be spoken. Transcribe whichever is spoken; do not ignore one side.`,
+      value: arabicPair
+        ? `Two-way ${LANG_NAME[a] ?? a} and ${LANG_NAME[b] ?? b}. Both languages will be spoken. Arabic includes ${AR_SPOKEN_DIALECTS}. Transcribe whichever is spoken; Maghrebi/Darija is Arabic, not French; do not ignore Arabic dialect as silence.`
+        : `Two-way ${LANG_NAME[a] ?? a} and ${LANG_NAME[b] ?? b}. Both languages will be spoken. Transcribe whichever is spoken; do not ignore one side.`,
     },
     {
       key: "transcription",
       value:
         "Original column: transcribe everything spoken in either pair language, exactly as spoken — dialect, slang, and code-switching included. Never drop one side. Do not rewrite originals into the standard written variety." +
-        (a === "ar" || b === "ar"
-          ? " Arabic originals include Egyptian, Levantine, Gulf, and Maghrebi; never drop Arabic speech; do not rewrite original Arabic into الفصحى."
+        (arabicPair
+          ? ` Arabic originals MUST include ${AR_SPOKEN_DIALECTS}. Write them in Arabic script as heard. Do not skip dialect. Do not treat Maghrebi/Darija/Algerian/Tunisian as French or as silence.`
           : ""),
     },
     {
       key: "translation",
       value:
-        "Translation column only: always the stable standard written variety of the TARGET language. Never copy the spoken dialect into the translation. Never echo the source-language word or Latin abbreviation in the translation; use only the target wording from translation_terms.",
+        "Translation column only: always the stable standard written variety of the TARGET language. Never copy the spoken dialect into the translation. Never echo the source-language word or Latin abbreviation in the translation; use only the target wording from translation_terms." +
+        (arabicPair ? " When the target is Arabic, use الفصحى / Modern Standard Arabic only." : ""),
     },
     { key: registerKey(a), value: `TRANSLATION into ${LANG_NAME[a] ?? a} uses: ${pinA}` },
     { key: registerKey(b), value: `TRANSLATION into ${LANG_NAME[b] ?? b} uses: ${pinB}` },
@@ -192,13 +215,20 @@ export function buildStableDialectContext(langA: string, langB: string): SonioxS
         "Keep phone numbers, dates, times, and numeric IDs in the same digit sequence as spoken. Do not reverse digits.",
     },
   ];
+  if (arabicPair) {
+    general.push({
+      key: "instructions",
+      value:
+        `Arabic will be spoken in any dialect (${AR_SPOKEN_DIALECTS}). Transcribe that original as dialect Arabic. Translation into Arabic is الفصحى only.`,
+    });
+  }
 
   const textParts = [a, b]
     .map((code) => PAIR_TRANSLATION_TEXT[code])
     .filter((part): part is string => Boolean(part));
 
   const translation_terms: { source: string; target: string }[] = [];
-  if (a === "ar" || b === "ar") {
+  if (arabicPair) {
     translation_terms.push(...AR_EN_MSA_TERMS);
   }
   if (a === "es" || b === "es") {
@@ -211,6 +241,7 @@ export function buildStableDialectContext(langA: string, langB: string): SonioxS
   const ctx: SonioxStartContext = { general };
   if (textParts.length > 0) ctx.text = textParts.join(" ");
   if (translation_terms.length > 0) ctx.translation_terms = translation_terms;
+  if (arabicPair) ctx.terms = [...AR_DIALECT_RECOGNITION_TERMS];
   return ctx;
 }
 

@@ -46,6 +46,8 @@ import {
   ADMIN_PLAN_PICKER_SONIOX_X,
 } from "@/lib/workspace-plan-test-options";
 import { planUsesTrialSonioxX } from "@/experiments/trial-soniox-x/gate";
+import { BidiText } from "@/experiments/trial-soniox-x/BidiText";
+import { dominantBidiDir } from "@/experiments/trial-soniox-x/bidi-islands";
 import { applyMorsyChunkV2BidiIsolates } from "@/hooks/morsy-chunk-v2-bidi-render";
 import { isRtlTranslationText } from "@/lib/wrap-ltr-numbers";
 import { startOfAppDayMs } from "@workspace/app-timezone";
@@ -4005,6 +4007,7 @@ export default function Admin() {
                     const srcHead = adminLanguageLabel(snap.langA, langConfigData?.allLanguages);
                     const trHead = adminLanguageLabel(snap.langB, langConfigData?.allLanguages);
                     const sonioxNativeView = planUsesSonioxNativeTranslation(sessionDetail.planType);
+                    const sonioxXView = planUsesTrialSonioxX(sessionDetail.planType);
                     return (
                       <div className="rounded-lg border border-border overflow-hidden bg-card text-sm leading-relaxed">
                         <table className="w-full border-collapse table-fixed">
@@ -4037,8 +4040,10 @@ export default function Admin() {
                               const rowIndex = stableRows[i]?.idx ?? i + 1;
                               const pending = tgtLine === ADMIN_SNAPSHOT_PENDING_CELL;
                               const rtlTgt = !pending && isRtlTranslationText(tgtLine);
+                              const srcDir = dominantBidiDir(srcLine, "ltr");
+                              const tgtDir = dominantBidiDir(tgtLine, "ltr");
                               const paintedTgt =
-                                sonioxNativeView && rtlTgt
+                                sonioxNativeView && rtlTgt && !sonioxXView
                                   ? applyMorsyChunkV2BidiIsolates(tgtLine)
                                   : tgtLine;
                               return (
@@ -4046,14 +4051,33 @@ export default function Admin() {
                                   <td className="px-1.5 py-2.5 text-center font-mono text-[10px] text-muted-foreground border-r border-border align-top">
                                     {rowIndex}
                                   </td>
-                                  <td className="px-3 py-2.5 text-foreground leading-relaxed whitespace-pre-wrap border-r border-border align-top">
-                                    {srcLine}
+                                  <td
+                                    className="px-3 py-2.5 text-foreground leading-relaxed whitespace-pre-wrap border-r border-border align-top"
+                                    dir={sonioxXView ? srcDir : undefined}
+                                    style={sonioxXView ? { unicodeBidi: "isolate" } : undefined}
+                                  >
+                                    {sonioxXView ? (
+                                      <BidiText text={srcLine} baseDir={srcDir} />
+                                    ) : (
+                                      srcLine
+                                    )}
                                   </td>
                                   <td
                                     className={`px-3 py-2.5 leading-relaxed whitespace-pre-wrap align-top ${pending ? "text-muted-foreground italic" : "text-foreground"}`}
-                                    dir={sonioxNativeView && rtlTgt ? "rtl" : "auto"}
+                                    dir={
+                                      sonioxXView && !pending
+                                        ? tgtDir
+                                        : sonioxNativeView && rtlTgt
+                                          ? "rtl"
+                                          : "auto"
+                                    }
+                                    style={sonioxXView && !pending ? { unicodeBidi: "isolate" } : undefined}
                                   >
-                                    {paintedTgt}
+                                    {sonioxXView && !pending ? (
+                                      <BidiText text={tgtLine} baseDir={tgtDir} />
+                                    ) : (
+                                      paintedTgt
+                                    )}
                                   </td>
                                 </tr>
                               );

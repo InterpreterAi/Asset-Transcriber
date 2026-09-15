@@ -17,6 +17,8 @@ describe("stable dialect pins", () => {
   it("pins Arabic to فصحى and the main European standards", () => {
     expect(STABLE_WRITTEN_DIALECT.ar).toMatch(/فصحى/);
     expect(STABLE_WRITTEN_DIALECT.ar).toMatch(/Modern Standard Arabic/);
+    expect(STABLE_WRITTEN_DIALECT.ar).toMatch(/TRANSLATION column only/i);
+    expect(STABLE_WRITTEN_DIALECT.ar).not.toMatch(/Egyptian/);
     expect(STABLE_WRITTEN_DIALECT.es).toMatch(/español estándar/i);
     expect(STABLE_WRITTEN_DIALECT.fr).toMatch(/français de France/i);
     expect(STABLE_WRITTEN_DIALECT.de).toMatch(/Hochdeutsch/);
@@ -31,8 +33,15 @@ describe("stable dialect pins", () => {
     expect(ctx.general?.some((row) => /فصحى/.test(row.value))).toBe(true);
     expect(ctx.general?.some((row) => /Both languages will be spoken/i.test(row.value))).toBe(true);
     expect(ctx.general?.some((row) => /Never drop one side/i.test(row.value))).toBe(true);
-    expect(ctx.general?.some((row) => /Never drop Arabic speech/i.test(row.value))).toBe(true);
+    expect(ctx.general?.some((row) => /Yemeni/i.test(row.value))).toBe(true);
+    expect(ctx.general?.some((row) => /Iraqi/i.test(row.value))).toBe(true);
+    expect(ctx.general?.some((row) => /Algerian/i.test(row.value))).toBe(true);
+    expect(ctx.general?.some((row) => /Tunisian/i.test(row.value))).toBe(true);
+    expect(ctx.general?.some((row) => /not French/i.test(row.value))).toBe(true);
+    expect(ctx.general?.some((row) => /TRANSLATION column only/i.test(row.value))).toBe(true);
+    expect(ctx.terms?.includes("بزاف")).toBe(true);
     expect(ctx.text).toMatch(/الفصحى/);
+    expect(ctx.text).toMatch(/Yemeni/);
     expect(ctx.text).not.toMatch(/Forbidden in Arabic translations/);
     expect(ctx.text).not.toContain("يا عم");
     expect(ctx.text).not.toContain("cy:");

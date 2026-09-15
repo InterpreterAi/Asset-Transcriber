@@ -74,6 +74,8 @@ describe("interpreter glossary", () => {
     const sono = ctx.translation_terms?.find((t) => t.source === "Sonogram");
     expect(sono?.target).toBe("تصوير بالموجات فوق الصوتية");
     expect(sono?.target ?? "").not.toMatch(/sonogram/i);
+    expect(ctx.terms?.includes("بزاف")).toBe(true);
+    expect(JSON.stringify(ctx)).toMatch(/Yemeni/);
   });
 
   it("loads the en-es medical pack both directions", () => {

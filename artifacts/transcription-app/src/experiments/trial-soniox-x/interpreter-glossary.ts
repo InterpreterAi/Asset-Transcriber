@@ -371,9 +371,12 @@ export function mergeSonioxXInterpreterContext(args: {
 
   addPackPairs(ctx, args.packTerms, seen, includedSources, userSources, isPriorityPairStart);
 
-  const terms: string[] = [];
+  const terms: string[] = [...(ctx.terms ?? [])];
+  const seenTerm = new Set(terms.map((t) => t.toLowerCase()));
   for (const pin of args.packPins) {
     if (!includedSources.has(pin) && !isRecognitionPin(pin)) continue;
+    if (seenTerm.has(pin.toLowerCase())) continue;
+    seenTerm.add(pin.toLowerCase());
     terms.push(pin);
     ctx.terms = terms;
     if (!fits(ctx)) {
