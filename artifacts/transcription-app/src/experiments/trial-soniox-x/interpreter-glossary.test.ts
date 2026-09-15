@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildStableDialectContext } from "./stable-dialect-context";
 import {
   englishPivotPairKey,
+  isLatinOnlyRecognitionTerm,
   mergeSonioxXInterpreterContext,
   packTermsForPair,
   userGlossaryToTerms,
@@ -9,6 +10,15 @@ import {
 } from "./interpreter-glossary";
 
 describe("interpreter glossary", () => {
+  it("treats English abbreviations as recognition junk and keeps Arabic script", () => {
+    expect(isLatinOnlyRecognitionTerm("MRI")).toBe(true);
+    expect(isLatinOnlyRecognitionTerm("CPR")).toBe(true);
+    expect(isLatinOnlyRecognitionTerm("Sonogram")).toBe(true);
+    expect(isLatinOnlyRecognitionTerm("الإنعاش القلبي الرئوي")).toBe(false);
+    expect(isLatinOnlyRecognitionTerm("بزاف")).toBe(false);
+    expect(isLatinOnlyRecognitionTerm("reanimación")).toBe(false);
+  });
+
   it("uses English as the pivot pair key", () => {
     expect(englishPivotPairKey("ar", "en")).toBe("en-ar");
     expect(englishPivotPairKey("en", "nl")).toBe("en-nl");
@@ -67,15 +77,19 @@ describe("interpreter glossary", () => {
     expect(n).toBeGreaterThan(8_000);
     expect(n).toBeLessThanOrEqual(SONIOX_X_CONTEXT_SAFE_CHARS);
     for (const en of ["CPR", "MRI", "ECG", "IUD", "Stroke", "Sonogram"] as const) {
-      expect(
-        ctx.translation_terms?.some((t) => t.source === en) || (ctx.text ?? "").includes(`${en}=`),
-      ).toBe(true);
+      expect(ctx.translation_terms?.some((t) => t.source === en)).toBe(true);
     }
     const sono = ctx.translation_terms?.find((t) => t.source === "Sonogram");
     expect(sono?.target).toBe("تصوير بالموجات فوق الصوتية");
     expect(sono?.target ?? "").not.toMatch(/sonogram/i);
     expect(ctx.terms?.includes("بزاف")).toBe(true);
+    expect(ctx.terms?.some((t) => isLatinOnlyRecognitionTerm(t))).toBe(false);
+    expect(ctx.terms?.includes("MRI")).toBe(false);
+    expect(ctx.terms?.includes("CPR")).toBe(false);
+    expect(ctx.text ?? "").not.toMatch(/MRI=/);
+    expect(ctx.terms?.some((t) => t.includes("الإنعاش") || t.includes("الرنين"))).toBe(true);
     expect(JSON.stringify(ctx)).toMatch(/Yemeni/);
+    expect(JSON.stringify(ctx)).toMatch(/Never lock onto the first language/i);
   });
 
   it("loads the en-es medical pack both directions", () => {
@@ -103,14 +117,14 @@ describe("interpreter glossary", () => {
     expect(n).toBeGreaterThan(8_000);
     expect(n).toBeLessThanOrEqual(SONIOX_X_CONTEXT_SAFE_CHARS);
     for (const en of ["CPR", "MRI", "ECG", "IUD", "Stroke", "Sonogram"] as const) {
-      expect(
-        ctx.translation_terms?.some((t) => t.source === en) || (ctx.text ?? "").includes(`${en}=`),
-      ).toBe(true);
+      expect(ctx.translation_terms?.some((t) => t.source === en)).toBe(true);
     }
     const sono = ctx.translation_terms?.find((t) => t.source === "Sonogram");
     expect(sono?.target).toBe("ecografía");
     expect(sono?.target ?? "").not.toMatch(/sonogram/i);
     expect(ctx.text).toMatch(/español estándar/i);
+    expect(ctx.terms?.includes("MRI")).toBe(false);
+    expect(ctx.terms?.some((t) => isLatinOnlyRecognitionTerm(t))).toBe(false);
   });
 
   it("loads the en-pl medical pack both directions", () => {
@@ -138,13 +152,12 @@ describe("interpreter glossary", () => {
     expect(n).toBeGreaterThan(8_000);
     expect(n).toBeLessThanOrEqual(SONIOX_X_CONTEXT_SAFE_CHARS);
     for (const en of ["CPR", "MRI", "ECG", "IUD", "Stroke", "Sonogram"] as const) {
-      expect(
-        ctx.translation_terms?.some((t) => t.source === en) || (ctx.text ?? "").includes(`${en}=`),
-      ).toBe(true);
+      expect(ctx.translation_terms?.some((t) => t.source === en)).toBe(true);
     }
     const sono = ctx.translation_terms?.find((t) => t.source === "Sonogram");
     expect(sono?.target).toBe("ultrasonografia");
     expect(sono?.target ?? "").not.toMatch(/sonogram/i);
     expect(ctx.text).toMatch(/ogólnopolski|polszczyzna/i);
+    expect(ctx.terms?.includes("MRI")).toBe(false);
   });
 });
