@@ -125,7 +125,7 @@ const PAIR_TRANSLATION_TEXT: Record<string, string> = {
     `Do not copy dialect into the translation even if the audio is ${AR_SPOKEN_DIALECTS}. ` +
     "Never repeat English words or Latin abbreviations in the Arabic translation (Sonogram → تصوير بالموجات فوق الصوتية). " +
     `ORIGINAL COLUMN: write every Arabic dialect as spoken (${AR_SPOKEN_DIALECTS}). ` +
-    "Maghrebi, Algerian, Tunisian, and Darija are Arabic, not French or English. Never skip Arabic speech. Never write English when the audio is Arabic.",
+    "Maghrebi, Algerian, Tunisian, and Darija are Arabic, not French. Never skip or silence Arabic speech.",
   es:
     "TRANSLATION COLUMN into Spanish: neutral standard Spanish (español estándar), like news/subtitles. " +
     "Do not copy Rioplatense, Caribbean, Mexican slang, or voseo into the translation. " +
@@ -184,26 +184,21 @@ export function buildStableDialectContext(langA: string, langB: string): SonioxS
   const b = langBase(langB);
   const pinA = pinFor(a);
   const pinB = pinFor(b);
-  const nameA = LANG_NAME[a] ?? a;
-  const nameB = LANG_NAME[b] ?? b;
   const arabicPair = a === "ar" || b === "ar";
   const general: { key: string; value: string }[] = [
     { key: "domain", value: "Live two-way interpretation" },
-    // Soniox uses this key to bias language ID. Name BOTH pair languages so the
-    // first speaker does not lock the rest of the session onto English.
-    { key: "language", value: `${nameA} and ${nameB}` },
     {
       key: "languages",
       value: arabicPair
-        ? `Two-way ${nameA} and ${nameB}. Both languages will be spoken at the beginning, middle, and end. Never lock onto the first language. Arabic includes ${AR_SPOKEN_DIALECTS}. Maghrebi/Darija is Arabic, not French or English.`
-        : `Two-way ${nameA} and ${nameB}. Both languages will be spoken at the beginning, middle, and end. Never lock onto the first language. Transcribe whichever is spoken; do not ignore one side.`,
+        ? `Two-way ${LANG_NAME[a] ?? a} and ${LANG_NAME[b] ?? b}. Both languages will be spoken. Arabic includes ${AR_SPOKEN_DIALECTS}. Transcribe whichever is spoken; Maghrebi/Darija is Arabic, not French; do not ignore Arabic dialect as silence.`
+        : `Two-way ${LANG_NAME[a] ?? a} and ${LANG_NAME[b] ?? b}. Both languages will be spoken. Transcribe whichever is spoken; do not ignore one side.`,
     },
     {
       key: "transcription",
       value:
         "Original column: transcribe everything spoken in either pair language, exactly as spoken — dialect, slang, and code-switching included. Never drop one side. Do not rewrite originals into the standard written variety." +
         (arabicPair
-          ? ` Arabic originals MUST include ${AR_SPOKEN_DIALECTS}. Write them in Arabic script as heard. Do not skip dialect. Do not treat Maghrebi/Darija/Algerian/Tunisian as French, English, or silence. Never output English or Latin letters when the audio is Arabic.`
+          ? ` Arabic originals MUST include ${AR_SPOKEN_DIALECTS}. Write them in Arabic script as heard. Do not skip dialect. Do not treat Maghrebi/Darija/Algerian/Tunisian as French or as silence.`
           : ""),
     },
     {
@@ -212,20 +207,21 @@ export function buildStableDialectContext(langA: string, langB: string): SonioxS
         "Translation column only: always the stable standard written variety of the TARGET language. Never copy the spoken dialect into the translation. Never echo the source-language word or Latin abbreviation in the translation; use only the target wording from translation_terms." +
         (arabicPair ? " When the target is Arabic, use الفصحى / Modern Standard Arabic only." : ""),
     },
-    { key: registerKey(a), value: `TRANSLATION into ${nameA} uses: ${pinA}` },
-    { key: registerKey(b), value: `TRANSLATION into ${nameB} uses: ${pinB}` },
+    { key: registerKey(a), value: `TRANSLATION into ${LANG_NAME[a] ?? a} uses: ${pinA}` },
+    { key: registerKey(b), value: `TRANSLATION into ${LANG_NAME[b] ?? b} uses: ${pinB}` },
     {
       key: "numbers",
       value:
         "Keep phone numbers, dates, times, and numeric IDs in the same digit sequence as spoken. Do not reverse digits.",
     },
-    {
-      key: "instructions",
-      value: arabicPair
-        ? `Bilingual ${nameA}/${nameB} session. Keep both languages active the whole time. Speakers may switch after any pause. Never lock to the first language heard. If the audio is Arabic (any dialect: ${AR_SPOKEN_DIALECTS}), write Arabic script as spoken — never English, Latin, or French. Translation into Arabic is الفصحى only.`
-        : `Bilingual ${nameA}/${nameB} session. Keep both languages active the whole time. Speakers may switch at the beginning, middle, or end. Never lock onto the first language. Transcribe every utterance in the pair.`,
-    },
   ];
+  if (arabicPair) {
+    general.push({
+      key: "instructions",
+      value:
+        `Arabic will be spoken in any dialect (${AR_SPOKEN_DIALECTS}). Transcribe that original as dialect Arabic. Translation into Arabic is الفصحى only.`,
+    });
+  }
 
   const textParts = [a, b]
     .map((code) => PAIR_TRANSLATION_TEXT[code])

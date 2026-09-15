@@ -32,6 +32,10 @@ function speakerId(token: Token): string | undefined {
   return String(s);
 }
 
+function langBase(code: string | undefined): string {
+  return (code ?? "").split("-")[0]?.toLowerCase() ?? "";
+}
+
 function tokenAudioMs(token: Token): number | undefined {
   const t = token as Token & { start_ms?: number; end_ms?: number };
   if (typeof t.end_ms === "number" && Number.isFinite(t.end_ms)) return t.end_ms;
@@ -130,19 +134,20 @@ function effectiveSpokenSpeakers(tokens: Token[]): (string | undefined)[] {
  * https://soniox.com/docs/stt/rt/real-time-translation
  *
  * Official two-way stream: originals, then translations, then `<end>` when
- * endpoint detection finalizes (we skip `<end>`; it does not open a bubble).
+ * endpoint detection finalizes. The next original after `<end>` starts a new row.
  * https://github.com/soniox/soniox_examples/tree/master/speech_to_text
  *
- * A new bubble opens only for:
+ * A new bubble opens for:
  * - a new speaker
  * - the same speaker after a 10s pause
- * Same speaker mixing languages or continuing after a short pause stays on
- * the same bubble.
+ * - a spoken-language change (EN vs AR must not share a line)
+ * - Soniox `<end>` (next original starts a new utterance)
  */
 export function rowsFromSonioxTokens(tokens: Token[]): SonioxXRow[] {
   const rows: SonioxXRow[] = [];
   let current: SonioxXRow | null = null;
   let seq = 0;
+  let endPending = false;
   const speakers = effectiveSpokenSpeakers(tokens);
 
   const openRow = (speaker?: string): SonioxXRow => {
@@ -155,11 +160,18 @@ export function rowsFromSonioxTokens(tokens: Token[]): SonioxXRow[] {
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i]!;
     if (!token.text) continue;
-    if (token.text === "<end>") continue;
+    if (token.text === "<end>") {
+      endPending = true;
+      continue;
+    }
 
     if (!isTranslationToken(token)) {
       const speaker = speakers[i];
       const speakerChanged = Boolean(current && speaker && current.speaker && speaker !== current.speaker);
+      const spokenLang = langBase(token.language);
+      const languageChanged = Boolean(
+        current?.origLang && spokenLang && spokenLang !== langBase(current.origLang),
+      );
       const ms = tokenAudioMs(token);
       const longPause = Boolean(
         current &&
@@ -168,8 +180,9 @@ export function rowsFromSonioxTokens(tokens: Token[]): SonioxXRow[] {
           ms - current.lastOrigMs >= SAME_SPEAKER_PAUSE_MS,
       );
 
-      if (!current || speakerChanged || longPause) {
+      if (!current || speakerChanged || longPause || languageChanged || endPending) {
         current = openRow(speaker);
+        endPending = false;
       } else if (!current.speaker && speaker) {
         current.speaker = speaker;
       }

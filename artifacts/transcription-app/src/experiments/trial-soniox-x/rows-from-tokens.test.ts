@@ -33,7 +33,7 @@ describe("rowsFromSonioxTokens", () => {
     expect(rows[0]?.origFinal).toBe("flavored mold");
   });
 
-  it("keeps the same speaker on one bubble across <end>", () => {
+  it("opens a new bubble after Soniox <end> so two utterances are not concatenated", () => {
     const rows = rowsFromSonioxTokens([
       tok({ text: "Thank you for calling", speaker: "1", language: "en", translation_status: "original" }),
       tok({ text: "شكرًا لاتصالك", speaker: "1", language: "ar", translation_status: "translation" }),
@@ -41,9 +41,11 @@ describe("rowsFromSonioxTokens", () => {
       tok({ text: " Hello, can you hear me?", speaker: "1", language: "en", translation_status: "original" }),
       tok({ text: " مرحبًا، هل تسمعني؟", speaker: "1", language: "ar", translation_status: "translation" }),
     ]);
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.origFinal).toBe("Thank you for calling Hello, can you hear me?");
-    expect(rows[0]?.transFinal).toBe("شكرًا لاتصالك مرحبًا، هل تسمعني؟");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.origFinal).toBe("Thank you for calling");
+    expect(rows[0]?.transFinal).toBe("شكرًا لاتصالك");
+    expect(rows[1]?.origFinal).toBe(" Hello, can you hear me?");
+    expect(rows[1]?.transFinal).toBe(" مرحبًا، هل تسمعني؟");
   });
 
   it("opens a new bubble after a 10s same-speaker pause, not a short pause", () => {
@@ -91,18 +93,18 @@ describe("rowsFromSonioxTokens", () => {
     expect(longPause[1]?.origFinal).toBe("Next clip");
   });
 
-  it("keeps the same speaker on one row when they mix a few words of another language", () => {
+  it("opens a new row when the original language switches, instead of mixing EN and AR on one line", () => {
     const rows = rowsFromSonioxTokens([
-      tok({ text: "I forgot how to write code. ", speaker: "1", language: "en", translation_status: "original" }),
-      tok({ text: "نسيت ", speaker: "1", language: "ar", translation_status: "translation" }),
-      tok({ text: "يعني", speaker: "1", language: "ar", translation_status: "original" }),
-      tok({ text: "meaning", speaker: "1", language: "en", translation_status: "translation" }),
-      tok({ text: " I've been an engineer.", speaker: "1", language: "en", translation_status: "original" }),
-      tok({ text: " أنا مهندس.", speaker: "1", language: "ar", translation_status: "translation" }),
+      tok({ text: "لازم زوجي لسه هنا. ", speaker: "1", language: "ar", translation_status: "original" }),
+      tok({ text: "My husband still has to be here. ", speaker: "1", language: "en", translation_status: "translation" }),
+      tok({ text: "So can you send it to us?", speaker: "1", language: "en", translation_status: "original" }),
+      tok({ text: "فهل يمكنكِ إرسالها لنا؟", speaker: "1", language: "ar", translation_status: "translation" }),
     ]);
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.origFinal).toBe("I forgot how to write code. يعني I've been an engineer.");
-    expect(rows[0]?.transFinal).toBe("نسيت meaning أنا مهندس.");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.origFinal).toBe("لازم زوجي لسه هنا. ");
+    expect(rows[0]?.transFinal).toBe("My husband still has to be here. ");
+    expect(rows[1]?.origFinal).toBe("So can you send it to us?");
+    expect(rows[1]?.transFinal).toBe("فهل يمكنكِ إرسالها لنا؟");
   });
 
   it("does not rewind later speech onto an older bubble after a speaker change", () => {
