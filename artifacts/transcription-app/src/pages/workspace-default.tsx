@@ -1516,7 +1516,7 @@ export default function WorkspaceDefault() {
                           title={o.planType}
                           disabled={testPlanLoading !== null}
                           onClick={() => void handleTestActivatePlan(o.planType)}
-                          className={`px-2 py-1 rounded-md text-[9px] font-semibold border transition-colors disabled:opacity-50 leading-tight text-left max-w-[8.5rem] ${
+                          className={`px-2 py-1 rounded-md text-[9px] font-semibold border transition-colors disabled:opacity-50 leading-tight text-left max-w-[11rem] ${
                             active
                               ? "border-primary bg-primary/10 text-primary"
                               : "border-border dark:border-white/10 bg-card text-foreground hover:bg-muted dark:bg-muted/25 dark:hover:bg-white/[0.08]"

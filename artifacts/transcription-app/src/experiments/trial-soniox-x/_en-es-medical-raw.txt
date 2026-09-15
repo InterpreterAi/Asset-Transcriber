@@ -1,0 +1,641 @@
+CPR (Cardio-pulmonary Resuscitation) | RCP (reanimación cardiopulmonar)
+Defibrillator | desfibrilador
+Epilepsy | epilepsia
+Fit | convulsión / ataque
+Lie on the left side | acuéstese sobre el lado izquierdo
+Lie flat on back | acuéstese boca arriba / plano sobre la espalda
+Admissions desk | mostrador de admisiones / recepción
+Seizure | convulsión
+Turning blue | ponerse azul / cianosis
+Tilt the head back | incline la cabeza hacia atrás
+Abdominal discomfort | malestar abdominal
+Abscess | absceso
+Acute pain | dolor agudo
+Admissions | admisiones / ingresos
+Adrenaline | adrenalina
+Adverse reaction | reacción adversa
+Advice nurse | enfermera de orientación
+Allergen | alérgeno
+Allergic reaction | reacción alérgica
+Allergy | alergia
+Anaesthesia | anestesia
+Anaesthesiologist | anestesiólogo
+Anaesthesiology | anestesiología
+Antibacterial | antibacteriano
+Antibiotic | antibiótico
+Antibodies | anticuerpos
+Anticoagulant | anticoagulante
+Antidote | antídoto
+Anti-fungal | antifúngico
+Antihistamine | antihistamínico
+Anti-inflammatory | antiinflamatorio
+Antiseptic | antiséptico
+Appendectomy | apendicectomía
+Appendicitis | apendicitis
+Asphyxia | asfixia
+Aspirin | aspirina
+Asthma | asma
+Asthmatic | asmático
+Athlete’s foot | pie de atleta
+Attending physician | médico tratante
+Bacteria | bacterias
+Bacterial infection | infección bacteriana
+Bandage | venda
+Band-aid | curita / tirita
+Bee venom | veneno de abeja
+Billing’s method | método de Billings
+Birthday | fecha de nacimiento / cumpleaños
+Blister | ampolla
+Blood | sangre
+Blood bank | banco de sangre
+Blood clot | coágulo
+Blood pressure | presión arterial
+Body ache | dolor corporal
+Bone splint | férula ósea
+Breath | aliento / respiración
+Breathe deeply | respirar profundamente
+Breathing problems | problemas respiratorios
+Bruise | moretón
+Burning sensation | sensación de ardor
+Cast | yeso
+Chest discomfort/tightness | malestar / opresión en el pecho
+Choke | atragantarse
+Chronic | crónico
+Circulatory | circulatorio
+Cold | resfriado / frío
+Colonoscopy | colonoscopia
+Compress | compresa
+Congested | congestionado
+Consent | consentimiento
+Constipated | estreñido
+Cotton balls/pads | bolas / almohadillas de algodón
+Cough | tos
+Cough medicine / cough syrup | jarabe para la tos
+Coughing | tosiendo
+Crutch | muleta
+D&C (Dilatation & Curettage) | dilatación y curetaje
+Decongestant | descongestionante
+Diabetes | diabetes
+Diagnose | diagnosticar
+Diagnosis | diagnóstico
+Disable | discapacitar / inhabilitar
+Discomfort | malestar
+Dislocated | dislocado
+Dizziness | mareo
+Doctor’s office | consultorio médico
+Dressing | apósito / curación
+Drop | gota
+Drowsiness | somnolencia
+Drugstore | farmacia
+Dull pain | dolor sordo
+Ear ache | dolor de oído
+Ear lobe | lóbulo de la oreja
+Ear tube | tubo de oído
+Ear wax | cerumen
+Emergency room (ER) | sala de emergencias
+Emphysema | enfisema
+Endoscopy | endoscopia
+Enema | enema
+Epidural | epidural
+Eye drops | gotas para los ojos
+Family history | antecedentes familiares
+Fasting | ayuno
+Faeces | heces
+Fever | fiebre
+Fever blister | herpes labial
+Flu | gripe
+Food allergy | alergia alimentaria
+Fractured | fracturado
+Front desk | recepción
+Gauze | gasa
+General practitioner | médico general
+Glucose tests | pruebas de glucosa
+Gnawing pain | dolor punzante
+Gown / hospital gown | bata de hospital
+Gynaecologist | ginecólogo
+Hacking cough | tos seca persistente
+Hay fever | fiebre del heno
+Headache | dolor de cabeza
+Health | salud
+Heart attack | ataque cardíaco
+Heart murmur | soplo cardíaco
+Heavy lifting | levantar peso
+Height | altura
+Hernia | hernia
+High blood pressure | presión arterial alta
+Hives | urticaria
+Hoarse | ronco
+Hospital gown | bata de hospital
+Household chemicals | productos químicos domésticos
+Hurt | doler / herido
+Hypersensitivity | hipersensibilidad
+Immunoglobulin E (IGE) | inmunoglobulina E
+Infection | infección
+Inflammation | inflamación
+Inhaler | inhalador
+Inpatient | paciente hospitalizado
+Insulin | insulina
+Intensive care unit | unidad de cuidados intensivos
+Irregular pulse | pulso irregular
+Itch | picazón
+Itching | picazón
+Joint | articulación
+Laparoscopy | laparoscopia
+Laser surgery | cirugía láser
+Ligament | ligamento
+Lower back pain | dolor lumbar
+Lump | bulto
+Maternity ward | sala de maternidad
+Medical excuse | justificante médico
+Medical history | historial médico
+Medicated compress | compresa medicada
+Medication | medicación
+Middle ear infection | infección del oído medio
+Mold | moho
+Nasal spray | spray nasal
+Nauseating pain | dolor nauseabundo
+Nostril | fosa nasal
+Numbing pain | dolor entumecedor
+Nurse | enfermera
+Nursery | nursery / guardería
+Nurses’ station | estación de enfermería
+Operate, to | operar
+Operating room (OR) | quirófano
+Operation | operación
+Outpatient | paciente ambulatorio
+Over-the-counter medication | medicamento sin receta
+Oxygen | oxígeno
+Pain | dolor
+Pass out | desmayarse
+Penicillin | penicilina
+Physical exam | examen físico
+Pills | pastillas
+Plugged ear | oído taponado
+Pollen allergy | alergia al polen
+Prescription | receta
+Pressure | presión
+Private room | habitación privada
+Pulse | pulso
+Radiology | radiología
+Rashe(s) | erupción cutánea
+Recovery room | sala de recuperación
+Redness | enrojecimiento
+Rest | descanso
+Rheumatic fever | fiebre reumática
+Scab | costra
+Scar | cicatriz
+Scratch | rasguño
+Scrub, to (surgically) | lavarse quirúrgicamente
+Sexually transmitted disease | enfermedad de transmisión sexual
+Sharp pain | dolor agudo
+Shiver | escalofrío
+Shortness of breath | falta de aire
+Sinus infection | infección sinusal
+Sleepy | somnoliento
+Sling | cabestrillo
+Sore, cold | dolorido / resfriado
+Sprain | esguince
+Stethoscope | estetoscopio
+Stitches | puntos
+Stomach flu | gripe estomacal
+Strain | tensión / distensión
+Strenuous activity | actividad extenuante
+Strep throat | faringitis estreptocócica
+Stroke | accidente cerebrovascular
+Stuffed-up | congestionado
+Stutter | tartamudeo
+Surgeon | cirujano
+Surgery | cirugía
+Surgical procedure | procedimiento quirúrgico
+Suture | sutura
+Sweat | sudor
+Symptoms | síntomas
+Syringe | jeringa
+Tablets | comprimidos
+Temperatures | temperaturas
+Thyroid | tiroides
+Triage nurse | enfermera de triaje
+Tubal ligation | ligadura de trompas
+Tube | tubo
+Tuberculosis | tuberculosis
+Ulcer | úlcera
+Undergo surgery, to | someterse a cirugía
+Urinalysis | análisis de orina
+Urinary bladder | vejiga urinaria
+Urinary problem | problema urinario
+Urinary tract | tracto urinario
+Urinating | orinar
+Urine | orina
+urine test | análisis de orina
+vital signs | signos vitales
+Vitamins | vitaminas
+Waiting room | sala de espera
+Watery eyes | ojos llorosos
+Weight | peso
+Wheezing | sibilancias
+x-ray unit | unidad de rayos X
+Abdomen | abdomen
+Adam’s apple | nuez de Adán
+Adrenal glands | glándulas suprarrenales
+Amniotic fluid | líquido amniótico
+Ankle | tobillo
+Anus | ano
+Appendix | apéndice
+Armpit | axila
+Arms | brazos
+Artery | arteria
+Back | espalda
+Backbone | columna vertebral
+Belly button | ombligo
+Big toe | dedo gordo del pie
+Bile | bilis
+Bladder | vejiga
+Bodily fluids | fluidos corporales
+Bone marrow | médula ósea
+Bowel movement | evacuación intestinal
+Brain | cerebro
+Brain stem | tronco encefálico
+Breast | seno
+Buttock | nalga
+Calf | pantorrilla
+Canal | canal
+Cartilage | cartílago
+Cheek | mejilla
+Cheekbone | pómulo
+Chest | pecho
+Chin | barbilla
+Collar bone | clavícula
+Colon | colon
+Diaphragm | diafragma
+Dimple | hoyuelo
+Duct | conducto
+Ear | oreja
+Elbow | codo
+Esophagus | esófago
+Eye | ojo
+Eye ball | globo ocular
+Eye lid | párpado
+Eye socket | cuenca del ojo
+Eyelashes | pestañas
+Femur | fémur
+Finger | dedo
+Fingertip | punta del dedo
+Forearm | antebrazo
+Forehead | frente
+Gall bladder | vesícula biliar
+Genitals | genitales
+Groin | ingle
+Hair | cabello
+Hands | manos
+Heart | corazón
+Heel | talón
+Hip | cadera
+Index finger | dedo índice
+Jaw | mandíbula
+Kidney | riñón
+Knee | rodilla
+Knuckle | nudillo
+Large intestine | intestino grueso
+Larynx | laringe
+Legs | piernas
+Limb | extremidad
+Lips | labios
+Liver | hígado
+Lungs | pulmones
+Lymph gland | glándula linfática
+Lymph node | ganglio linfático
+Mammary glands | glándulas mamarias
+Middle finger | dedo medio
+Mouth | boca
+Muscle | músculo
+Nails | uñas
+Nape | nuca
+Neck | cuello
+Nipple | pezón
+Ovaries | ovarios
+Palm | palma
+Pancreas | páncreas
+Phlegm | flema
+Plasma | plasma
+Rectum | recto
+Rib | costilla
+Ribcage | caja torácica
+Saliva | saliva
+Scalp | cuero cabelludo
+Scapula | escápula
+Shin | espinilla
+Shoulder | hombro
+Shoulder blade | omóplato
+Skull | cráneo
+Small intestine | intestino delgado
+Spinal column | columna vertebral
+Spine | espina dorsal
+Spleen | bazo
+Sputum | esputo
+Stomach | estómago
+Stomach lining | revestimiento del estómago
+Teeth | dientes
+Temple | sien
+Toes | dedos del pie
+Tonsils | amígdalas
+Thorax | tórax
+Throat | garganta
+Thumb | pulgar
+Thyroid gland | glándula tiroides
+Trachea | tráquea
+Tract | tracto
+Uterine lining | revestimiento uterino
+Uterus | útero
+Vein | vena
+Waist | cintura
+Windpipe | tráquea
+Womb | útero
+Wrist | muñeca
+Abdominal delivery | parto abdominal
+Abdominal pregnancy | embarazo abdominal
+Abortion | aborto
+Afterbirth | placenta
+Amniocentesis | amniocentesis
+Anguish | angustia
+At term birth | parto a término
+Bear down, to | pujar
+Bed pan | cuña
+Bed rest | reposo en cama
+Birth | nacimiento / parto
+Birth canal | canal del parto
+Birth control | control de natalidad
+Birth injury | lesión de nacimiento
+Bleeding | sangrado
+Bloated | hinchado
+Block | bloqueo
+Bodily changes | cambios corporales
+Bottle-feed | alimentar con biberón
+Bowel movement, stools | evacuación intestinal, heces
+Breast mass | masa en el seno
+Breast milk | leche materna
+Breast pump | extractor de leche
+Breast self-examination | autoexamen de seno
+Breast tenderness | sensibilidad en los senos
+Breast-care | cuidado de los senos
+Breastfeed | amamantar
+Breech delivery | parto de nalgas
+Cervical pregnancy | embarazo cervical
+Cervix | cuello uterino
+Cesarean delivery | parto por cesárea
+Charley horse | calambre muscular
+Chills | escalofríos
+Colic | cólico
+Colostrum | calostro
+Complicated labor | trabajo de parto complicado
+Condom | preservativo
+Congested, to be | estar congestionada
+Cracked nipples | pezones agrietados
+Cradle | cuna
+Cramps, stomach | calambres estomacales
+Crankiness | irritabilidad
+Crib | cuna
+C-section / Caesarian section | cesárea
+D&C dilation and curettage | dilatación y curetaje
+Dead birth | mortinato
+Deliver | dar a luz
+Delivery | parto
+Delivery room | sala de partos
+Delivery table | mesa de partos
+Depo-Provera shot | inyección de Depo-Provera
+Dermo Plast spray | spray Dermo Plast
+Diaper rash | sarpullido del pañal
+Diarrhea | diarrea
+Discharge instructions | instrucciones de alta
+Douche | ducha vaginal
+Drainage | drenaje
+Dry labor | trabajo de parto seco
+Dryness | sequedad
+Due date | fecha probable de parto
+Dysmenorrhea | dismenorrea
+Dysuria | disuria
+Ear infection | infección de oído
+Ectopic pregnancy | embarazo ectópico
+Egg | óvulo
+Endometriosis | endometriosis
+Endometrium | endometrio
+Engorged, to be | estar congestionada
+Epidural anesthesia | anestesia epidural
+Episiotomy | episiotomía
+Estrogen replacement treatment | tratamiento de reemplazo de estrógeno
+Express out the milk, to | extraer la leche
+Fallopian tube | trompa de Falopio
+False labor | falso trabajo de parto
+Family planning | planificación familiar
+Female sterility | esterilidad femenina
+Fertility counseling | asesoramiento de fertilidad
+Fertilization treatment | tratamiento de fertilización
+Fibroid | fibroma
+Fibrous tumor | tumor fibroso
+Forceps delivery | parto con fórceps
+Foul smell of vaginal discharge | mal olor del flujo vaginal
+Frigidity | frigidez
+FSH follicle stimulating hormone | hormona foliculoestimulante (FSH)
+Genetic counseling | asesoramiento genético
+Genetic trend | tendencia genética
+Genitalia | genitales
+Gestational diabetes | diabetes gestacional
+Give birth, to | dar a luz
+Grip | agarre
+Growth and development | crecimiento y desarrollo
+Hemorrhage | hemorragia
+Hemorrhoids | hemorroides
+Hind milk, to | leche del final
+Hormonal treatment | tratamiento hormonal
+Hot and cold spells | episodios de calor y frío
+Hot flashes | sofocos
+Hysterectomy | histerectomía
+Ibuprofen | ibuprofeno
+Ice pack | bolsa de hielo
+Increased pain of episiotomy | aumento del dolor de la episiotomía
+Induced abortion | aborto inducido
+Induced labor | trabajo de parto inducido
+Infertile | infértil
+Inhalers, puffers | inhaladores
+Intrauterine device (IUD) | dispositivo intrauterino (DIU)
+In-vitro fertilization | fertilización in vitro
+Itchiness | picazón
+Labia | labios vaginales
+Labor | trabajo de parto
+Labor pains | dolores de parto
+Labor room | sala de labor
+Labor, to be in | estar en trabajo de parto
+Lactation | lactancia
+Lamaze method | método Lamaze
+Latched on (to breast) | agarrado al pecho
+Lethargic | letárgico
+Lice | piojos
+Lip of the pudendum | labio vulvar
+Listlessness | apatía
+Live-birth | nacido vivo
+LOP Length of pregnancy | duración del embarazo
+Lukewarm | tibio
+Mammogram, mammography | mamografía
+Menopause | menopausia
+Menstruation period, period | menstruación, período
+Midwife | partera
+Milk pump | extractor de leche
+Milk supply | producción de leche
+Miscarriage | aborto espontáneo
+Mood swings | cambios de humor
+Morning sickness | náuseas matutinas
+Morning-after pill | píldora del día después
+Mucus | moco
+Multiple birth | parto múltiple
+Multiple pregnancy | embarazo múltiple
+Narrow hips | caderas estrechas
+Nebulizer | nebulizador
+Night sweats | sudores nocturnos
+Nipple discharge | secreción del pezón
+Norplant (contraceptive implant) | Norplant (implante anticonceptivo)
+Nursing pads | almohadillas de lactancia
+Oral contraceptive | anticonceptivo oral
+Ovarian pregnancy | embarazo ovárico
+Ovary | ovario
+Overactive bladder | vejiga hiperactiva
+Oviduct | trompa de Falopio
+Painkiller | analgésico
+Pap smear | citología cervical
+Parturient | parturienta
+Pass a clot, to | expulsar un coágulo
+Patch | parche
+Permanent sterility | esterilidad permanente
+PMS - Pre-Menstrual Syndrome | síndrome premenstrual (SPM)
+Postpartum depression (baby blues) | depresión posparto
+Post-term birth | parto postérmino
+Precipitate labor | parto precipitado
+Pregnancy | embarazo
+Pregnant | embarazada
+Premature | prematuro
+Premature birth | parto prematuro
+Premature labor, delivery | trabajo de parto prematuro
+Prenatal | prenatal
+Prolonged labor | trabajo de parto prolongado
+Pump out the milk, to | extraer la leche
+Rash | sarpullido
+Runny nose | secreción nasal
+Sanitary napkins/pads | toallas sanitarias
+Scraping | raspado
+Sitz-baths | baños de asiento
+Sore nipples | pezones doloridos
+Sore throat | dolor de garganta
+Sperm | esperma
+Spitting up | regurgitación
+Spontaneous abortion | aborto espontáneo
+Spontaneous labor | trabajo de parto espontáneo
+Spotting | manchado
+Staples | grapas quirúrgicas
+Sterility | esterilidad
+Steri-strips | tiras estériles
+Still-born | mortinato
+Stool problem | problema de heces
+Stool softener | ablandador de heces
+Stuffed, to be | estar congestionada
+Tampons | tampones
+Therapeutic abortion | aborto terapéutico
+Threaten abortion | amenaza de aborto
+Tiredness | cansancio
+Trained midwife | partera capacitada
+Tubal pregnancy | embarazo tubárico
+Tummy | barriga
+Twin pregnancy | embarazo de gemelos
+Ultrasound | ecografía
+Umbilical cord | cordón umbilical
+Untrained midwife | partera no capacitada
+Uterine cramps, after-pains | calambres uterinos, dolores después del parto
+Uterine tenderness | sensibilidad uterina
+Vaginal bleeding | sangrado vaginal
+Vaginal cream | crema vaginal
+Vaginal discharge | flujo vaginal
+Vaginal dryness | sequedad vaginal
+Vaginal jelly | gel vaginal
+Vaginal lubricant | lubricante vaginal
+Vaginal yeast infection | infección vaginal por hongos
+Varicose veins | venas varicosas
+Water soluble lubricant | lubricante soluble en agua
+Watery discharge | flujo acuoso
+Wean, to | destetar
+Witch hazel | hamamelis
+1st Stage Labour | primera etapa del trabajo de parto
+2nd Stage Labour | segunda etapa del trabajo de parto
+3rd Stage Labour | tercera etapa del trabajo de parto
+Additional shots | vacunas adicionales
+Booster shots | dosis de refuerzo
+Bronchitis | bronquitis
+By mouth | por vía oral
+Chicken pox (Varicella) | varicela
+Diphtheria-Tetanus-Pertussis (DTP) Three-in-one shot/baby shot | difteria-tétanos-tos ferina (DTP) vacuna triple / vacuna infantil
+Drops | gotas
+German measles | rubéola
+Give a shot, to | poner una inyección
+Haemophiles, Influenza, Meningitis | Haemophilus influenzae, meningitis
+Hepatitis B | hepatitis B
+Immunization | inmunización
+Immunization chart | calendario de vacunación
+Immunization-booster dose | dosis de refuerzo de inmunización
+Immunize, to | inmunizar
+Jaundice | ictericia
+Malaria | malaria
+Measles | sarampión
+Meningitis | meningitis
+Mumps | paperas
+Pneumonia | neumonía
+Polio | polio
+Rabies | rabia
+Rubella | rubéola
+Scarlet fever | escarlatina
+Shot | inyección
+Shot chart / shot record | registro de vacunas
+Small pox or smallpox | viruela
+Tetanus | tétanos
+Tonsillitis | amigdalitis
+Tuberculosis (BCG) | tuberculosis (BCG)
+Typhoid | tifoidea
+Typhoid fever | fiebre tifoidea
+Vaccinate, to | vacunar
+Vaccination | vacunación
+Whooping cough | tos ferina
+Yellow fever | fiebre amarilla
+Andropause | andropausia
+Erectile dysfunction | disfunción eréctil
+Foreskin | prepucio
+Glands | glándulas
+Jock itch | tiña inguinal
+Jock strap | suspensorio
+Penis | pene
+Prostate | próstata
+Scrotum | escroto
+Testicles | testículos
+Vasectomy | vasectomía
+Blood smear | frotis de sangre
+Blood test, blood work | análisis de sangre
+CAT scan (computerized axial tomography) | tomografía axial computarizada (TAC)
+CBC complete blood count | hemograma completo (CBC)
+CT scan (computed tomography) | tomografía computarizada (TC)
+ECG Electrocardiogram | electrocardiograma (ECG)
+EEG electroencephalogram | electroencefalograma (EEG)
+ELISA test | prueba de ELISA
+Eye exam | examen de la vista
+Fasting blood sugar | glucosa en ayunas
+Glucose tolerance test | prueba de tolerancia a la glucosa
+Hearing test | examen de audición
+MRI Magnetic Resonance Imaging | resonancia magnética (MRI)
+Pelvic examination | examen pélvico
+Physical Therapy (PT) | fisioterapia
+Post-operative tests | pruebas postoperatorias
+Pre-operative tests | pruebas preoperatorias
+Pulmonary function test | prueba de función pulmonar
+RBC red blood count | recuento de glóbulos rojos
+Rectal examination | examen rectal
+Serum glutamic oxaloacetic transaminase (SGOT) | transaminasa glutámico oxalacética (SGOT)
+Skin test | prueba cutánea
+Sonogram | ecografía
+SR sedimentation rate | velocidad de sedimentación globular
+Stool specimen | muestra de heces
+Stress test | prueba de esfuerzo
+Urine routine, urinalysis | análisis de orina rutinario
+WBC white blood count | recuento de glóbulos blancos

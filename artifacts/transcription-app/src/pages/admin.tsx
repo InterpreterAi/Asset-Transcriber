@@ -37,9 +37,15 @@ import {
   isTrialLikePlanType,
   workspacePlanDisplayName,
   workspacePlanTierKey,
+  adminPlanDisplayName,
   adminTranslationStack,
   planUsesSonioxNativeTranslation,
 } from "@/lib/utils";
+import {
+  ADMIN_PLAN_PICKER_SONIOX,
+  ADMIN_PLAN_PICKER_SONIOX_X,
+} from "@/lib/workspace-plan-test-options";
+import { planUsesTrialSonioxX } from "@/experiments/trial-soniox-x/gate";
 import { applyMorsyChunkV2BidiIsolates } from "@/hooks/morsy-chunk-v2-bidi-render";
 import { isRtlTranslationText } from "@/lib/wrap-ltr-numbers";
 import { startOfAppDayMs } from "@workspace/app-timezone";
@@ -462,33 +468,16 @@ function lastSeen(date: string | null | undefined) {
   );
 }
 
-/** Current product defaults: Soniox STT + Soniox translation. */
-const ADMIN_PLAN_OPTIONS_DEFAULTS: { value: string; label: string }[] = [
-  { value: "trial-soniox-x", label: "Trial · Soniox X (official live STT+translation)" },
-  { value: "trial-openai", label: "Trial (Soniox)" },
-  { value: "basic-hetzner", label: "Basic (Soniox, 5h/day)" },
-  { value: "professional-libre", label: "Professional (Soniox — customers see Unlimited; default 12h/day)" },
-];
-
-const ADMIN_PLAN_OPTIONS_LEGACY: { value: string; label: string }[] = [
-  { value: "trial", label: "Trial · OpenAI (legacy)" },
-  { value: "trial-libre", label: "Trial · Mixed (legacy)" },
-  { value: "trial-hetzner", label: "Trial · Hetzner (legacy — now Soniox X)" },
-  { value: "basic-openai", label: "Basic · OpenAI (legacy)" },
-  { value: "basic-libre", label: "Basic · Hetzner (legacy)" },
-  { value: "morsy-urgent", label: "Basic · Morsy Urgent (legacy)" },
-  { value: "legacy2", label: "Basic · Legacy 2 (transcription only)" },
-  { value: "professional-openai", label: "Professional · OpenAI (legacy)" },
-  { value: "platinum-openai", label: "Platinum · OpenAI" },
-  { value: "platinum-libre", label: "Platinum · Hetzner" },
-];
+const ADMIN_PLAN_OPTIONS_SONIOX = ADMIN_PLAN_PICKER_SONIOX.map((o) => ({ value: o.planType, label: o.label }));
+const ADMIN_PLAN_OPTIONS_SONIOX_X = ADMIN_PLAN_PICKER_SONIOX_X.map((o) => ({ value: o.planType, label: o.label }));
 
 const ADMIN_PLAN_VALUE_SET = new Set([
-  ...ADMIN_PLAN_OPTIONS_DEFAULTS.map(o => o.value),
-  ...ADMIN_PLAN_OPTIONS_LEGACY.map(o => o.value),
+  ...ADMIN_PLAN_OPTIONS_SONIOX.map(o => o.value),
+  ...ADMIN_PLAN_OPTIONS_SONIOX_X.map(o => o.value),
 ]);
 
 function adminEngineLabel(plan: string): string {
+  if (planUsesTrialSonioxX(plan)) return "Soniox X";
   const stack = adminTranslationStack(plan);
   if (stack === "soniox") return "Soniox";
   if (stack === "hetzner") return "Hetzner";
@@ -504,22 +493,24 @@ function liveSessionStack(s: { translationStack?: "libre" | "openai" | "soniox";
 }
 
 function adminPlanChipLabel(plan: string): string {
-  const tier = workspacePlanTierKey(plan);
-  if (tier === "trial") return "Trial";
-  if (tier === "basic") return "Basic";
-  if (tier === "professional") return "Professional";
-  return "Platinum";
+  return adminPlanDisplayName(plan);
 }
 
 function defaultDailyLimitForAdminPlan(planType: string): number {
   const p = (planType ?? "").trim().toLowerCase();
   if (isTrialLikePlanType(p)) return 120;
   if (
-    p === "basic" || p === "basic-openai" || p === "basic-libre" || p === "basic-hetzner" || p === "morsy-urgent" || p === "legacy2"
+    p === "basic" ||
+    p === "basic-openai" ||
+    p === "basic-libre" ||
+    p === "basic-hetzner" ||
+    p === "basic-soniox-x" ||
+    p === "morsy-urgent" ||
+    p === "legacy2"
   ) {
     return 300;
   }
-  if (p === "professional-libre") return 720;
+  if (p === "professional-soniox-x" || p === "professional-libre") return 720;
   if (p === "professional" || p === "professional-openai") return 720;
   if (p === "platinum" || p === "platinum-openai" || p === "platinum-libre" || p === "unlimited") return 720;
   return 60;
@@ -556,14 +547,7 @@ function isoToDatetimeLocalValue(iso: string | null | undefined): string {
 
 function trialBadge(trialEndsAt: string | null | undefined, plan: string) {
   if (!isTrialLikePlanType(plan)) {
-    return (
-      <span
-        className="text-xs font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1 flex-wrap bg-blue-50 text-blue-800 border border-blue-200 dark:bg-blue-500/15 dark:text-blue-100 dark:border-blue-400/25"
-        title={plan}
-      >
-        {adminPlanChipLabel(plan)}
-      </span>
-    );
+    return null;
   }
   if (!trialEndsAt) return (
     <span className="text-xs text-red-600 dark:text-red-300 font-semibold bg-red-50 dark:bg-red-500/12 px-2 py-0.5 rounded-full">Expired</span>
@@ -574,12 +558,12 @@ function trialBadge(trialEndsAt: string | null | undefined, plan: string) {
   );
   if (daysLeft <= 3) return (
     <span className="text-xs font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 bg-amber-50 text-amber-900 border border-amber-200 dark:bg-amber-500/15 dark:text-amber-100 dark:border-amber-400/30" title={plan}>
-      <AlertTriangle className="w-3 h-3" />{daysLeft}d left · Trial
+      <AlertTriangle className="w-3 h-3" />{daysLeft}d left · {adminPlanChipLabel(plan)}
     </span>
   );
   return (
     <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-violet-50 text-violet-900 border border-violet-200 dark:bg-violet-500/15 dark:text-violet-100 dark:border-violet-400/25" title={plan}>
-      {daysLeft}d left · Trial
+      {daysLeft}d left · {adminPlanChipLabel(plan)}
     </span>
   );
 }
@@ -1311,7 +1295,7 @@ export default function Admin() {
     }
   }, [me, meLoading, meFetched, meError, setLocation]);
 
-  if (meLoading || usersLoading) {
+  if (meLoading || (me?.isAdmin && usersLoading)) {
     return (
       <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary" />
@@ -1990,7 +1974,7 @@ export default function Admin() {
                           className="text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 bg-emerald-100 text-emerald-900 dark:bg-emerald-500/15 dark:text-emerald-100"
                           title={s.translationRouteDetail ?? "Soniox STT + translation"}
                         >
-                          Soniox
+                          {adminEngineLabel(s.planType)}
                         </span>
                       </div>
                       {liveSessionStack(s) === "libre" && (
@@ -4319,6 +4303,7 @@ export default function Admin() {
                         return {
                           ...f,
                           planType: nextPlan,
+                          dailyLimitMinutes: defaultDailyLimitForAdminPlan(nextPlan),
                           subscriptionStartedAtLocal: nextPaid
                             ? (f.subscriptionStartedAtLocal || isoToDatetimeLocalValue(now.toISOString()))
                             : "",
@@ -4331,15 +4316,15 @@ export default function Admin() {
                     className="w-full h-9 px-3 rounded-lg border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                   >
                     {!ADMIN_PLAN_VALUE_SET.has(editForm.planType) && (
-                      <option value={editForm.planType}>Legacy / other: {editForm.planType}</option>
+                      <option value={editForm.planType}>Current (not in picker): {adminPlanDisplayName(editForm.planType)} · {editForm.planType}</option>
                     )}
-                    <optgroup label="Defaults (Soniox)">
-                      {ADMIN_PLAN_OPTIONS_DEFAULTS.map(o => (
+                    <optgroup label="Soniox">
+                      {ADMIN_PLAN_OPTIONS_SONIOX.map(o => (
                         <option key={o.value} value={o.value}>{o.label}</option>
                       ))}
                     </optgroup>
-                    <optgroup label="Legacy / other">
-                      {ADMIN_PLAN_OPTIONS_LEGACY.map(o => (
+                    <optgroup label="Soniox X">
+                      {ADMIN_PLAN_OPTIONS_SONIOX_X.map(o => (
                         <option key={o.value} value={o.value}>{o.label}</option>
                       ))}
                     </optgroup>

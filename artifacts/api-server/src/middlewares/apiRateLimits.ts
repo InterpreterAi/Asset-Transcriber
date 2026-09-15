@@ -184,11 +184,13 @@ export const authLimiter = rateLimit({
   message: { error: "Too many requests. Please wait a moment." },
   handler: rateLimitExceededHandler("auth"),
   skip: (req) => {
+    if (process.env.NODE_ENV !== "production") return true;
     if (req.method === "OPTIONS") return true;
     // GET /me is polled by the SPA; never block session bootstrap.
     if (req.method === "GET") {
       const p = apiRequestPath(req);
       if (p === "/api/auth/me" || p.startsWith("/api/auth/me/")) return true;
+      if (p === "/api/auth/2fa/status") return true;
       // OAuth start/callback are full-page redirects — Back/retry is normal and must not 429 JSON.
       if (isGoogleOAuthBrowserPath(req)) return true;
     }
@@ -284,9 +286,12 @@ export const generalApiLimiter = rateLimit({
   message: { error: "Too many requests. Please slow down." },
   handler: rateLimitExceededHandler("general_api"),
   skip: (req) => {
+    if (process.env.NODE_ENV !== "production") return true;
     if (req.method === "OPTIONS") return true;
     const p = apiRequestPath(req);
     if (p === "/api/healthz") return true;
+    if (p === "/api/usage/language-defaults") return true;
+    if (p === "/api/payments/billing-overview" || p === "/api/payments/paddle-config") return true;
     if (p.startsWith("/api/auth")) return true;
     // Admin dashboards poll aggressively; do not let the default 60/IP/min cap blank the UI with 429s.
     if (p.startsWith("/api/admin")) return true;

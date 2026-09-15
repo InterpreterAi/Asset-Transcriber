@@ -1,0 +1,8577 @@
+{
+  "pairs": {
+    "en-ar": [
+      {
+        "en": "CPR",
+        "ar": "الإنعاش القلبي الرئوي"
+      },
+      {
+        "en": "Cardio-pulmonary Resuscitation",
+        "ar": "الإنعاش القلبي الرئوي"
+      },
+      {
+        "en": "Defibrillator",
+        "ar": "مزيل الرجفان"
+      },
+      {
+        "en": "Epilepsy",
+        "ar": "الصرع"
+      },
+      {
+        "en": "Fit",
+        "ar": "نوبة"
+      },
+      {
+        "en": "Lie on the left side",
+        "ar": "استلقِ على الجانب الأيسر"
+      },
+      {
+        "en": "Lie flat on back",
+        "ar": "استلقِ على الظهر مستوياً"
+      },
+      {
+        "en": "Admissions desk",
+        "ar": "مكتب القبول"
+      },
+      {
+        "en": "Seizure",
+        "ar": "نوبة"
+      },
+      {
+        "en": "Turning blue",
+        "ar": "تحول إلى اللون الأزرق"
+      },
+      {
+        "en": "Tilt the head back",
+        "ar": "أَمِل الرأس إلى الخلف"
+      },
+      {
+        "en": "Abdominal discomfort",
+        "ar": "ألم بطني"
+      },
+      {
+        "en": "Abscess",
+        "ar": "خراج"
+      },
+      {
+        "en": "Acute pain",
+        "ar": "ألم حاد"
+      },
+      {
+        "en": "Admissions",
+        "ar": "القبول"
+      },
+      {
+        "en": "Adrenaline",
+        "ar": "أدرينالين"
+      },
+      {
+        "en": "Adverse reaction",
+        "ar": "رد فعل عكسي"
+      },
+      {
+        "en": "Advice nurse",
+        "ar": "ممرضة إرشاد"
+      },
+      {
+        "en": "Allergen",
+        "ar": "مادة مسببة للحساسية"
+      },
+      {
+        "en": "Allergic reaction",
+        "ar": "رد فعل تحسسي"
+      },
+      {
+        "en": "Allergy",
+        "ar": "حساسية"
+      },
+      {
+        "en": "Anaesthesia",
+        "ar": "تخدير"
+      },
+      {
+        "en": "Anaesthesiologist",
+        "ar": "طبيب تخدير"
+      },
+      {
+        "en": "Anaesthesiology",
+        "ar": "علم التخدير"
+      },
+      {
+        "en": "Antibacterial",
+        "ar": "مضاد للبكتيريا"
+      },
+      {
+        "en": "Antibiotic",
+        "ar": "مضاد حيوي"
+      },
+      {
+        "en": "Antibodies",
+        "ar": "أجسام مضادة"
+      },
+      {
+        "en": "Anticoagulant",
+        "ar": "مضاد تخثر"
+      },
+      {
+        "en": "Antidote",
+        "ar": "مضاد سم"
+      },
+      {
+        "en": "Anti-fungal",
+        "ar": "مضاد للفطريات"
+      },
+      {
+        "en": "Antihistamine",
+        "ar": "مضاد الهيستامين"
+      },
+      {
+        "en": "Anti-inflammatory",
+        "ar": "مضاد للالتهاب"
+      },
+      {
+        "en": "Antiseptic",
+        "ar": "مطهر"
+      },
+      {
+        "en": "Appendectomy",
+        "ar": "استئصال الزائدة الدودية"
+      },
+      {
+        "en": "Appendicitis",
+        "ar": "التهاب الزائدة الدودية"
+      },
+      {
+        "en": "Asphyxia",
+        "ar": "اختناق"
+      },
+      {
+        "en": "Aspirin",
+        "ar": "أسبرين"
+      },
+      {
+        "en": "Asthma",
+        "ar": "ربو"
+      },
+      {
+        "en": "Asthmatic",
+        "ar": "مصاب بالربو"
+      },
+      {
+        "en": "Athlete's foot",
+        "ar": "فطريات القدم"
+      },
+      {
+        "en": "Attending physician",
+        "ar": "الطبيب المعالج"
+      },
+      {
+        "en": "Bacteria",
+        "ar": "بكتيريا"
+      },
+      {
+        "en": "Bacterial infection",
+        "ar": "عدوى بكتيرية"
+      },
+      {
+        "en": "Bandage",
+        "ar": "ضمادة"
+      },
+      {
+        "en": "Band-aid",
+        "ar": "لاصق طبي"
+      },
+      {
+        "en": "Bee venom",
+        "ar": "سم النحل"
+      },
+      {
+        "en": "Billing's method",
+        "ar": "طريقة بيلينغ"
+      },
+      {
+        "en": "Birthday",
+        "ar": "تاريخ الميلاد"
+      },
+      {
+        "en": "Blister",
+        "ar": "نفطة"
+      },
+      {
+        "en": "Blood",
+        "ar": "دم"
+      },
+      {
+        "en": "Blood bank",
+        "ar": "بنك الدم"
+      },
+      {
+        "en": "Blood clot",
+        "ar": "جلطة دموية"
+      },
+      {
+        "en": "Blood pressure",
+        "ar": "ضغط الدم"
+      },
+      {
+        "en": "Body ache",
+        "ar": "ألم في الجسم"
+      },
+      {
+        "en": "Bone splint",
+        "ar": "جبيرة عظمية"
+      },
+      {
+        "en": "Breath",
+        "ar": "نفس"
+      },
+      {
+        "en": "Breathe deeply",
+        "ar": "تنفس بعمق"
+      },
+      {
+        "en": "Breathing problems",
+        "ar": "مشاكل التنفس"
+      },
+      {
+        "en": "Bruise",
+        "ar": "كدمة"
+      },
+      {
+        "en": "Burning sensation",
+        "ar": "إحساس حارق"
+      },
+      {
+        "en": "Cast",
+        "ar": "جبيرة"
+      },
+      {
+        "en": "Chest discomfort/tightness",
+        "ar": "ضيق الصدر"
+      },
+      {
+        "en": "Chest discomfort",
+        "ar": "ضيق الصدر"
+      },
+      {
+        "en": "tightness",
+        "ar": "ضيق الصدر"
+      },
+      {
+        "en": "Choke",
+        "ar": "اختناق"
+      },
+      {
+        "en": "Chronic",
+        "ar": "مزمن"
+      },
+      {
+        "en": "Circulatory",
+        "ar": "دوري"
+      },
+      {
+        "en": "Cold",
+        "ar": "زكام"
+      },
+      {
+        "en": "Colonoscopy",
+        "ar": "تنظير القولون"
+      },
+      {
+        "en": "Compress",
+        "ar": "كمادة"
+      },
+      {
+        "en": "Congested",
+        "ar": "محتقن"
+      },
+      {
+        "en": "Consent",
+        "ar": "موافقة"
+      },
+      {
+        "en": "Constipated",
+        "ar": "مصاب بالإمساك"
+      },
+      {
+        "en": "Cotton balls/pads",
+        "ar": "وسادات قطنية"
+      },
+      {
+        "en": "Cotton balls",
+        "ar": "وسادات قطنية"
+      },
+      {
+        "en": "pads",
+        "ar": "وسادات قطنية"
+      },
+      {
+        "en": "Cough",
+        "ar": "سعال"
+      },
+      {
+        "en": "Cough medicine / cough syrup",
+        "ar": "شراب السعال"
+      },
+      {
+        "en": "Cough medicine",
+        "ar": "شراب السعال"
+      },
+      {
+        "en": "cough syrup",
+        "ar": "شراب السعال"
+      },
+      {
+        "en": "Coughing",
+        "ar": "سعال"
+      },
+      {
+        "en": "Crutch",
+        "ar": "عكاز"
+      },
+      {
+        "en": "D&C",
+        "ar": "توسيع وكحت"
+      },
+      {
+        "en": "Dilatation & Curettage",
+        "ar": "توسيع وكحت"
+      },
+      {
+        "en": "Decongestant",
+        "ar": "مزيل الاحتقان"
+      },
+      {
+        "en": "Diabetes",
+        "ar": "سكري"
+      },
+      {
+        "en": "Diagnose",
+        "ar": "تشخيص"
+      },
+      {
+        "en": "Diagnosis",
+        "ar": "تشخيص"
+      },
+      {
+        "en": "Disable",
+        "ar": "إعاقة"
+      },
+      {
+        "en": "Discomfort",
+        "ar": "عدم راحة"
+      },
+      {
+        "en": "Dislocated",
+        "ar": "مخلوع"
+      },
+      {
+        "en": "Dizziness",
+        "ar": "دوخة"
+      },
+      {
+        "en": "Doctor's office",
+        "ar": "عيادة الطبيب"
+      },
+      {
+        "en": "Dressing",
+        "ar": "تغيير الضمادة"
+      },
+      {
+        "en": "Drop",
+        "ar": "قطرة"
+      },
+      {
+        "en": "Drowsiness",
+        "ar": "نعاس"
+      },
+      {
+        "en": "Drugstore",
+        "ar": "صيدلية"
+      },
+      {
+        "en": "Dull pain",
+        "ar": "ألم خفيف"
+      },
+      {
+        "en": "Ear ache",
+        "ar": "ألم الأذن"
+      },
+      {
+        "en": "Ear lobe",
+        "ar": "شحمة الأذن"
+      },
+      {
+        "en": "Ear tube",
+        "ar": "أنبوب الأذن"
+      },
+      {
+        "en": "Ear wax",
+        "ar": "شمع الأذن"
+      },
+      {
+        "en": "Emergency room",
+        "ar": "غرفة الطوارئ"
+      },
+      {
+        "en": "ER",
+        "ar": "غرفة الطوارئ"
+      },
+      {
+        "en": "Emphysema",
+        "ar": "انتفاخ الرئة"
+      },
+      {
+        "en": "Endoscopy",
+        "ar": "تنظير داخلي"
+      },
+      {
+        "en": "Enema",
+        "ar": "حقنة شرجية"
+      },
+      {
+        "en": "Epidural",
+        "ar": "فوق الجافية"
+      },
+      {
+        "en": "Eye drops",
+        "ar": "قطرات العين"
+      },
+      {
+        "en": "Family history",
+        "ar": "التاريخ العائلي"
+      },
+      {
+        "en": "Fasting",
+        "ar": "صيام"
+      },
+      {
+        "en": "Faeces",
+        "ar": "براز"
+      },
+      {
+        "en": "Fever",
+        "ar": "حمى"
+      },
+      {
+        "en": "Fever blister",
+        "ar": "بثرة الحمى"
+      },
+      {
+        "en": "Flu",
+        "ar": "إنفلونزا"
+      },
+      {
+        "en": "Food allergy",
+        "ar": "حساسية غذائية"
+      },
+      {
+        "en": "Fractured",
+        "ar": "مكسور"
+      },
+      {
+        "en": "Front desk",
+        "ar": "مكتب الاستقبال"
+      },
+      {
+        "en": "Gauze",
+        "ar": "شاش"
+      },
+      {
+        "en": "General practitioner",
+        "ar": "طبيب عام"
+      },
+      {
+        "en": "Glucose tests",
+        "ar": "اختبارات الجلوكوز"
+      },
+      {
+        "en": "Gnawing pain",
+        "ar": "ألم قارض"
+      },
+      {
+        "en": "Gown / hospital gown",
+        "ar": "ثوب المستشفى"
+      },
+      {
+        "en": "Gown",
+        "ar": "ثوب المستشفى"
+      },
+      {
+        "en": "hospital gown",
+        "ar": "ثوب المستشفى"
+      },
+      {
+        "en": "Gynaecologist",
+        "ar": "طبيب نساء"
+      },
+      {
+        "en": "Hacking cough",
+        "ar": "كحة شديدة"
+      },
+      {
+        "en": "Hay fever",
+        "ar": "حمى القش"
+      },
+      {
+        "en": "Headache",
+        "ar": "صداع"
+      },
+      {
+        "en": "Health",
+        "ar": "صحة"
+      },
+      {
+        "en": "Heart attack",
+        "ar": "نوبة قلبية"
+      },
+      {
+        "en": "Heart murmur",
+        "ar": "لغط القلب"
+      },
+      {
+        "en": "Heavy lifting",
+        "ar": "رفع الأشياء الثقيلة"
+      },
+      {
+        "en": "Height",
+        "ar": "ارتفاع"
+      },
+      {
+        "en": "Hernia",
+        "ar": "فتق"
+      },
+      {
+        "en": "High blood pressure",
+        "ar": "ارتفاع ضغط الدم"
+      },
+      {
+        "en": "Hives",
+        "ar": "أرتيكاريا"
+      },
+      {
+        "en": "Hoarse",
+        "ar": "أجش"
+      },
+      {
+        "en": "Household chemicals",
+        "ar": "مواد كيميائية منزلية"
+      },
+      {
+        "en": "Hurt",
+        "ar": "يؤلم"
+      },
+      {
+        "en": "Hypersensitivity",
+        "ar": "فرط الحساسية"
+      },
+      {
+        "en": "Immunoglobulin E",
+        "ar": "الغلوبولين المناعي E"
+      },
+      {
+        "en": "IGE",
+        "ar": "الغلوبولين المناعي E"
+      },
+      {
+        "en": "Infection",
+        "ar": "التهاب"
+      },
+      {
+        "en": "Inflammation",
+        "ar": "التهاب"
+      },
+      {
+        "en": "Inhaler",
+        "ar": "جهاز استنشاق"
+      },
+      {
+        "en": "Inpatient",
+        "ar": "مريض داخلي"
+      },
+      {
+        "en": "Insulin",
+        "ar": "إنسولين"
+      },
+      {
+        "en": "Intensive care unit",
+        "ar": "وحدة العناية المركزة"
+      },
+      {
+        "en": "Irregular pulse",
+        "ar": "نبض غير منتظم"
+      },
+      {
+        "en": "Itch",
+        "ar": "حكة"
+      },
+      {
+        "en": "Itching",
+        "ar": "حكة"
+      },
+      {
+        "en": "Joint",
+        "ar": "مفصل"
+      },
+      {
+        "en": "Laparoscopy",
+        "ar": "تنظير البطن"
+      },
+      {
+        "en": "Laser surgery",
+        "ar": "جراحة بالليزر"
+      },
+      {
+        "en": "Ligament",
+        "ar": "رباط"
+      },
+      {
+        "en": "Lower back pain",
+        "ar": "ألم أسفل الظهر"
+      },
+      {
+        "en": "Lump",
+        "ar": "كتلة"
+      },
+      {
+        "en": "Maternity ward",
+        "ar": "قسم الولادة"
+      },
+      {
+        "en": "Medical excuse",
+        "ar": "عذر طبي"
+      },
+      {
+        "en": "Medical history",
+        "ar": "التاريخ الطبي"
+      },
+      {
+        "en": "Medicated compress",
+        "ar": "كمادة طبية"
+      },
+      {
+        "en": "Medication",
+        "ar": "دواء"
+      },
+      {
+        "en": "Middle ear infection",
+        "ar": "التهاب الأذن الوسطى"
+      },
+      {
+        "en": "Mold",
+        "ar": "عفن"
+      },
+      {
+        "en": "Nasal spray",
+        "ar": "بخاخ الأنف"
+      },
+      {
+        "en": "Nauseating pain",
+        "ar": "ألم مسبب للغثيان"
+      },
+      {
+        "en": "Nostril",
+        "ar": "فتحة الأنف"
+      },
+      {
+        "en": "Numbing pain",
+        "ar": "ألم مخدر"
+      },
+      {
+        "en": "Nurse",
+        "ar": "ممرضة"
+      },
+      {
+        "en": "Nursery",
+        "ar": "غرفة حديثي الولادة"
+      },
+      {
+        "en": "Nurses' station",
+        "ar": "محطة التمريض"
+      },
+      {
+        "en": "to Operate",
+        "ar": "إجراء عملية"
+      },
+      {
+        "en": "Operating room",
+        "ar": "غرفة العمليات"
+      },
+      {
+        "en": "OR",
+        "ar": "غرفة العمليات"
+      },
+      {
+        "en": "Operation",
+        "ar": "عملية"
+      },
+      {
+        "en": "Outpatient",
+        "ar": "مريض خارجي"
+      },
+      {
+        "en": "Over-the-counter medication",
+        "ar": "دواء بدون وصفة"
+      },
+      {
+        "en": "Oxygen",
+        "ar": "أكسجين"
+      },
+      {
+        "en": "Pain",
+        "ar": "ألم"
+      },
+      {
+        "en": "Pass out",
+        "ar": "فقدان الوعي"
+      },
+      {
+        "en": "Penicillin",
+        "ar": "بنسلين"
+      },
+      {
+        "en": "Physical exam",
+        "ar": "فحص بدني"
+      },
+      {
+        "en": "Pills",
+        "ar": "حبوب"
+      },
+      {
+        "en": "Plugged ear",
+        "ar": "انسداد الأذن"
+      },
+      {
+        "en": "Pollen allergy",
+        "ar": "حساسية حبوب اللقاح"
+      },
+      {
+        "en": "Prescription",
+        "ar": "وصفة طبية"
+      },
+      {
+        "en": "Pressure",
+        "ar": "ضغط"
+      },
+      {
+        "en": "Private room",
+        "ar": "غرفة خاصة"
+      },
+      {
+        "en": "Pulse",
+        "ar": "نبض"
+      },
+      {
+        "en": "Radiology",
+        "ar": "الأشعة"
+      },
+      {
+        "en": "Rash",
+        "ar": "طفح جلدي"
+      },
+      {
+        "en": "Recovery room",
+        "ar": "غرفة الإفاقة"
+      },
+      {
+        "en": "Redness",
+        "ar": "احمرار"
+      },
+      {
+        "en": "Rest",
+        "ar": "راحة"
+      },
+      {
+        "en": "Rheumatic fever",
+        "ar": "حمى روماتيزمية"
+      },
+      {
+        "en": "Scab",
+        "ar": "قشرة الجرح"
+      },
+      {
+        "en": "Scar",
+        "ar": "ندبة"
+      },
+      {
+        "en": "Scratch",
+        "ar": "خدش"
+      },
+      {
+        "en": "to Scrub",
+        "ar": "غسل جراحي"
+      },
+      {
+        "en": "surgically",
+        "ar": "غسل جراحي"
+      },
+      {
+        "en": "Sexually transmitted disease",
+        "ar": "مرض منقول جنسياً"
+      },
+      {
+        "en": "Sharp pain",
+        "ar": "ألم حاد"
+      },
+      {
+        "en": "Shiver",
+        "ar": "قشعريرة"
+      },
+      {
+        "en": "Shortness of breath",
+        "ar": "ضيق التنفس"
+      },
+      {
+        "en": "Sinus infection",
+        "ar": "التهاب الجيوب الأنفية"
+      },
+      {
+        "en": "Sleepy",
+        "ar": "نعسان"
+      },
+      {
+        "en": "Sling",
+        "ar": "رباط معلق"
+      },
+      {
+        "en": "Sore, cold",
+        "ar": "قرحة"
+      },
+      {
+        "en": "Sprain",
+        "ar": "التواء"
+      },
+      {
+        "en": "Stethoscope",
+        "ar": "سماعة الطبيب"
+      },
+      {
+        "en": "Stitches",
+        "ar": "غرز"
+      },
+      {
+        "en": "Stomach flu",
+        "ar": "إنفلونزا المعدة"
+      },
+      {
+        "en": "Strain",
+        "ar": "إجهاد"
+      },
+      {
+        "en": "Strenuous activity",
+        "ar": "نشاط شاق"
+      },
+      {
+        "en": "Strep throat",
+        "ar": "التهاب الحلق العقدي"
+      },
+      {
+        "en": "Stroke",
+        "ar": "سكتة دماغية"
+      },
+      {
+        "en": "Stuffed-up",
+        "ar": "محتقن"
+      },
+      {
+        "en": "Stutter",
+        "ar": "تلعثم"
+      },
+      {
+        "en": "Surgeon",
+        "ar": "جراح"
+      },
+      {
+        "en": "Surgery",
+        "ar": "جراحة"
+      },
+      {
+        "en": "Surgical procedure",
+        "ar": "إجراء جراحي"
+      },
+      {
+        "en": "Suture",
+        "ar": "خياطة"
+      },
+      {
+        "en": "Sweat",
+        "ar": "عرق"
+      },
+      {
+        "en": "Symptoms",
+        "ar": "أعراض"
+      },
+      {
+        "en": "Syringe",
+        "ar": "محقنة"
+      },
+      {
+        "en": "Tablets",
+        "ar": "أقراص"
+      },
+      {
+        "en": "Temperatures",
+        "ar": "درجات الحرارة"
+      },
+      {
+        "en": "Thyroid",
+        "ar": "الغدة الدرقية"
+      },
+      {
+        "en": "Triage nurse",
+        "ar": "ممرضة الفرز"
+      },
+      {
+        "en": "Tubal ligation",
+        "ar": "ربط الأنابيب"
+      },
+      {
+        "en": "Tube",
+        "ar": "أنبوب"
+      },
+      {
+        "en": "Tuberculosis",
+        "ar": "السل"
+      },
+      {
+        "en": "Ulcer",
+        "ar": "قرحة"
+      },
+      {
+        "en": "to Undergo surgery",
+        "ar": "الخضوع لعملية جراحية"
+      },
+      {
+        "en": "Urinalysis",
+        "ar": "تحليل البول"
+      },
+      {
+        "en": "Urinary bladder",
+        "ar": "المثانة البولية"
+      },
+      {
+        "en": "Urinary problem",
+        "ar": "مشكلة بولية"
+      },
+      {
+        "en": "Urinary tract",
+        "ar": "المسالك البولية"
+      },
+      {
+        "en": "Urinating",
+        "ar": "تبول"
+      },
+      {
+        "en": "Urine",
+        "ar": "بول"
+      },
+      {
+        "en": "urine test",
+        "ar": "تحليل البول"
+      },
+      {
+        "en": "vital signs",
+        "ar": "العلامات الحيوية"
+      },
+      {
+        "en": "Vitamins",
+        "ar": "فيتامينات"
+      },
+      {
+        "en": "Waiting room",
+        "ar": "غرفة الانتظار"
+      },
+      {
+        "en": "Watery eyes",
+        "ar": "عيون دامعة"
+      },
+      {
+        "en": "Weight",
+        "ar": "وزن"
+      },
+      {
+        "en": "Wheezing",
+        "ar": "أزيز"
+      },
+      {
+        "en": "x-ray unit",
+        "ar": "وحدة الأشعة السينية"
+      },
+      {
+        "en": "Abdomen",
+        "ar": "البطن"
+      },
+      {
+        "en": "Adam's apple",
+        "ar": "تفاحة آدم"
+      },
+      {
+        "en": "Adrenal glands",
+        "ar": "الغدد الكظرية"
+      },
+      {
+        "en": "Amniotic fluid",
+        "ar": "السائل الأمنيوسي"
+      },
+      {
+        "en": "Ankle",
+        "ar": "الكاحل"
+      },
+      {
+        "en": "Anus",
+        "ar": "الشرج"
+      },
+      {
+        "en": "Appendix",
+        "ar": "الزائدة الدودية"
+      },
+      {
+        "en": "Armpit",
+        "ar": "الإبط"
+      },
+      {
+        "en": "Arms",
+        "ar": "الذراعان"
+      },
+      {
+        "en": "Artery",
+        "ar": "شريان"
+      },
+      {
+        "en": "Back",
+        "ar": "الظهر"
+      },
+      {
+        "en": "Backbone",
+        "ar": "العمود الفقري"
+      },
+      {
+        "en": "Belly button",
+        "ar": "السرة"
+      },
+      {
+        "en": "Big toe",
+        "ar": "إصبع القدم الكبير"
+      },
+      {
+        "en": "Bile",
+        "ar": "الصفراء"
+      },
+      {
+        "en": "Bladder",
+        "ar": "المثانة"
+      },
+      {
+        "en": "Bodily fluids",
+        "ar": "سوائل الجسم"
+      },
+      {
+        "en": "Bone marrow",
+        "ar": "نخاع العظم"
+      },
+      {
+        "en": "Bowel movement",
+        "ar": "التبرز"
+      },
+      {
+        "en": "Brain",
+        "ar": "الدماغ"
+      },
+      {
+        "en": "Brain stem",
+        "ar": "جذع الدماغ"
+      },
+      {
+        "en": "Breast",
+        "ar": "الثدي"
+      },
+      {
+        "en": "Buttock",
+        "ar": "الأرداف"
+      },
+      {
+        "en": "Calf",
+        "ar": "ربلة الساق"
+      },
+      {
+        "en": "Canal",
+        "ar": "قناة"
+      },
+      {
+        "en": "Cartilage",
+        "ar": "غضروف"
+      },
+      {
+        "en": "Cheek",
+        "ar": "الخد"
+      },
+      {
+        "en": "Cheekbone",
+        "ar": "عظم الوجنة"
+      },
+      {
+        "en": "Chest",
+        "ar": "الصدر"
+      },
+      {
+        "en": "Chin",
+        "ar": "الذقن"
+      },
+      {
+        "en": "Collar bone",
+        "ar": "عظم الترقوة"
+      },
+      {
+        "en": "Colon",
+        "ar": "القولون"
+      },
+      {
+        "en": "Diaphragm",
+        "ar": "الحجاب الحاجز"
+      },
+      {
+        "en": "Dimple",
+        "ar": "غمازة"
+      },
+      {
+        "en": "Duct",
+        "ar": "قناة"
+      },
+      {
+        "en": "Ear",
+        "ar": "الأذن"
+      },
+      {
+        "en": "Elbow",
+        "ar": "الكوع"
+      },
+      {
+        "en": "Esophagus",
+        "ar": "المريء"
+      },
+      {
+        "en": "Eye",
+        "ar": "العين"
+      },
+      {
+        "en": "Eye ball",
+        "ar": "مقلة العين"
+      },
+      {
+        "en": "Eye lid",
+        "ar": "جفن العين"
+      },
+      {
+        "en": "Eye socket",
+        "ar": "محجر العين"
+      },
+      {
+        "en": "Eyelashes",
+        "ar": "الرموش"
+      },
+      {
+        "en": "Femur",
+        "ar": "عظم الفخذ"
+      },
+      {
+        "en": "Finger",
+        "ar": "إصبع"
+      },
+      {
+        "en": "Fingertip",
+        "ar": "طرف الإصبع"
+      },
+      {
+        "en": "Forearm",
+        "ar": "الساعد"
+      },
+      {
+        "en": "Forehead",
+        "ar": "الجبهة"
+      },
+      {
+        "en": "Gall bladder",
+        "ar": "المرارة"
+      },
+      {
+        "en": "Genitals",
+        "ar": "الأعضاء التناسلية"
+      },
+      {
+        "en": "Groin",
+        "ar": "المنطقة الإربية"
+      },
+      {
+        "en": "Hair",
+        "ar": "الشعر"
+      },
+      {
+        "en": "Hands",
+        "ar": "اليدان"
+      },
+      {
+        "en": "Heart",
+        "ar": "القلب"
+      },
+      {
+        "en": "Heel",
+        "ar": "الكعب"
+      },
+      {
+        "en": "Hip",
+        "ar": "الورك"
+      },
+      {
+        "en": "Index finger",
+        "ar": "السبابة"
+      },
+      {
+        "en": "Jaw",
+        "ar": "الفك"
+      },
+      {
+        "en": "Kidney",
+        "ar": "الكلية"
+      },
+      {
+        "en": "Knee",
+        "ar": "الركبة"
+      },
+      {
+        "en": "Knuckle",
+        "ar": "مفصل الأصبع"
+      },
+      {
+        "en": "Large intestine",
+        "ar": "الأمعاء الغليظة"
+      },
+      {
+        "en": "Larynx",
+        "ar": "الحنجرة"
+      },
+      {
+        "en": "Legs",
+        "ar": "الساقان"
+      },
+      {
+        "en": "Limb",
+        "ar": "طرف"
+      },
+      {
+        "en": "Lips",
+        "ar": "الشفاه"
+      },
+      {
+        "en": "Liver",
+        "ar": "الكبد"
+      },
+      {
+        "en": "Lungs",
+        "ar": "الرئتان"
+      },
+      {
+        "en": "Lymph gland",
+        "ar": "غدة لمفاوية"
+      },
+      {
+        "en": "Lymph node",
+        "ar": "عقدة لمفاوية"
+      },
+      {
+        "en": "Mammary glands",
+        "ar": "الغدد الثديية"
+      },
+      {
+        "en": "Middle finger",
+        "ar": "الإصبع الأوسط"
+      },
+      {
+        "en": "Mouth",
+        "ar": "الفم"
+      },
+      {
+        "en": "Muscle",
+        "ar": "عضلة"
+      },
+      {
+        "en": "Nails",
+        "ar": "الأظافر"
+      },
+      {
+        "en": "Nape",
+        "ar": "مؤخرة العنق"
+      },
+      {
+        "en": "Neck",
+        "ar": "الرقبة"
+      },
+      {
+        "en": "Nipple",
+        "ar": "الحلمة"
+      },
+      {
+        "en": "Ovaries",
+        "ar": "المبيضان"
+      },
+      {
+        "en": "Palm",
+        "ar": "راحة اليد"
+      },
+      {
+        "en": "Pancreas",
+        "ar": "البنكرياس"
+      },
+      {
+        "en": "Phlegm",
+        "ar": "البلغم"
+      },
+      {
+        "en": "Plasma",
+        "ar": "البلازما"
+      },
+      {
+        "en": "Rectum",
+        "ar": "المستقيم"
+      },
+      {
+        "en": "Rib",
+        "ar": "الضلع"
+      },
+      {
+        "en": "Ribcage",
+        "ar": "القفص الصدري"
+      },
+      {
+        "en": "Saliva",
+        "ar": "اللعاب"
+      },
+      {
+        "en": "Scalp",
+        "ar": "فروة الرأس"
+      },
+      {
+        "en": "Scapula",
+        "ar": "لوح الكتف"
+      },
+      {
+        "en": "Shin",
+        "ar": "الظنبوب"
+      },
+      {
+        "en": "Shoulder",
+        "ar": "الكتف"
+      },
+      {
+        "en": "Shoulder blade",
+        "ar": "لوح الكتف"
+      },
+      {
+        "en": "Skull",
+        "ar": "الجمجمة"
+      },
+      {
+        "en": "Small intestine",
+        "ar": "الأمعاء الدقيقة"
+      },
+      {
+        "en": "Spinal column",
+        "ar": "العمود الفقري"
+      },
+      {
+        "en": "Spine",
+        "ar": "العمود الفقري"
+      },
+      {
+        "en": "Spleen",
+        "ar": "الطحال"
+      },
+      {
+        "en": "Sputum",
+        "ar": "البلغم"
+      },
+      {
+        "en": "Stomach",
+        "ar": "المعدة"
+      },
+      {
+        "en": "Stomach lining",
+        "ar": "بطانة المعدة"
+      },
+      {
+        "en": "Teeth",
+        "ar": "الأسنان"
+      },
+      {
+        "en": "Temple",
+        "ar": "الصدغ"
+      },
+      {
+        "en": "Toes",
+        "ar": "أصابع القدم"
+      },
+      {
+        "en": "Tonsils",
+        "ar": "اللوزتان"
+      },
+      {
+        "en": "Thorax",
+        "ar": "الصدر"
+      },
+      {
+        "en": "Throat",
+        "ar": "الحلق"
+      },
+      {
+        "en": "Thumb",
+        "ar": "الإبهام"
+      },
+      {
+        "en": "Thyroid gland",
+        "ar": "الغدة الدرقية"
+      },
+      {
+        "en": "Trachea",
+        "ar": "القصبة الهوائية"
+      },
+      {
+        "en": "Tract",
+        "ar": "مسار"
+      },
+      {
+        "en": "Uterine lining",
+        "ar": "بطانة الرحم"
+      },
+      {
+        "en": "Uterus",
+        "ar": "الرحم"
+      },
+      {
+        "en": "Vein",
+        "ar": "وريد"
+      },
+      {
+        "en": "Waist",
+        "ar": "الخصر"
+      },
+      {
+        "en": "Windpipe",
+        "ar": "القصبة الهوائية"
+      },
+      {
+        "en": "Womb",
+        "ar": "الرحم"
+      },
+      {
+        "en": "Wrist",
+        "ar": "الرسغ"
+      },
+      {
+        "en": "Abdominal delivery",
+        "ar": "ولادة بطنية"
+      },
+      {
+        "en": "Abdominal pregnancy",
+        "ar": "حمل بطني"
+      },
+      {
+        "en": "Abortion",
+        "ar": "إجهاض"
+      },
+      {
+        "en": "Afterbirth",
+        "ar": "المشيمة"
+      },
+      {
+        "en": "Amniocentesis",
+        "ar": "بزل السلى"
+      },
+      {
+        "en": "Anguish",
+        "ar": "ضيق"
+      },
+      {
+        "en": "At term birth",
+        "ar": "ولادة في موعدها"
+      },
+      {
+        "en": "to Bear down",
+        "ar": "الضغط أثناء الولادة"
+      },
+      {
+        "en": "Bed pan",
+        "ar": "قصرية السرير"
+      },
+      {
+        "en": "Bed rest",
+        "ar": "راحة في السرير"
+      },
+      {
+        "en": "Birth",
+        "ar": "ولادة"
+      },
+      {
+        "en": "Birth canal",
+        "ar": "قناة الولادة"
+      },
+      {
+        "en": "Birth control",
+        "ar": "تحديد النسل"
+      },
+      {
+        "en": "Birth injury",
+        "ar": "إصابة الولادة"
+      },
+      {
+        "en": "Bleeding",
+        "ar": "نزيف"
+      },
+      {
+        "en": "Bloated",
+        "ar": "انتفاخ"
+      },
+      {
+        "en": "Block",
+        "ar": "انسداد"
+      },
+      {
+        "en": "Bodily changes",
+        "ar": "تغيرات جسدية"
+      },
+      {
+        "en": "Bottle-feed",
+        "ar": "إرضاع بالزجاجة"
+      },
+      {
+        "en": "Bowel movement, stools",
+        "ar": "تبرز"
+      },
+      {
+        "en": "stools",
+        "ar": "تبرز"
+      },
+      {
+        "en": "Breast mass",
+        "ar": "كتلة في الثدي"
+      },
+      {
+        "en": "Breast milk",
+        "ar": "حليب الأم"
+      },
+      {
+        "en": "Breast pump",
+        "ar": "مضخة الثدي"
+      },
+      {
+        "en": "Breast self-examination",
+        "ar": "الفحص الذاتي للثدي"
+      },
+      {
+        "en": "Breast tenderness",
+        "ar": "حساسية الثدي"
+      },
+      {
+        "en": "Breast-care",
+        "ar": "العناية بالثدي"
+      },
+      {
+        "en": "Breastfeed",
+        "ar": "إرضاع طبيعي"
+      },
+      {
+        "en": "Breech delivery",
+        "ar": "ولادة مقعدية"
+      },
+      {
+        "en": "Cervical pregnancy",
+        "ar": "حمل عنقي"
+      },
+      {
+        "en": "Cervix",
+        "ar": "عنق الرحم"
+      },
+      {
+        "en": "Cesarean delivery",
+        "ar": "ولادة قيصرية"
+      },
+      {
+        "en": "Charley horse",
+        "ar": "تشنج عضلي"
+      },
+      {
+        "en": "Chills",
+        "ar": "قشعريرة"
+      },
+      {
+        "en": "Colic",
+        "ar": "مغص"
+      },
+      {
+        "en": "Colostrum",
+        "ar": "اللبأ"
+      },
+      {
+        "en": "Complicated labor",
+        "ar": "ولادة معقدة"
+      },
+      {
+        "en": "Condom",
+        "ar": "عازل ذكري"
+      },
+      {
+        "en": "to Congested be",
+        "ar": "احتقان"
+      },
+      {
+        "en": "Cracked nipples",
+        "ar": "تشقق الحلمات"
+      },
+      {
+        "en": "Cradle",
+        "ar": "سرير أطفال"
+      },
+      {
+        "en": "Cramps, stomach",
+        "ar": "تقلصات المعدة"
+      },
+      {
+        "en": "Cramps",
+        "ar": "تقلصات المعدة"
+      },
+      {
+        "en": "Crankiness",
+        "ar": "انفعال"
+      },
+      {
+        "en": "Crib",
+        "ar": "سرير الأطفال"
+      },
+      {
+        "en": "C-section / Caesarian section",
+        "ar": "عملية قيصرية"
+      },
+      {
+        "en": "C-section",
+        "ar": "عملية قيصرية"
+      },
+      {
+        "en": "Caesarian section",
+        "ar": "عملية قيصرية"
+      },
+      {
+        "en": "D&C dilation and curettage",
+        "ar": "توسيع وكحت"
+      },
+      {
+        "en": "dilation and curettage",
+        "ar": "توسيع وكحت"
+      },
+      {
+        "en": "Dead birth",
+        "ar": "ولادة ميتة"
+      },
+      {
+        "en": "Deliver",
+        "ar": "توليد"
+      },
+      {
+        "en": "Delivery",
+        "ar": "ولادة"
+      },
+      {
+        "en": "Delivery room",
+        "ar": "غرفة الولادة"
+      },
+      {
+        "en": "Delivery table",
+        "ar": "طاولة الولادة"
+      },
+      {
+        "en": "Depo-Provera shot",
+        "ar": "حقنة ديبو-بروفيرا"
+      },
+      {
+        "en": "Dermo Plast spray",
+        "ar": "بخاخ ديرمو بلاست"
+      },
+      {
+        "en": "Diaper rash",
+        "ar": "طفح الحفاض"
+      },
+      {
+        "en": "Diarrhea",
+        "ar": "إسهال"
+      },
+      {
+        "en": "Discharge instructions",
+        "ar": "تعليمات الخروج"
+      },
+      {
+        "en": "Douche",
+        "ar": "غسول مهبلي"
+      },
+      {
+        "en": "Drainage",
+        "ar": "تصريف"
+      },
+      {
+        "en": "Dry labor",
+        "ar": "ولادة جافة"
+      },
+      {
+        "en": "Dryness",
+        "ar": "جفاف"
+      },
+      {
+        "en": "Due date",
+        "ar": "تاريخ الولادة المتوقع"
+      },
+      {
+        "en": "Dysmenorrhea",
+        "ar": "عسر الطمث"
+      },
+      {
+        "en": "Dysuria",
+        "ar": "عسر التبول"
+      },
+      {
+        "en": "Ear infection",
+        "ar": "التهاب الأذن"
+      },
+      {
+        "en": "Ectopic pregnancy",
+        "ar": "حمل خارج الرحم"
+      },
+      {
+        "en": "Egg",
+        "ar": "بويضة"
+      },
+      {
+        "en": "Endometriosis",
+        "ar": "بطانة الرحم المهاجرة"
+      },
+      {
+        "en": "Endometrium",
+        "ar": "بطانة الرحم"
+      },
+      {
+        "en": "to Engorged be",
+        "ar": "احتقان"
+      },
+      {
+        "en": "Epidural anesthesia",
+        "ar": "تخدير فوق الجافية"
+      },
+      {
+        "en": "Episiotomy",
+        "ar": "بضع الفرج"
+      },
+      {
+        "en": "Estrogen replacement treatment",
+        "ar": "علاج بديل بالإستروجين"
+      },
+      {
+        "en": "to Express out the milk",
+        "ar": "إخراج الحليب"
+      },
+      {
+        "en": "Fallopian tube",
+        "ar": "قناة فالوب"
+      },
+      {
+        "en": "False labor",
+        "ar": "ولادة كاذبة"
+      },
+      {
+        "en": "Family planning",
+        "ar": "تنظيم الأسرة"
+      },
+      {
+        "en": "Female sterility",
+        "ar": "عقم أنثوي"
+      },
+      {
+        "en": "Fertility counseling",
+        "ar": "استشارات الخصوبة"
+      },
+      {
+        "en": "Fertilization treatment",
+        "ar": "علاج الإخصاب"
+      },
+      {
+        "en": "Fibroid",
+        "ar": "ورم ليفي"
+      },
+      {
+        "en": "Fibrous tumor",
+        "ar": "ورم ليفي"
+      },
+      {
+        "en": "Forceps delivery",
+        "ar": "ولادة بالملقط"
+      },
+      {
+        "en": "Foul smell of vaginal discharge",
+        "ar": "رائحة كريهة للإفرازات المهبلية"
+      },
+      {
+        "en": "Frigidity",
+        "ar": "برود جنسي"
+      },
+      {
+        "en": "FSH follicle stimulating hormone",
+        "ar": "الهرمون المنبه للجريب"
+      },
+      {
+        "en": "FSH",
+        "ar": "الهرمون المنبه للجريب"
+      },
+      {
+        "en": "follicle stimulating hormone",
+        "ar": "الهرمون المنبه للجريب"
+      },
+      {
+        "en": "Genetic counseling",
+        "ar": "استشارات وراثية"
+      },
+      {
+        "en": "Genetic trend",
+        "ar": "اتجاه وراثي"
+      },
+      {
+        "en": "Genitalia",
+        "ar": "الأعضاء التناسلية"
+      },
+      {
+        "en": "Gestational diabetes",
+        "ar": "سكري الحمل"
+      },
+      {
+        "en": "to Give birth",
+        "ar": "الولادة"
+      },
+      {
+        "en": "Grip",
+        "ar": "إمساك"
+      },
+      {
+        "en": "Growth and development",
+        "ar": "النمو والتطور"
+      },
+      {
+        "en": "Hemorrhage",
+        "ar": "نزيف"
+      },
+      {
+        "en": "Hemorrhoids",
+        "ar": "بواسير"
+      },
+      {
+        "en": "to Hind milk",
+        "ar": "الحليب الخلفي"
+      },
+      {
+        "en": "Hormonal treatment",
+        "ar": "علاج هرموني"
+      },
+      {
+        "en": "Hot and cold spells",
+        "ar": "نوبات حرارة وبرودة"
+      },
+      {
+        "en": "Hot flashes",
+        "ar": "هبات ساخنة"
+      },
+      {
+        "en": "Hysterectomy",
+        "ar": "استئصال الرحم"
+      },
+      {
+        "en": "Ibuprofen",
+        "ar": "إيبوبروفين"
+      },
+      {
+        "en": "Ice pack",
+        "ar": "كمادة ثلج"
+      },
+      {
+        "en": "Increased pain of episiotomy",
+        "ar": "زيادة ألم بضع الفرج"
+      },
+      {
+        "en": "Induced abortion",
+        "ar": "إجهاض محرض"
+      },
+      {
+        "en": "Induced labor",
+        "ar": "تحريض الولادة"
+      },
+      {
+        "en": "Infertile",
+        "ar": "غير خصب"
+      },
+      {
+        "en": "Inhalers, puffers",
+        "ar": "أجهزة استنشاق"
+      },
+      {
+        "en": "Inhalers",
+        "ar": "أجهزة استنشاق"
+      },
+      {
+        "en": "puffers",
+        "ar": "أجهزة استنشاق"
+      },
+      {
+        "en": "Intrauterine device",
+        "ar": "اللولب الرحمي"
+      },
+      {
+        "en": "IUD",
+        "ar": "اللولب الرحمي"
+      },
+      {
+        "en": "In-vitro fertilization",
+        "ar": "التلقيح الصناعي"
+      },
+      {
+        "en": "Itchiness",
+        "ar": "حكة"
+      },
+      {
+        "en": "Labia",
+        "ar": "الشفران"
+      },
+      {
+        "en": "Labor",
+        "ar": "ولادة"
+      },
+      {
+        "en": "Labor pains",
+        "ar": "آلام المخاض"
+      },
+      {
+        "en": "Labor room",
+        "ar": "غرفة المخاض"
+      },
+      {
+        "en": "to Labor be in",
+        "ar": "في المخاض"
+      },
+      {
+        "en": "Lactation",
+        "ar": "إفراز الحليب"
+      },
+      {
+        "en": "Lamaze method",
+        "ar": "طريقة لاماز"
+      },
+      {
+        "en": "Latched on",
+        "ar": "التقام الثدي"
+      },
+      {
+        "en": "Lethargic",
+        "ar": "خامل"
+      },
+      {
+        "en": "Lice",
+        "ar": "قمل"
+      },
+      {
+        "en": "Lip of the pudendum",
+        "ar": "شفر الفرج"
+      },
+      {
+        "en": "Listlessness",
+        "ar": "فتور"
+      },
+      {
+        "en": "Live-birth",
+        "ar": "ولادة حية"
+      },
+      {
+        "en": "LOP Length of pregnancy",
+        "ar": "مدة الحمل"
+      },
+      {
+        "en": "LOP",
+        "ar": "مدة الحمل"
+      },
+      {
+        "en": "Length of pregnancy",
+        "ar": "مدة الحمل"
+      },
+      {
+        "en": "Lukewarm",
+        "ar": "فاتر"
+      },
+      {
+        "en": "Mammogram, mammography",
+        "ar": "تصوير الثدي الشعاعي"
+      },
+      {
+        "en": "Mammogram",
+        "ar": "تصوير الثدي الشعاعي"
+      },
+      {
+        "en": "mammography",
+        "ar": "تصوير الثدي الشعاعي"
+      },
+      {
+        "en": "Menopause",
+        "ar": "انقطاع الطمث"
+      },
+      {
+        "en": "Menstruation period, period",
+        "ar": "دورة شهرية"
+      },
+      {
+        "en": "Menstruation period",
+        "ar": "دورة شهرية"
+      },
+      {
+        "en": "Midwife",
+        "ar": "قابلة"
+      },
+      {
+        "en": "Milk pump",
+        "ar": "مضخة الحليب"
+      },
+      {
+        "en": "Milk supply",
+        "ar": "إدرار الحليب"
+      },
+      {
+        "en": "Miscarriage",
+        "ar": "إجهاض تلقائي"
+      },
+      {
+        "en": "Mood swings",
+        "ar": "تقلبات المزاج"
+      },
+      {
+        "en": "Morning sickness",
+        "ar": "غثيان الصباح"
+      },
+      {
+        "en": "Morning-after pill",
+        "ar": "حبوب الصباح التالي"
+      },
+      {
+        "en": "Mucus",
+        "ar": "مخاط"
+      },
+      {
+        "en": "Multiple birth",
+        "ar": "ولادة متعددة"
+      },
+      {
+        "en": "Multiple pregnancy",
+        "ar": "حمل متعدد"
+      },
+      {
+        "en": "Narrow hips",
+        "ar": "حوض ضيق"
+      },
+      {
+        "en": "Nebulizer",
+        "ar": "جهاز تنفس بالبخار"
+      },
+      {
+        "en": "Night sweats",
+        "ar": "تعرق ليلي"
+      },
+      {
+        "en": "Nipple discharge",
+        "ar": "إفرازات الحلمة"
+      },
+      {
+        "en": "Norplant",
+        "ar": "زرعة مانع حمل"
+      },
+      {
+        "en": "contraceptive implant",
+        "ar": "زرعة مانع حمل"
+      },
+      {
+        "en": "Nursing pads",
+        "ar": "وسادات الإرضاع"
+      },
+      {
+        "en": "Oral contraceptive",
+        "ar": "حبوب منع الحمل الفموية"
+      },
+      {
+        "en": "Ovarian pregnancy",
+        "ar": "حمل مبيضي"
+      },
+      {
+        "en": "Ovary",
+        "ar": "مبيض"
+      },
+      {
+        "en": "Overactive bladder",
+        "ar": "مثانة مفرطة النشاط"
+      },
+      {
+        "en": "Oviduct",
+        "ar": "قناة فالوب"
+      },
+      {
+        "en": "Painkiller",
+        "ar": "مسكن"
+      },
+      {
+        "en": "Pap smear",
+        "ar": "مسحة عنق الرحم"
+      },
+      {
+        "en": "Parturient",
+        "ar": "امرأة في المخاض"
+      },
+      {
+        "en": "to Pass a clot",
+        "ar": "إخراج جلطة"
+      },
+      {
+        "en": "Patch",
+        "ar": "لاصقة"
+      },
+      {
+        "en": "Permanent sterility",
+        "ar": "عقم دائم"
+      },
+      {
+        "en": "PMS - Pre-Menstrual Syndrome",
+        "ar": "متلازمة ما قبل الطمث"
+      },
+      {
+        "en": "PMS",
+        "ar": "متلازمة ما قبل الطمث"
+      },
+      {
+        "en": "- Pre-Menstrual Syndrome",
+        "ar": "متلازمة ما قبل الطمث"
+      },
+      {
+        "en": "Pre-Menstrual Syndrome",
+        "ar": "متلازمة ما قبل الطمث"
+      },
+      {
+        "en": "Postpartum depression",
+        "ar": "اكتئاب ما بعد الولادة"
+      },
+      {
+        "en": "baby blues",
+        "ar": "اكتئاب ما بعد الولادة"
+      },
+      {
+        "en": "Post-term birth",
+        "ar": "ولادة بعد الأوان"
+      },
+      {
+        "en": "Precipitate labor",
+        "ar": "ولادة سريعة"
+      },
+      {
+        "en": "Pregnancy",
+        "ar": "حمل"
+      },
+      {
+        "en": "Pregnant",
+        "ar": "حامل"
+      },
+      {
+        "en": "Premature",
+        "ar": "مبتسر"
+      },
+      {
+        "en": "Premature birth",
+        "ar": "ولادة مبكرة"
+      },
+      {
+        "en": "Premature labor, delivery",
+        "ar": "ولادة مبكرة"
+      },
+      {
+        "en": "Premature labor",
+        "ar": "ولادة مبكرة"
+      },
+      {
+        "en": "Prenatal",
+        "ar": "قبل الولادة"
+      },
+      {
+        "en": "Prolonged labor",
+        "ar": "مخاض مطول"
+      },
+      {
+        "en": "to Pump out the milk",
+        "ar": "شفط الحليب"
+      },
+      {
+        "en": "Runny nose",
+        "ar": "سيلان الأنف"
+      },
+      {
+        "en": "Sanitary napkins/pads",
+        "ar": "فوط صحية"
+      },
+      {
+        "en": "Sanitary napkins",
+        "ar": "فوط صحية"
+      },
+      {
+        "en": "Scraping",
+        "ar": "كحت"
+      },
+      {
+        "en": "Sitz-baths",
+        "ar": "حمامات مقعدية"
+      },
+      {
+        "en": "Sore nipples",
+        "ar": "حلمات مؤلمة"
+      },
+      {
+        "en": "Sore throat",
+        "ar": "التهاب الحلق"
+      },
+      {
+        "en": "Sperm",
+        "ar": "حيوان منوي"
+      },
+      {
+        "en": "Spitting up",
+        "ar": "تقيؤ"
+      },
+      {
+        "en": "Spontaneous abortion",
+        "ar": "إجهاض تلقائي"
+      },
+      {
+        "en": "Spontaneous labor",
+        "ar": "مخاض تلقائي"
+      },
+      {
+        "en": "Spotting",
+        "ar": "تنقيط"
+      },
+      {
+        "en": "Staples",
+        "ar": "مشابك جراحية"
+      },
+      {
+        "en": "Sterility",
+        "ar": "عقم"
+      },
+      {
+        "en": "Steri-strips",
+        "ar": "شرائط سترى"
+      },
+      {
+        "en": "Still-born",
+        "ar": "مولود ميت"
+      },
+      {
+        "en": "Stool problem",
+        "ar": "مشكلة في البراز"
+      },
+      {
+        "en": "Stool softener",
+        "ar": "ملين للبراز"
+      },
+      {
+        "en": "to Stuffed be",
+        "ar": "احتقان"
+      },
+      {
+        "en": "Tampons",
+        "ar": "سدادات قطنية"
+      },
+      {
+        "en": "Therapeutic abortion",
+        "ar": "إجهاض علاجي"
+      },
+      {
+        "en": "Threaten abortion",
+        "ar": "تهديد بالإجهاض"
+      },
+      {
+        "en": "Tiredness",
+        "ar": "تعب"
+      },
+      {
+        "en": "Trained midwife",
+        "ar": "قابلة مدربة"
+      },
+      {
+        "en": "Tubal pregnancy",
+        "ar": "حمل أنبوبي"
+      },
+      {
+        "en": "Tummy",
+        "ar": "بطن"
+      },
+      {
+        "en": "Twin pregnancy",
+        "ar": "حمل توأمي"
+      },
+      {
+        "en": "Ultrasound",
+        "ar": "تصوير بالموجات فوق الصوتية"
+      },
+      {
+        "en": "Umbilical cord",
+        "ar": "الحبل السري"
+      },
+      {
+        "en": "Untrained midwife",
+        "ar": "قابلة غير مدربة"
+      },
+      {
+        "en": "Uterine cramps, after-pains",
+        "ar": "آلام بعد الولادة"
+      },
+      {
+        "en": "Uterine cramps",
+        "ar": "آلام بعد الولادة"
+      },
+      {
+        "en": "after-pains",
+        "ar": "آلام بعد الولادة"
+      },
+      {
+        "en": "Uterine tenderness",
+        "ar": "ألم الرحم"
+      },
+      {
+        "en": "Vaginal bleeding",
+        "ar": "نزيف مهبلي"
+      },
+      {
+        "en": "Vaginal cream",
+        "ar": "كريم مهبلي"
+      },
+      {
+        "en": "Vaginal discharge",
+        "ar": "إفرازات مهبلية"
+      },
+      {
+        "en": "Vaginal dryness",
+        "ar": "جفاف المهبل"
+      },
+      {
+        "en": "Vaginal jelly",
+        "ar": "هلام مهبلي"
+      },
+      {
+        "en": "Vaginal lubricant",
+        "ar": "مزلق مهبلي"
+      },
+      {
+        "en": "Vaginal yeast infection",
+        "ar": "عدوى فطرية مهبلية"
+      },
+      {
+        "en": "Varicose veins",
+        "ar": "دوالي الساقين"
+      },
+      {
+        "en": "Water soluble lubricant",
+        "ar": "مزلق قابل للذوبان في الماء"
+      },
+      {
+        "en": "Watery discharge",
+        "ar": "إفرازات مائية"
+      },
+      {
+        "en": "to Wean",
+        "ar": "فطام"
+      },
+      {
+        "en": "Witch hazel",
+        "ar": "بندق الساحرة"
+      },
+      {
+        "en": "1st Stage Labour",
+        "ar": "المرحلة الأولى من المخاض"
+      },
+      {
+        "en": "2st Stage Labour",
+        "ar": "المرحلة الثانية من المخاض"
+      },
+      {
+        "en": "3st Stage Labour",
+        "ar": "المرحلة الثالثة من المخاض"
+      },
+      {
+        "en": "Additional shots",
+        "ar": "جرعات إضافية"
+      },
+      {
+        "en": "Booster shots",
+        "ar": "جرعات معززة"
+      },
+      {
+        "en": "Bronchitis",
+        "ar": "التهاب الشعب الهوائية"
+      },
+      {
+        "en": "By mouth",
+        "ar": "عن طريق الفم"
+      },
+      {
+        "en": "Chicken pox",
+        "ar": "جدري الماء"
+      },
+      {
+        "en": "Varicella",
+        "ar": "جدري الماء"
+      },
+      {
+        "en": "Diphtheria-Tetanus-Pertussis Three-in-one shot/baby shot",
+        "ar": "الخناق-الكزاز-السعال الديكي (DTP) جرعة ثلاثية"
+      },
+      {
+        "en": "DTP",
+        "ar": "الخناق-الكزاز-السعال الديكي (DTP) جرعة ثلاثية"
+      },
+      {
+        "en": "Diphtheria-Tetanus-Pertussis Three-in-one shot",
+        "ar": "الخناق-الكزاز-السعال الديكي (DTP) جرعة ثلاثية"
+      },
+      {
+        "en": "baby shot",
+        "ar": "الخناق-الكزاز-السعال الديكي (DTP) جرعة ثلاثية"
+      },
+      {
+        "en": "Drops",
+        "ar": "قطرات"
+      },
+      {
+        "en": "German measles",
+        "ar": "الحصبة الألمانية"
+      },
+      {
+        "en": "to Give a shot",
+        "ar": "إعطاء حقنة"
+      },
+      {
+        "en": "Haemophiles, Influenza, Meningitis",
+        "ar": "المستدمية النزلية، الإنفلونزا، التهاب السحايا"
+      },
+      {
+        "en": "Haemophiles",
+        "ar": "المستدمية النزلية، الإنفلونزا، التهاب السحايا"
+      },
+      {
+        "en": "Influenza",
+        "ar": "المستدمية النزلية، الإنفلونزا، التهاب السحايا"
+      },
+      {
+        "en": "Meningitis",
+        "ar": "المستدمية النزلية، الإنفلونزا، التهاب السحايا"
+      },
+      {
+        "en": "Hepatitis B",
+        "ar": "التهاب الكبد ب"
+      },
+      {
+        "en": "Immunization",
+        "ar": "تحصين"
+      },
+      {
+        "en": "Immunization chart",
+        "ar": "جدول التحصين"
+      },
+      {
+        "en": "Immunization-booster dose",
+        "ar": "جرعة معززة للتحصين"
+      },
+      {
+        "en": "to Immunize",
+        "ar": "تحصين"
+      },
+      {
+        "en": "Jaundice",
+        "ar": "يرقان"
+      },
+      {
+        "en": "Malaria",
+        "ar": "ملاريا"
+      },
+      {
+        "en": "Measles",
+        "ar": "حصبة"
+      },
+      {
+        "en": "Mumps",
+        "ar": "النكاف"
+      },
+      {
+        "en": "Pneumonia",
+        "ar": "التهاب رئوي"
+      },
+      {
+        "en": "Polio",
+        "ar": "شلل الأطفال"
+      },
+      {
+        "en": "Rabies",
+        "ar": "داء الكلب"
+      },
+      {
+        "en": "Rubella",
+        "ar": "الحصبة الألمانية"
+      },
+      {
+        "en": "Scarlet fever",
+        "ar": "حمى قرمزية"
+      },
+      {
+        "en": "Shot",
+        "ar": "حقنة"
+      },
+      {
+        "en": "Shot chart / shot record",
+        "ar": "جدول التطعيم"
+      },
+      {
+        "en": "Shot chart",
+        "ar": "جدول التطعيم"
+      },
+      {
+        "en": "shot record",
+        "ar": "جدول التطعيم"
+      },
+      {
+        "en": "Small pox or smallpox",
+        "ar": "الجدري"
+      },
+      {
+        "en": "Tetanus",
+        "ar": "كزاز"
+      },
+      {
+        "en": "Tonsillitis",
+        "ar": "التهاب اللوزتين"
+      },
+      {
+        "en": "BCG",
+        "ar": "السل"
+      },
+      {
+        "en": "Typhoid",
+        "ar": "التيفود"
+      },
+      {
+        "en": "Typhoid fever",
+        "ar": "حمى التيفود"
+      },
+      {
+        "en": "to Vaccinate",
+        "ar": "تطعيم"
+      },
+      {
+        "en": "Vaccination",
+        "ar": "تطعيم"
+      },
+      {
+        "en": "Whooping cough",
+        "ar": "السعال الديكي"
+      },
+      {
+        "en": "Yellow fever",
+        "ar": "الحمى الصفراء"
+      },
+      {
+        "en": "Andropause",
+        "ar": "انقطاع الطمث الذكري"
+      },
+      {
+        "en": "Erectile dysfunction",
+        "ar": "ضعف الانتصاب"
+      },
+      {
+        "en": "Foreskin",
+        "ar": "القلفة"
+      },
+      {
+        "en": "Glands",
+        "ar": "غدد"
+      },
+      {
+        "en": "Jock itch",
+        "ar": "فطريات الأربية"
+      },
+      {
+        "en": "Jock strap",
+        "ar": "حزام رياضي"
+      },
+      {
+        "en": "Penis",
+        "ar": "القضيب"
+      },
+      {
+        "en": "Prostate",
+        "ar": "البروستاتا"
+      },
+      {
+        "en": "Scrotum",
+        "ar": "كيس الصفن"
+      },
+      {
+        "en": "Testicles",
+        "ar": "الخصيتان"
+      },
+      {
+        "en": "Vasectomy",
+        "ar": "قطع القناة المنوية"
+      },
+      {
+        "en": "Blood smear",
+        "ar": "مسحة دم"
+      },
+      {
+        "en": "Blood test, blood work",
+        "ar": "تحليل الدم"
+      },
+      {
+        "en": "Blood test",
+        "ar": "تحليل الدم"
+      },
+      {
+        "en": "blood work",
+        "ar": "تحليل الدم"
+      },
+      {
+        "en": "CAT scan",
+        "ar": "تصوير مقطعي محوسب"
+      },
+      {
+        "en": "computerized axial tomography",
+        "ar": "تصوير مقطعي محوسب"
+      },
+      {
+        "en": "CAT",
+        "ar": "تصوير مقطعي محوسب"
+      },
+      {
+        "en": "scan",
+        "ar": "تصوير مقطعي محوسب"
+      },
+      {
+        "en": "CBC complete blood count",
+        "ar": "تعداد الدم الكامل"
+      },
+      {
+        "en": "CBC",
+        "ar": "تعداد الدم الكامل"
+      },
+      {
+        "en": "complete blood count",
+        "ar": "تعداد الدم الكامل"
+      },
+      {
+        "en": "CT scan",
+        "ar": "تصوير مقطعي محوسب"
+      },
+      {
+        "en": "computed tomography",
+        "ar": "تصوير مقطعي محوسب"
+      },
+      {
+        "en": "CT",
+        "ar": "تصوير مقطعي محوسب"
+      },
+      {
+        "en": "ECG Electrocardiogram",
+        "ar": "تخطيط القلب الكهربائي"
+      },
+      {
+        "en": "ECG",
+        "ar": "تخطيط القلب الكهربائي"
+      },
+      {
+        "en": "Electrocardiogram",
+        "ar": "تخطيط القلب الكهربائي"
+      },
+      {
+        "en": "EEG electroencephalogram",
+        "ar": "تخطيط الدماغ الكهربائي"
+      },
+      {
+        "en": "EEG",
+        "ar": "تخطيط الدماغ الكهربائي"
+      },
+      {
+        "en": "electroencephalogram",
+        "ar": "تخطيط الدماغ الكهربائي"
+      },
+      {
+        "en": "ELISA test",
+        "ar": "اختبار ELISA"
+      },
+      {
+        "en": "ELISA",
+        "ar": "اختبار ELISA"
+      },
+      {
+        "en": "test",
+        "ar": "اختبار ELISA"
+      },
+      {
+        "en": "Eye exam",
+        "ar": "فحص العين"
+      },
+      {
+        "en": "Fasting blood sugar",
+        "ar": "سكر الدم الصائم"
+      },
+      {
+        "en": "Glucose tolerance test",
+        "ar": "اختبار تحمل الجلوكوز"
+      },
+      {
+        "en": "Hearing test",
+        "ar": "اختبار السمع"
+      },
+      {
+        "en": "MRI Magnetic Resonance Imaging",
+        "ar": "تصوير بالرنين المغناطيسي"
+      },
+      {
+        "en": "MRI",
+        "ar": "تصوير بالرنين المغناطيسي"
+      },
+      {
+        "en": "Magnetic Resonance Imaging",
+        "ar": "تصوير بالرنين المغناطيسي"
+      },
+      {
+        "en": "Pelvic examination",
+        "ar": "فحص الحوض"
+      },
+      {
+        "en": "Physical Therapy",
+        "ar": "علاج طبيعي"
+      },
+      {
+        "en": "PT",
+        "ar": "علاج طبيعي"
+      },
+      {
+        "en": "Post-operative tests",
+        "ar": "اختبارات ما بعد الجراحة"
+      },
+      {
+        "en": "Pre-operative tests",
+        "ar": "اختبارات ما قبل الجراحة"
+      },
+      {
+        "en": "Pulmonary function test",
+        "ar": "اختبار وظائف الرئة"
+      },
+      {
+        "en": "RBC red blood count",
+        "ar": "تعداد كريات الدم الحمراء"
+      },
+      {
+        "en": "RBC",
+        "ar": "تعداد كريات الدم الحمراء"
+      },
+      {
+        "en": "red blood count",
+        "ar": "تعداد كريات الدم الحمراء"
+      },
+      {
+        "en": "Rectal examination",
+        "ar": "فحص المستقيم"
+      },
+      {
+        "en": "Serum glutamic oxaloacetic transaminase",
+        "ar": "ناقلة أمين الأسبارتات"
+      },
+      {
+        "en": "SGOT",
+        "ar": "ناقلة أمين الأسبارتات"
+      },
+      {
+        "en": "Skin test",
+        "ar": "اختبار جلدي"
+      },
+      {
+        "en": "Sonogram",
+        "ar": "تصوير بالموجات فوق الصوتية"
+      },
+      {
+        "en": "SR sedimentation rate",
+        "ar": "سرعة ترسيب الدم"
+      },
+      {
+        "en": "SR",
+        "ar": "سرعة ترسيب الدم"
+      },
+      {
+        "en": "sedimentation rate",
+        "ar": "سرعة ترسيب الدم"
+      },
+      {
+        "en": "Stool specimen",
+        "ar": "عينة براز"
+      },
+      {
+        "en": "Stress test",
+        "ar": "اختبار الإجهاد"
+      },
+      {
+        "en": "Urine routine, urinalysis",
+        "ar": "تحليل البول الروتيني"
+      },
+      {
+        "en": "Urine routine",
+        "ar": "تحليل البول الروتيني"
+      },
+      {
+        "en": "WBC white blood count",
+        "ar": "تعداد كريات الدم البيضاء"
+      },
+      {
+        "en": "WBC",
+        "ar": "تعداد كريات الدم البيضاء"
+      },
+      {
+        "en": "white blood count",
+        "ar": "تعداد كريات الدم البيضاء"
+      }
+    ],
+    "en-nl": [],
+    "en-fr": [],
+    "en-es": [
+      {
+        "en": "CPR",
+        "es": "reanimación cardiopulmonar"
+      },
+      {
+        "en": "Cardio-pulmonary Resuscitation",
+        "es": "reanimación cardiopulmonar"
+      },
+      {
+        "en": "RCP",
+        "es": "reanimación cardiopulmonar"
+      },
+      {
+        "en": "Defibrillator",
+        "es": "desfibrilador"
+      },
+      {
+        "en": "Epilepsy",
+        "es": "epilepsia"
+      },
+      {
+        "en": "Fit",
+        "es": "convulsión"
+      },
+      {
+        "en": "Lie on the left side",
+        "es": "acuéstese sobre el lado izquierdo"
+      },
+      {
+        "en": "Lie flat on back",
+        "es": "plano sobre la espalda"
+      },
+      {
+        "en": "Admissions desk",
+        "es": "mostrador de admisiones"
+      },
+      {
+        "en": "Seizure",
+        "es": "convulsión"
+      },
+      {
+        "en": "Turning blue",
+        "es": "ponerse azul"
+      },
+      {
+        "en": "Tilt the head back",
+        "es": "incline la cabeza hacia atrás"
+      },
+      {
+        "en": "Abdominal discomfort",
+        "es": "malestar abdominal"
+      },
+      {
+        "en": "Abscess",
+        "es": "absceso"
+      },
+      {
+        "en": "Acute pain",
+        "es": "dolor agudo"
+      },
+      {
+        "en": "Admissions",
+        "es": "admisiones"
+      },
+      {
+        "en": "Adrenaline",
+        "es": "adrenalina"
+      },
+      {
+        "en": "Adverse reaction",
+        "es": "reacción adversa"
+      },
+      {
+        "en": "Advice nurse",
+        "es": "enfermera de orientación"
+      },
+      {
+        "en": "Allergen",
+        "es": "alérgeno"
+      },
+      {
+        "en": "Allergic reaction",
+        "es": "reacción alérgica"
+      },
+      {
+        "en": "Allergy",
+        "es": "alergia"
+      },
+      {
+        "en": "Anaesthesia",
+        "es": "anestesia"
+      },
+      {
+        "en": "Anaesthesiologist",
+        "es": "anestesiólogo"
+      },
+      {
+        "en": "Anaesthesiology",
+        "es": "anestesiología"
+      },
+      {
+        "en": "Antibacterial",
+        "es": "antibacteriano"
+      },
+      {
+        "en": "Antibiotic",
+        "es": "antibiótico"
+      },
+      {
+        "en": "Antibodies",
+        "es": "anticuerpos"
+      },
+      {
+        "en": "Anticoagulant",
+        "es": "anticoagulante"
+      },
+      {
+        "en": "Antidote",
+        "es": "antídoto"
+      },
+      {
+        "en": "Anti-fungal",
+        "es": "antifúngico"
+      },
+      {
+        "en": "Antihistamine",
+        "es": "antihistamínico"
+      },
+      {
+        "en": "Anti-inflammatory",
+        "es": "antiinflamatorio"
+      },
+      {
+        "en": "Antiseptic",
+        "es": "antiséptico"
+      },
+      {
+        "en": "Appendectomy",
+        "es": "apendicectomía"
+      },
+      {
+        "en": "Appendicitis",
+        "es": "apendicitis"
+      },
+      {
+        "en": "Asphyxia",
+        "es": "asfixia"
+      },
+      {
+        "en": "Aspirin",
+        "es": "aspirina"
+      },
+      {
+        "en": "Asthma",
+        "es": "asma"
+      },
+      {
+        "en": "Asthmatic",
+        "es": "asmático"
+      },
+      {
+        "en": "Athlete's foot",
+        "es": "pie de atleta"
+      },
+      {
+        "en": "Attending physician",
+        "es": "médico tratante"
+      },
+      {
+        "en": "Bacteria",
+        "es": "bacterias"
+      },
+      {
+        "en": "Bacterial infection",
+        "es": "infección bacteriana"
+      },
+      {
+        "en": "Bandage",
+        "es": "venda"
+      },
+      {
+        "en": "Band-aid",
+        "es": "curita"
+      },
+      {
+        "en": "Bee venom",
+        "es": "veneno de abeja"
+      },
+      {
+        "en": "Billing's method",
+        "es": "método de Billings"
+      },
+      {
+        "en": "Birthday",
+        "es": "fecha de nacimiento"
+      },
+      {
+        "en": "Blister",
+        "es": "ampolla"
+      },
+      {
+        "en": "Blood",
+        "es": "sangre"
+      },
+      {
+        "en": "Blood bank",
+        "es": "banco de sangre"
+      },
+      {
+        "en": "Blood clot",
+        "es": "coágulo"
+      },
+      {
+        "en": "Blood pressure",
+        "es": "presión arterial"
+      },
+      {
+        "en": "Body ache",
+        "es": "dolor corporal"
+      },
+      {
+        "en": "Bone splint",
+        "es": "férula ósea"
+      },
+      {
+        "en": "Breath",
+        "es": "respiración"
+      },
+      {
+        "en": "Breathe deeply",
+        "es": "respirar profundamente"
+      },
+      {
+        "en": "Breathing problems",
+        "es": "problemas respiratorios"
+      },
+      {
+        "en": "Bruise",
+        "es": "moretón"
+      },
+      {
+        "en": "Burning sensation",
+        "es": "sensación de ardor"
+      },
+      {
+        "en": "Cast",
+        "es": "yeso"
+      },
+      {
+        "en": "Chest discomfort/tightness",
+        "es": "opresión en el pecho"
+      },
+      {
+        "en": "Chest discomfort",
+        "es": "opresión en el pecho"
+      },
+      {
+        "en": "tightness",
+        "es": "opresión en el pecho"
+      },
+      {
+        "en": "Choke",
+        "es": "atragantarse"
+      },
+      {
+        "en": "Chronic",
+        "es": "crónico"
+      },
+      {
+        "en": "Circulatory",
+        "es": "circulatorio"
+      },
+      {
+        "en": "Cold",
+        "es": "resfriado"
+      },
+      {
+        "en": "Colonoscopy",
+        "es": "colonoscopia"
+      },
+      {
+        "en": "Compress",
+        "es": "compresa"
+      },
+      {
+        "en": "Congested",
+        "es": "congestionado"
+      },
+      {
+        "en": "Consent",
+        "es": "consentimiento"
+      },
+      {
+        "en": "Constipated",
+        "es": "estreñido"
+      },
+      {
+        "en": "Cotton balls/pads",
+        "es": "almohadillas de algodón"
+      },
+      {
+        "en": "Cotton balls",
+        "es": "almohadillas de algodón"
+      },
+      {
+        "en": "pads",
+        "es": "almohadillas de algodón"
+      },
+      {
+        "en": "Cough",
+        "es": "tos"
+      },
+      {
+        "en": "Cough medicine / cough syrup",
+        "es": "jarabe para la tos"
+      },
+      {
+        "en": "Cough medicine",
+        "es": "jarabe para la tos"
+      },
+      {
+        "en": "cough syrup",
+        "es": "jarabe para la tos"
+      },
+      {
+        "en": "Coughing",
+        "es": "tosiendo"
+      },
+      {
+        "en": "Crutch",
+        "es": "muleta"
+      },
+      {
+        "en": "D&C",
+        "es": "dilatación y curetaje"
+      },
+      {
+        "en": "Dilatation & Curettage",
+        "es": "dilatación y curetaje"
+      },
+      {
+        "en": "Decongestant",
+        "es": "descongestionante"
+      },
+      {
+        "en": "Diabetes",
+        "es": "diabetes"
+      },
+      {
+        "en": "Diagnose",
+        "es": "diagnosticar"
+      },
+      {
+        "en": "Diagnosis",
+        "es": "diagnóstico"
+      },
+      {
+        "en": "Disable",
+        "es": "discapacitar"
+      },
+      {
+        "en": "Discomfort",
+        "es": "malestar"
+      },
+      {
+        "en": "Dislocated",
+        "es": "dislocado"
+      },
+      {
+        "en": "Dizziness",
+        "es": "mareo"
+      },
+      {
+        "en": "Doctor's office",
+        "es": "consultorio médico"
+      },
+      {
+        "en": "Dressing",
+        "es": "curación"
+      },
+      {
+        "en": "Drop",
+        "es": "gota"
+      },
+      {
+        "en": "Drowsiness",
+        "es": "somnolencia"
+      },
+      {
+        "en": "Drugstore",
+        "es": "farmacia"
+      },
+      {
+        "en": "Dull pain",
+        "es": "dolor sordo"
+      },
+      {
+        "en": "Ear ache",
+        "es": "dolor de oído"
+      },
+      {
+        "en": "Ear lobe",
+        "es": "lóbulo de la oreja"
+      },
+      {
+        "en": "Ear tube",
+        "es": "tubo de oído"
+      },
+      {
+        "en": "Ear wax",
+        "es": "cerumen"
+      },
+      {
+        "en": "Emergency room",
+        "es": "sala de emergencias"
+      },
+      {
+        "en": "ER",
+        "es": "sala de emergencias"
+      },
+      {
+        "en": "Emphysema",
+        "es": "enfisema"
+      },
+      {
+        "en": "Endoscopy",
+        "es": "endoscopia"
+      },
+      {
+        "en": "Enema",
+        "es": "enema"
+      },
+      {
+        "en": "Epidural",
+        "es": "epidural"
+      },
+      {
+        "en": "Eye drops",
+        "es": "gotas para los ojos"
+      },
+      {
+        "en": "Family history",
+        "es": "antecedentes familiares"
+      },
+      {
+        "en": "Fasting",
+        "es": "ayuno"
+      },
+      {
+        "en": "Faeces",
+        "es": "heces"
+      },
+      {
+        "en": "Fever",
+        "es": "fiebre"
+      },
+      {
+        "en": "Fever blister",
+        "es": "herpes labial"
+      },
+      {
+        "en": "Flu",
+        "es": "gripe"
+      },
+      {
+        "en": "Food allergy",
+        "es": "alergia alimentaria"
+      },
+      {
+        "en": "Fractured",
+        "es": "fracturado"
+      },
+      {
+        "en": "Front desk",
+        "es": "recepción"
+      },
+      {
+        "en": "Gauze",
+        "es": "gasa"
+      },
+      {
+        "en": "General practitioner",
+        "es": "médico general"
+      },
+      {
+        "en": "Glucose tests",
+        "es": "pruebas de glucosa"
+      },
+      {
+        "en": "Gnawing pain",
+        "es": "dolor punzante"
+      },
+      {
+        "en": "Gown / hospital gown",
+        "es": "bata de hospital"
+      },
+      {
+        "en": "Gown",
+        "es": "bata de hospital"
+      },
+      {
+        "en": "hospital gown",
+        "es": "bata de hospital"
+      },
+      {
+        "en": "Gynaecologist",
+        "es": "ginecólogo"
+      },
+      {
+        "en": "Hacking cough",
+        "es": "tos seca persistente"
+      },
+      {
+        "en": "Hay fever",
+        "es": "fiebre del heno"
+      },
+      {
+        "en": "Headache",
+        "es": "dolor de cabeza"
+      },
+      {
+        "en": "Health",
+        "es": "salud"
+      },
+      {
+        "en": "Heart attack",
+        "es": "ataque cardíaco"
+      },
+      {
+        "en": "Heart murmur",
+        "es": "soplo cardíaco"
+      },
+      {
+        "en": "Heavy lifting",
+        "es": "levantar peso"
+      },
+      {
+        "en": "Height",
+        "es": "altura"
+      },
+      {
+        "en": "Hernia",
+        "es": "hernia"
+      },
+      {
+        "en": "High blood pressure",
+        "es": "presión arterial alta"
+      },
+      {
+        "en": "Hives",
+        "es": "urticaria"
+      },
+      {
+        "en": "Hoarse",
+        "es": "ronco"
+      },
+      {
+        "en": "Household chemicals",
+        "es": "productos químicos domésticos"
+      },
+      {
+        "en": "Hurt",
+        "es": "herido"
+      },
+      {
+        "en": "Hypersensitivity",
+        "es": "hipersensibilidad"
+      },
+      {
+        "en": "Immunoglobulin E",
+        "es": "inmunoglobulina E"
+      },
+      {
+        "en": "IGE",
+        "es": "inmunoglobulina E"
+      },
+      {
+        "en": "Infection",
+        "es": "infección"
+      },
+      {
+        "en": "Inflammation",
+        "es": "inflamación"
+      },
+      {
+        "en": "Inhaler",
+        "es": "inhalador"
+      },
+      {
+        "en": "Inpatient",
+        "es": "paciente hospitalizado"
+      },
+      {
+        "en": "Insulin",
+        "es": "insulina"
+      },
+      {
+        "en": "Intensive care unit",
+        "es": "unidad de cuidados intensivos"
+      },
+      {
+        "en": "Irregular pulse",
+        "es": "pulso irregular"
+      },
+      {
+        "en": "Itch",
+        "es": "picazón"
+      },
+      {
+        "en": "Itching",
+        "es": "picazón"
+      },
+      {
+        "en": "Joint",
+        "es": "articulación"
+      },
+      {
+        "en": "Laparoscopy",
+        "es": "laparoscopia"
+      },
+      {
+        "en": "Laser surgery",
+        "es": "cirugía láser"
+      },
+      {
+        "en": "Ligament",
+        "es": "ligamento"
+      },
+      {
+        "en": "Lower back pain",
+        "es": "dolor lumbar"
+      },
+      {
+        "en": "Lump",
+        "es": "bulto"
+      },
+      {
+        "en": "Maternity ward",
+        "es": "sala de maternidad"
+      },
+      {
+        "en": "Medical excuse",
+        "es": "justificante médico"
+      },
+      {
+        "en": "Medical history",
+        "es": "historial médico"
+      },
+      {
+        "en": "Medicated compress",
+        "es": "compresa medicada"
+      },
+      {
+        "en": "Medication",
+        "es": "medicación"
+      },
+      {
+        "en": "Middle ear infection",
+        "es": "infección del oído medio"
+      },
+      {
+        "en": "Mold",
+        "es": "moho"
+      },
+      {
+        "en": "Nasal spray",
+        "es": "spray nasal"
+      },
+      {
+        "en": "Nauseating pain",
+        "es": "dolor nauseabundo"
+      },
+      {
+        "en": "Nostril",
+        "es": "fosa nasal"
+      },
+      {
+        "en": "Numbing pain",
+        "es": "dolor entumecedor"
+      },
+      {
+        "en": "Nurse",
+        "es": "enfermera"
+      },
+      {
+        "en": "Nursery",
+        "es": "guardería"
+      },
+      {
+        "en": "Nurses' station",
+        "es": "estación de enfermería"
+      },
+      {
+        "en": "to Operate",
+        "es": "operar"
+      },
+      {
+        "en": "Operating room",
+        "es": "quirófano"
+      },
+      {
+        "en": "OR",
+        "es": "quirófano"
+      },
+      {
+        "en": "Operation",
+        "es": "operación"
+      },
+      {
+        "en": "Outpatient",
+        "es": "paciente ambulatorio"
+      },
+      {
+        "en": "Over-the-counter medication",
+        "es": "medicamento sin receta"
+      },
+      {
+        "en": "Oxygen",
+        "es": "oxígeno"
+      },
+      {
+        "en": "Pain",
+        "es": "dolor"
+      },
+      {
+        "en": "Pass out",
+        "es": "desmayarse"
+      },
+      {
+        "en": "Penicillin",
+        "es": "penicilina"
+      },
+      {
+        "en": "Physical exam",
+        "es": "examen físico"
+      },
+      {
+        "en": "Pills",
+        "es": "pastillas"
+      },
+      {
+        "en": "Plugged ear",
+        "es": "oído taponado"
+      },
+      {
+        "en": "Pollen allergy",
+        "es": "alergia al polen"
+      },
+      {
+        "en": "Prescription",
+        "es": "receta"
+      },
+      {
+        "en": "Pressure",
+        "es": "presión"
+      },
+      {
+        "en": "Private room",
+        "es": "habitación privada"
+      },
+      {
+        "en": "Pulse",
+        "es": "pulso"
+      },
+      {
+        "en": "Radiology",
+        "es": "radiología"
+      },
+      {
+        "en": "Rash",
+        "es": "erupción cutánea"
+      },
+      {
+        "en": "Recovery room",
+        "es": "sala de recuperación"
+      },
+      {
+        "en": "Redness",
+        "es": "enrojecimiento"
+      },
+      {
+        "en": "Rest",
+        "es": "descanso"
+      },
+      {
+        "en": "Rheumatic fever",
+        "es": "fiebre reumática"
+      },
+      {
+        "en": "Scab",
+        "es": "costra"
+      },
+      {
+        "en": "Scar",
+        "es": "cicatriz"
+      },
+      {
+        "en": "Scratch",
+        "es": "rasguño"
+      },
+      {
+        "en": "to Scrub",
+        "es": "lavarse quirúrgicamente"
+      },
+      {
+        "en": "surgically",
+        "es": "lavarse quirúrgicamente"
+      },
+      {
+        "en": "Sexually transmitted disease",
+        "es": "enfermedad de transmisión sexual"
+      },
+      {
+        "en": "Sharp pain",
+        "es": "dolor agudo"
+      },
+      {
+        "en": "Shiver",
+        "es": "escalofrío"
+      },
+      {
+        "en": "Shortness of breath",
+        "es": "falta de aire"
+      },
+      {
+        "en": "Sinus infection",
+        "es": "infección sinusal"
+      },
+      {
+        "en": "Sleepy",
+        "es": "somnoliento"
+      },
+      {
+        "en": "Sling",
+        "es": "cabestrillo"
+      },
+      {
+        "en": "Sore, cold",
+        "es": "resfriado"
+      },
+      {
+        "en": "Sprain",
+        "es": "esguince"
+      },
+      {
+        "en": "Stethoscope",
+        "es": "estetoscopio"
+      },
+      {
+        "en": "Stitches",
+        "es": "puntos"
+      },
+      {
+        "en": "Stomach flu",
+        "es": "gripe estomacal"
+      },
+      {
+        "en": "Strain",
+        "es": "distensión"
+      },
+      {
+        "en": "Strenuous activity",
+        "es": "actividad extenuante"
+      },
+      {
+        "en": "Strep throat",
+        "es": "faringitis estreptocócica"
+      },
+      {
+        "en": "Stroke",
+        "es": "accidente cerebrovascular"
+      },
+      {
+        "en": "Stuffed-up",
+        "es": "congestionado"
+      },
+      {
+        "en": "Stutter",
+        "es": "tartamudeo"
+      },
+      {
+        "en": "Surgeon",
+        "es": "cirujano"
+      },
+      {
+        "en": "Surgery",
+        "es": "cirugía"
+      },
+      {
+        "en": "Surgical procedure",
+        "es": "procedimiento quirúrgico"
+      },
+      {
+        "en": "Suture",
+        "es": "sutura"
+      },
+      {
+        "en": "Sweat",
+        "es": "sudor"
+      },
+      {
+        "en": "Symptoms",
+        "es": "síntomas"
+      },
+      {
+        "en": "Syringe",
+        "es": "jeringa"
+      },
+      {
+        "en": "Tablets",
+        "es": "comprimidos"
+      },
+      {
+        "en": "Temperatures",
+        "es": "temperaturas"
+      },
+      {
+        "en": "Thyroid",
+        "es": "tiroides"
+      },
+      {
+        "en": "Triage nurse",
+        "es": "enfermera de triaje"
+      },
+      {
+        "en": "Tubal ligation",
+        "es": "ligadura de trompas"
+      },
+      {
+        "en": "Tube",
+        "es": "tubo"
+      },
+      {
+        "en": "Tuberculosis",
+        "es": "tuberculosis"
+      },
+      {
+        "en": "Ulcer",
+        "es": "úlcera"
+      },
+      {
+        "en": "to Undergo surgery",
+        "es": "someterse a cirugía"
+      },
+      {
+        "en": "Urinalysis",
+        "es": "análisis de orina"
+      },
+      {
+        "en": "Urinary bladder",
+        "es": "vejiga urinaria"
+      },
+      {
+        "en": "Urinary problem",
+        "es": "problema urinario"
+      },
+      {
+        "en": "Urinary tract",
+        "es": "tracto urinario"
+      },
+      {
+        "en": "Urinating",
+        "es": "orinar"
+      },
+      {
+        "en": "Urine",
+        "es": "orina"
+      },
+      {
+        "en": "urine test",
+        "es": "análisis de orina"
+      },
+      {
+        "en": "vital signs",
+        "es": "signos vitales"
+      },
+      {
+        "en": "Vitamins",
+        "es": "vitaminas"
+      },
+      {
+        "en": "Waiting room",
+        "es": "sala de espera"
+      },
+      {
+        "en": "Watery eyes",
+        "es": "ojos llorosos"
+      },
+      {
+        "en": "Weight",
+        "es": "peso"
+      },
+      {
+        "en": "Wheezing",
+        "es": "sibilancias"
+      },
+      {
+        "en": "x-ray unit",
+        "es": "unidad de rayos X"
+      },
+      {
+        "en": "Abdomen",
+        "es": "abdomen"
+      },
+      {
+        "en": "Adam's apple",
+        "es": "nuez de Adán"
+      },
+      {
+        "en": "Adrenal glands",
+        "es": "glándulas suprarrenales"
+      },
+      {
+        "en": "Amniotic fluid",
+        "es": "líquido amniótico"
+      },
+      {
+        "en": "Ankle",
+        "es": "tobillo"
+      },
+      {
+        "en": "Anus",
+        "es": "ano"
+      },
+      {
+        "en": "Appendix",
+        "es": "apéndice"
+      },
+      {
+        "en": "Armpit",
+        "es": "axila"
+      },
+      {
+        "en": "Arms",
+        "es": "brazos"
+      },
+      {
+        "en": "Artery",
+        "es": "arteria"
+      },
+      {
+        "en": "Back",
+        "es": "espalda"
+      },
+      {
+        "en": "Backbone",
+        "es": "columna vertebral"
+      },
+      {
+        "en": "Belly button",
+        "es": "ombligo"
+      },
+      {
+        "en": "Big toe",
+        "es": "dedo gordo del pie"
+      },
+      {
+        "en": "Bile",
+        "es": "bilis"
+      },
+      {
+        "en": "Bladder",
+        "es": "vejiga"
+      },
+      {
+        "en": "Bodily fluids",
+        "es": "fluidos corporales"
+      },
+      {
+        "en": "Bone marrow",
+        "es": "médula ósea"
+      },
+      {
+        "en": "Bowel movement",
+        "es": "evacuación intestinal"
+      },
+      {
+        "en": "Brain",
+        "es": "cerebro"
+      },
+      {
+        "en": "Brain stem",
+        "es": "tronco encefálico"
+      },
+      {
+        "en": "Breast",
+        "es": "seno"
+      },
+      {
+        "en": "Buttock",
+        "es": "nalga"
+      },
+      {
+        "en": "Calf",
+        "es": "pantorrilla"
+      },
+      {
+        "en": "Canal",
+        "es": "canal"
+      },
+      {
+        "en": "Cartilage",
+        "es": "cartílago"
+      },
+      {
+        "en": "Cheek",
+        "es": "mejilla"
+      },
+      {
+        "en": "Cheekbone",
+        "es": "pómulo"
+      },
+      {
+        "en": "Chest",
+        "es": "pecho"
+      },
+      {
+        "en": "Chin",
+        "es": "barbilla"
+      },
+      {
+        "en": "Collar bone",
+        "es": "clavícula"
+      },
+      {
+        "en": "Colon",
+        "es": "colon"
+      },
+      {
+        "en": "Diaphragm",
+        "es": "diafragma"
+      },
+      {
+        "en": "Dimple",
+        "es": "hoyuelo"
+      },
+      {
+        "en": "Duct",
+        "es": "conducto"
+      },
+      {
+        "en": "Ear",
+        "es": "oreja"
+      },
+      {
+        "en": "Elbow",
+        "es": "codo"
+      },
+      {
+        "en": "Esophagus",
+        "es": "esófago"
+      },
+      {
+        "en": "Eye",
+        "es": "ojo"
+      },
+      {
+        "en": "Eye ball",
+        "es": "globo ocular"
+      },
+      {
+        "en": "Eye lid",
+        "es": "párpado"
+      },
+      {
+        "en": "Eye socket",
+        "es": "cuenca del ojo"
+      },
+      {
+        "en": "Eyelashes",
+        "es": "pestañas"
+      },
+      {
+        "en": "Femur",
+        "es": "fémur"
+      },
+      {
+        "en": "Finger",
+        "es": "dedo"
+      },
+      {
+        "en": "Fingertip",
+        "es": "punta del dedo"
+      },
+      {
+        "en": "Forearm",
+        "es": "antebrazo"
+      },
+      {
+        "en": "Forehead",
+        "es": "frente"
+      },
+      {
+        "en": "Gall bladder",
+        "es": "vesícula biliar"
+      },
+      {
+        "en": "Genitals",
+        "es": "genitales"
+      },
+      {
+        "en": "Groin",
+        "es": "ingle"
+      },
+      {
+        "en": "Hair",
+        "es": "cabello"
+      },
+      {
+        "en": "Hands",
+        "es": "manos"
+      },
+      {
+        "en": "Heart",
+        "es": "corazón"
+      },
+      {
+        "en": "Heel",
+        "es": "talón"
+      },
+      {
+        "en": "Hip",
+        "es": "cadera"
+      },
+      {
+        "en": "Index finger",
+        "es": "dedo índice"
+      },
+      {
+        "en": "Jaw",
+        "es": "mandíbula"
+      },
+      {
+        "en": "Kidney",
+        "es": "riñón"
+      },
+      {
+        "en": "Knee",
+        "es": "rodilla"
+      },
+      {
+        "en": "Knuckle",
+        "es": "nudillo"
+      },
+      {
+        "en": "Large intestine",
+        "es": "intestino grueso"
+      },
+      {
+        "en": "Larynx",
+        "es": "laringe"
+      },
+      {
+        "en": "Legs",
+        "es": "piernas"
+      },
+      {
+        "en": "Limb",
+        "es": "extremidad"
+      },
+      {
+        "en": "Lips",
+        "es": "labios"
+      },
+      {
+        "en": "Liver",
+        "es": "hígado"
+      },
+      {
+        "en": "Lungs",
+        "es": "pulmones"
+      },
+      {
+        "en": "Lymph gland",
+        "es": "glándula linfática"
+      },
+      {
+        "en": "Lymph node",
+        "es": "ganglio linfático"
+      },
+      {
+        "en": "Mammary glands",
+        "es": "glándulas mamarias"
+      },
+      {
+        "en": "Middle finger",
+        "es": "dedo medio"
+      },
+      {
+        "en": "Mouth",
+        "es": "boca"
+      },
+      {
+        "en": "Muscle",
+        "es": "músculo"
+      },
+      {
+        "en": "Nails",
+        "es": "uñas"
+      },
+      {
+        "en": "Nape",
+        "es": "nuca"
+      },
+      {
+        "en": "Neck",
+        "es": "cuello"
+      },
+      {
+        "en": "Nipple",
+        "es": "pezón"
+      },
+      {
+        "en": "Ovaries",
+        "es": "ovarios"
+      },
+      {
+        "en": "Palm",
+        "es": "palma"
+      },
+      {
+        "en": "Pancreas",
+        "es": "páncreas"
+      },
+      {
+        "en": "Phlegm",
+        "es": "flema"
+      },
+      {
+        "en": "Plasma",
+        "es": "plasma"
+      },
+      {
+        "en": "Rectum",
+        "es": "recto"
+      },
+      {
+        "en": "Rib",
+        "es": "costilla"
+      },
+      {
+        "en": "Ribcage",
+        "es": "caja torácica"
+      },
+      {
+        "en": "Saliva",
+        "es": "saliva"
+      },
+      {
+        "en": "Scalp",
+        "es": "cuero cabelludo"
+      },
+      {
+        "en": "Scapula",
+        "es": "escápula"
+      },
+      {
+        "en": "Shin",
+        "es": "espinilla"
+      },
+      {
+        "en": "Shoulder",
+        "es": "hombro"
+      },
+      {
+        "en": "Shoulder blade",
+        "es": "omóplato"
+      },
+      {
+        "en": "Skull",
+        "es": "cráneo"
+      },
+      {
+        "en": "Small intestine",
+        "es": "intestino delgado"
+      },
+      {
+        "en": "Spinal column",
+        "es": "columna vertebral"
+      },
+      {
+        "en": "Spine",
+        "es": "espina dorsal"
+      },
+      {
+        "en": "Spleen",
+        "es": "bazo"
+      },
+      {
+        "en": "Sputum",
+        "es": "esputo"
+      },
+      {
+        "en": "Stomach",
+        "es": "estómago"
+      },
+      {
+        "en": "Stomach lining",
+        "es": "revestimiento del estómago"
+      },
+      {
+        "en": "Teeth",
+        "es": "dientes"
+      },
+      {
+        "en": "Temple",
+        "es": "sien"
+      },
+      {
+        "en": "Toes",
+        "es": "dedos del pie"
+      },
+      {
+        "en": "Tonsils",
+        "es": "amígdalas"
+      },
+      {
+        "en": "Thorax",
+        "es": "tórax"
+      },
+      {
+        "en": "Throat",
+        "es": "garganta"
+      },
+      {
+        "en": "Thumb",
+        "es": "pulgar"
+      },
+      {
+        "en": "Thyroid gland",
+        "es": "glándula tiroides"
+      },
+      {
+        "en": "Trachea",
+        "es": "tráquea"
+      },
+      {
+        "en": "Tract",
+        "es": "tracto"
+      },
+      {
+        "en": "Uterine lining",
+        "es": "revestimiento uterino"
+      },
+      {
+        "en": "Uterus",
+        "es": "útero"
+      },
+      {
+        "en": "Vein",
+        "es": "vena"
+      },
+      {
+        "en": "Waist",
+        "es": "cintura"
+      },
+      {
+        "en": "Windpipe",
+        "es": "tráquea"
+      },
+      {
+        "en": "Womb",
+        "es": "útero"
+      },
+      {
+        "en": "Wrist",
+        "es": "muñeca"
+      },
+      {
+        "en": "Abdominal delivery",
+        "es": "parto abdominal"
+      },
+      {
+        "en": "Abdominal pregnancy",
+        "es": "embarazo abdominal"
+      },
+      {
+        "en": "Abortion",
+        "es": "aborto"
+      },
+      {
+        "en": "Afterbirth",
+        "es": "placenta"
+      },
+      {
+        "en": "Amniocentesis",
+        "es": "amniocentesis"
+      },
+      {
+        "en": "Anguish",
+        "es": "angustia"
+      },
+      {
+        "en": "At term birth",
+        "es": "parto a término"
+      },
+      {
+        "en": "to Bear down",
+        "es": "pujar"
+      },
+      {
+        "en": "Bed pan",
+        "es": "cuña"
+      },
+      {
+        "en": "Bed rest",
+        "es": "reposo en cama"
+      },
+      {
+        "en": "Birth",
+        "es": "nacimiento"
+      },
+      {
+        "en": "Birth canal",
+        "es": "canal del parto"
+      },
+      {
+        "en": "Birth control",
+        "es": "control de natalidad"
+      },
+      {
+        "en": "Birth injury",
+        "es": "lesión de nacimiento"
+      },
+      {
+        "en": "Bleeding",
+        "es": "sangrado"
+      },
+      {
+        "en": "Bloated",
+        "es": "hinchado"
+      },
+      {
+        "en": "Block",
+        "es": "bloqueo"
+      },
+      {
+        "en": "Bodily changes",
+        "es": "cambios corporales"
+      },
+      {
+        "en": "Bottle-feed",
+        "es": "alimentar con biberón"
+      },
+      {
+        "en": "Bowel movement, stools",
+        "es": "evacuación intestinal, heces"
+      },
+      {
+        "en": "stools",
+        "es": "evacuación intestinal, heces"
+      },
+      {
+        "en": "Breast mass",
+        "es": "masa en el seno"
+      },
+      {
+        "en": "Breast milk",
+        "es": "leche materna"
+      },
+      {
+        "en": "Breast pump",
+        "es": "extractor de leche"
+      },
+      {
+        "en": "Breast self-examination",
+        "es": "autoexamen de seno"
+      },
+      {
+        "en": "Breast tenderness",
+        "es": "sensibilidad en los senos"
+      },
+      {
+        "en": "Breast-care",
+        "es": "cuidado de los senos"
+      },
+      {
+        "en": "Breastfeed",
+        "es": "amamantar"
+      },
+      {
+        "en": "Breech delivery",
+        "es": "parto de nalgas"
+      },
+      {
+        "en": "Cervical pregnancy",
+        "es": "embarazo cervical"
+      },
+      {
+        "en": "Cervix",
+        "es": "cuello uterino"
+      },
+      {
+        "en": "Cesarean delivery",
+        "es": "parto por cesárea"
+      },
+      {
+        "en": "Charley horse",
+        "es": "calambre muscular"
+      },
+      {
+        "en": "Chills",
+        "es": "escalofríos"
+      },
+      {
+        "en": "Colic",
+        "es": "cólico"
+      },
+      {
+        "en": "Colostrum",
+        "es": "calostro"
+      },
+      {
+        "en": "Complicated labor",
+        "es": "trabajo de parto complicado"
+      },
+      {
+        "en": "Condom",
+        "es": "preservativo"
+      },
+      {
+        "en": "to Congested be",
+        "es": "estar congestionada"
+      },
+      {
+        "en": "Cracked nipples",
+        "es": "pezones agrietados"
+      },
+      {
+        "en": "Cradle",
+        "es": "cuna"
+      },
+      {
+        "en": "Cramps, stomach",
+        "es": "calambres estomacales"
+      },
+      {
+        "en": "Cramps",
+        "es": "calambres estomacales"
+      },
+      {
+        "en": "Crankiness",
+        "es": "irritabilidad"
+      },
+      {
+        "en": "Crib",
+        "es": "cuna"
+      },
+      {
+        "en": "C-section / Caesarian section",
+        "es": "cesárea"
+      },
+      {
+        "en": "C-section",
+        "es": "cesárea"
+      },
+      {
+        "en": "Caesarian section",
+        "es": "cesárea"
+      },
+      {
+        "en": "D&C dilation and curettage",
+        "es": "dilatación y curetaje"
+      },
+      {
+        "en": "dilation and curettage",
+        "es": "dilatación y curetaje"
+      },
+      {
+        "en": "Dead birth",
+        "es": "mortinato"
+      },
+      {
+        "en": "Deliver",
+        "es": "dar a luz"
+      },
+      {
+        "en": "Delivery",
+        "es": "parto"
+      },
+      {
+        "en": "Delivery room",
+        "es": "sala de partos"
+      },
+      {
+        "en": "Delivery table",
+        "es": "mesa de partos"
+      },
+      {
+        "en": "Depo-Provera shot",
+        "es": "inyección de Depo-Provera"
+      },
+      {
+        "en": "Dermo Plast spray",
+        "es": "spray Dermo Plast"
+      },
+      {
+        "en": "Diaper rash",
+        "es": "sarpullido del pañal"
+      },
+      {
+        "en": "Diarrhea",
+        "es": "diarrea"
+      },
+      {
+        "en": "Discharge instructions",
+        "es": "instrucciones de alta"
+      },
+      {
+        "en": "Douche",
+        "es": "ducha vaginal"
+      },
+      {
+        "en": "Drainage",
+        "es": "drenaje"
+      },
+      {
+        "en": "Dry labor",
+        "es": "trabajo de parto seco"
+      },
+      {
+        "en": "Dryness",
+        "es": "sequedad"
+      },
+      {
+        "en": "Due date",
+        "es": "fecha probable de parto"
+      },
+      {
+        "en": "Dysmenorrhea",
+        "es": "dismenorrea"
+      },
+      {
+        "en": "Dysuria",
+        "es": "disuria"
+      },
+      {
+        "en": "Ear infection",
+        "es": "infección de oído"
+      },
+      {
+        "en": "Ectopic pregnancy",
+        "es": "embarazo ectópico"
+      },
+      {
+        "en": "Egg",
+        "es": "óvulo"
+      },
+      {
+        "en": "Endometriosis",
+        "es": "endometriosis"
+      },
+      {
+        "en": "Endometrium",
+        "es": "endometrio"
+      },
+      {
+        "en": "to Engorged be",
+        "es": "estar congestionada"
+      },
+      {
+        "en": "Epidural anesthesia",
+        "es": "anestesia epidural"
+      },
+      {
+        "en": "Episiotomy",
+        "es": "episiotomía"
+      },
+      {
+        "en": "Estrogen replacement treatment",
+        "es": "tratamiento de reemplazo de estrógeno"
+      },
+      {
+        "en": "to Express out the milk",
+        "es": "extraer la leche"
+      },
+      {
+        "en": "Fallopian tube",
+        "es": "trompa de Falopio"
+      },
+      {
+        "en": "False labor",
+        "es": "falso trabajo de parto"
+      },
+      {
+        "en": "Family planning",
+        "es": "planificación familiar"
+      },
+      {
+        "en": "Female sterility",
+        "es": "esterilidad femenina"
+      },
+      {
+        "en": "Fertility counseling",
+        "es": "asesoramiento de fertilidad"
+      },
+      {
+        "en": "Fertilization treatment",
+        "es": "tratamiento de fertilización"
+      },
+      {
+        "en": "Fibroid",
+        "es": "fibroma"
+      },
+      {
+        "en": "Fibrous tumor",
+        "es": "tumor fibroso"
+      },
+      {
+        "en": "Forceps delivery",
+        "es": "parto con fórceps"
+      },
+      {
+        "en": "Foul smell of vaginal discharge",
+        "es": "mal olor del flujo vaginal"
+      },
+      {
+        "en": "Frigidity",
+        "es": "frigidez"
+      },
+      {
+        "en": "FSH follicle stimulating hormone",
+        "es": "hormona foliculoestimulante"
+      },
+      {
+        "en": "FSH",
+        "es": "hormona foliculoestimulante"
+      },
+      {
+        "en": "follicle stimulating hormone",
+        "es": "hormona foliculoestimulante"
+      },
+      {
+        "en": "Genetic counseling",
+        "es": "asesoramiento genético"
+      },
+      {
+        "en": "Genetic trend",
+        "es": "tendencia genética"
+      },
+      {
+        "en": "Genitalia",
+        "es": "genitales"
+      },
+      {
+        "en": "Gestational diabetes",
+        "es": "diabetes gestacional"
+      },
+      {
+        "en": "to Give birth",
+        "es": "dar a luz"
+      },
+      {
+        "en": "Grip",
+        "es": "agarre"
+      },
+      {
+        "en": "Growth and development",
+        "es": "crecimiento y desarrollo"
+      },
+      {
+        "en": "Hemorrhage",
+        "es": "hemorragia"
+      },
+      {
+        "en": "Hemorrhoids",
+        "es": "hemorroides"
+      },
+      {
+        "en": "to Hind milk",
+        "es": "leche del final"
+      },
+      {
+        "en": "Hormonal treatment",
+        "es": "tratamiento hormonal"
+      },
+      {
+        "en": "Hot and cold spells",
+        "es": "episodios de calor y frío"
+      },
+      {
+        "en": "Hot flashes",
+        "es": "sofocos"
+      },
+      {
+        "en": "Hysterectomy",
+        "es": "histerectomía"
+      },
+      {
+        "en": "Ibuprofen",
+        "es": "ibuprofeno"
+      },
+      {
+        "en": "Ice pack",
+        "es": "bolsa de hielo"
+      },
+      {
+        "en": "Increased pain of episiotomy",
+        "es": "aumento del dolor de la episiotomía"
+      },
+      {
+        "en": "Induced abortion",
+        "es": "aborto inducido"
+      },
+      {
+        "en": "Induced labor",
+        "es": "trabajo de parto inducido"
+      },
+      {
+        "en": "Infertile",
+        "es": "infértil"
+      },
+      {
+        "en": "Inhalers, puffers",
+        "es": "inhaladores"
+      },
+      {
+        "en": "Inhalers",
+        "es": "inhaladores"
+      },
+      {
+        "en": "puffers",
+        "es": "inhaladores"
+      },
+      {
+        "en": "Intrauterine device",
+        "es": "dispositivo intrauterino"
+      },
+      {
+        "en": "IUD",
+        "es": "dispositivo intrauterino"
+      },
+      {
+        "en": "DIU",
+        "es": "dispositivo intrauterino"
+      },
+      {
+        "en": "In-vitro fertilization",
+        "es": "fertilización in vitro"
+      },
+      {
+        "en": "Itchiness",
+        "es": "picazón"
+      },
+      {
+        "en": "Labia",
+        "es": "labios vaginales"
+      },
+      {
+        "en": "Labor",
+        "es": "trabajo de parto"
+      },
+      {
+        "en": "Labor pains",
+        "es": "dolores de parto"
+      },
+      {
+        "en": "Labor room",
+        "es": "sala de labor"
+      },
+      {
+        "en": "to Labor be in",
+        "es": "estar en trabajo de parto"
+      },
+      {
+        "en": "Lactation",
+        "es": "lactancia"
+      },
+      {
+        "en": "Lamaze method",
+        "es": "método Lamaze"
+      },
+      {
+        "en": "Latched on",
+        "es": "agarrado al pecho"
+      },
+      {
+        "en": "Lethargic",
+        "es": "letárgico"
+      },
+      {
+        "en": "Lice",
+        "es": "piojos"
+      },
+      {
+        "en": "Lip of the pudendum",
+        "es": "labio vulvar"
+      },
+      {
+        "en": "Listlessness",
+        "es": "apatía"
+      },
+      {
+        "en": "Live-birth",
+        "es": "nacido vivo"
+      },
+      {
+        "en": "LOP Length of pregnancy",
+        "es": "duración del embarazo"
+      },
+      {
+        "en": "LOP",
+        "es": "duración del embarazo"
+      },
+      {
+        "en": "Length of pregnancy",
+        "es": "duración del embarazo"
+      },
+      {
+        "en": "Lukewarm",
+        "es": "tibio"
+      },
+      {
+        "en": "Mammogram, mammography",
+        "es": "mamografía"
+      },
+      {
+        "en": "Mammogram",
+        "es": "mamografía"
+      },
+      {
+        "en": "mammography",
+        "es": "mamografía"
+      },
+      {
+        "en": "Menopause",
+        "es": "menopausia"
+      },
+      {
+        "en": "Menstruation period, period",
+        "es": "menstruación, período"
+      },
+      {
+        "en": "Menstruation period",
+        "es": "menstruación, período"
+      },
+      {
+        "en": "Midwife",
+        "es": "partera"
+      },
+      {
+        "en": "Milk pump",
+        "es": "extractor de leche"
+      },
+      {
+        "en": "Milk supply",
+        "es": "producción de leche"
+      },
+      {
+        "en": "Miscarriage",
+        "es": "aborto espontáneo"
+      },
+      {
+        "en": "Mood swings",
+        "es": "cambios de humor"
+      },
+      {
+        "en": "Morning sickness",
+        "es": "náuseas matutinas"
+      },
+      {
+        "en": "Morning-after pill",
+        "es": "píldora del día después"
+      },
+      {
+        "en": "Mucus",
+        "es": "moco"
+      },
+      {
+        "en": "Multiple birth",
+        "es": "parto múltiple"
+      },
+      {
+        "en": "Multiple pregnancy",
+        "es": "embarazo múltiple"
+      },
+      {
+        "en": "Narrow hips",
+        "es": "caderas estrechas"
+      },
+      {
+        "en": "Nebulizer",
+        "es": "nebulizador"
+      },
+      {
+        "en": "Night sweats",
+        "es": "sudores nocturnos"
+      },
+      {
+        "en": "Nipple discharge",
+        "es": "secreción del pezón"
+      },
+      {
+        "en": "Norplant",
+        "es": "implante anticonceptivo"
+      },
+      {
+        "en": "contraceptive implant",
+        "es": "implante anticonceptivo"
+      },
+      {
+        "en": "Nursing pads",
+        "es": "almohadillas de lactancia"
+      },
+      {
+        "en": "Oral contraceptive",
+        "es": "anticonceptivo oral"
+      },
+      {
+        "en": "Ovarian pregnancy",
+        "es": "embarazo ovárico"
+      },
+      {
+        "en": "Ovary",
+        "es": "ovario"
+      },
+      {
+        "en": "Overactive bladder",
+        "es": "vejiga hiperactiva"
+      },
+      {
+        "en": "Oviduct",
+        "es": "trompa de Falopio"
+      },
+      {
+        "en": "Painkiller",
+        "es": "analgésico"
+      },
+      {
+        "en": "Pap smear",
+        "es": "citología cervical"
+      },
+      {
+        "en": "Parturient",
+        "es": "parturienta"
+      },
+      {
+        "en": "to Pass a clot",
+        "es": "expulsar un coágulo"
+      },
+      {
+        "en": "Patch",
+        "es": "parche"
+      },
+      {
+        "en": "Permanent sterility",
+        "es": "esterilidad permanente"
+      },
+      {
+        "en": "PMS - Pre-Menstrual Syndrome",
+        "es": "síndrome premenstrual"
+      },
+      {
+        "en": "PMS",
+        "es": "síndrome premenstrual"
+      },
+      {
+        "en": "- Pre-Menstrual Syndrome",
+        "es": "síndrome premenstrual"
+      },
+      {
+        "en": "Pre-Menstrual Syndrome",
+        "es": "síndrome premenstrual"
+      },
+      {
+        "en": "SPM",
+        "es": "síndrome premenstrual"
+      },
+      {
+        "en": "Postpartum depression",
+        "es": "depresión posparto"
+      },
+      {
+        "en": "baby blues",
+        "es": "depresión posparto"
+      },
+      {
+        "en": "Post-term birth",
+        "es": "parto postérmino"
+      },
+      {
+        "en": "Precipitate labor",
+        "es": "parto precipitado"
+      },
+      {
+        "en": "Pregnancy",
+        "es": "embarazo"
+      },
+      {
+        "en": "Pregnant",
+        "es": "embarazada"
+      },
+      {
+        "en": "Premature",
+        "es": "prematuro"
+      },
+      {
+        "en": "Premature birth",
+        "es": "parto prematuro"
+      },
+      {
+        "en": "Premature labor, delivery",
+        "es": "trabajo de parto prematuro"
+      },
+      {
+        "en": "Premature labor",
+        "es": "trabajo de parto prematuro"
+      },
+      {
+        "en": "Prenatal",
+        "es": "prenatal"
+      },
+      {
+        "en": "Prolonged labor",
+        "es": "trabajo de parto prolongado"
+      },
+      {
+        "en": "to Pump out the milk",
+        "es": "extraer la leche"
+      },
+      {
+        "en": "Runny nose",
+        "es": "secreción nasal"
+      },
+      {
+        "en": "Sanitary napkins/pads",
+        "es": "toallas sanitarias"
+      },
+      {
+        "en": "Sanitary napkins",
+        "es": "toallas sanitarias"
+      },
+      {
+        "en": "Scraping",
+        "es": "raspado"
+      },
+      {
+        "en": "Sitz-baths",
+        "es": "baños de asiento"
+      },
+      {
+        "en": "Sore nipples",
+        "es": "pezones doloridos"
+      },
+      {
+        "en": "Sore throat",
+        "es": "dolor de garganta"
+      },
+      {
+        "en": "Sperm",
+        "es": "esperma"
+      },
+      {
+        "en": "Spitting up",
+        "es": "regurgitación"
+      },
+      {
+        "en": "Spontaneous abortion",
+        "es": "aborto espontáneo"
+      },
+      {
+        "en": "Spontaneous labor",
+        "es": "trabajo de parto espontáneo"
+      },
+      {
+        "en": "Spotting",
+        "es": "manchado"
+      },
+      {
+        "en": "Staples",
+        "es": "grapas quirúrgicas"
+      },
+      {
+        "en": "Sterility",
+        "es": "esterilidad"
+      },
+      {
+        "en": "Steri-strips",
+        "es": "tiras estériles"
+      },
+      {
+        "en": "Still-born",
+        "es": "mortinato"
+      },
+      {
+        "en": "Stool problem",
+        "es": "problema de heces"
+      },
+      {
+        "en": "Stool softener",
+        "es": "ablandador de heces"
+      },
+      {
+        "en": "to Stuffed be",
+        "es": "estar congestionada"
+      },
+      {
+        "en": "Tampons",
+        "es": "tampones"
+      },
+      {
+        "en": "Therapeutic abortion",
+        "es": "aborto terapéutico"
+      },
+      {
+        "en": "Threaten abortion",
+        "es": "amenaza de aborto"
+      },
+      {
+        "en": "Tiredness",
+        "es": "cansancio"
+      },
+      {
+        "en": "Trained midwife",
+        "es": "partera capacitada"
+      },
+      {
+        "en": "Tubal pregnancy",
+        "es": "embarazo tubárico"
+      },
+      {
+        "en": "Tummy",
+        "es": "barriga"
+      },
+      {
+        "en": "Twin pregnancy",
+        "es": "embarazo de gemelos"
+      },
+      {
+        "en": "Ultrasound",
+        "es": "ecografía"
+      },
+      {
+        "en": "Umbilical cord",
+        "es": "cordón umbilical"
+      },
+      {
+        "en": "Untrained midwife",
+        "es": "partera no capacitada"
+      },
+      {
+        "en": "Uterine cramps, after-pains",
+        "es": "calambres uterinos, dolores después del parto"
+      },
+      {
+        "en": "Uterine cramps",
+        "es": "calambres uterinos, dolores después del parto"
+      },
+      {
+        "en": "after-pains",
+        "es": "calambres uterinos, dolores después del parto"
+      },
+      {
+        "en": "Uterine tenderness",
+        "es": "sensibilidad uterina"
+      },
+      {
+        "en": "Vaginal bleeding",
+        "es": "sangrado vaginal"
+      },
+      {
+        "en": "Vaginal cream",
+        "es": "crema vaginal"
+      },
+      {
+        "en": "Vaginal discharge",
+        "es": "flujo vaginal"
+      },
+      {
+        "en": "Vaginal dryness",
+        "es": "sequedad vaginal"
+      },
+      {
+        "en": "Vaginal jelly",
+        "es": "gel vaginal"
+      },
+      {
+        "en": "Vaginal lubricant",
+        "es": "lubricante vaginal"
+      },
+      {
+        "en": "Vaginal yeast infection",
+        "es": "infección vaginal por hongos"
+      },
+      {
+        "en": "Varicose veins",
+        "es": "venas varicosas"
+      },
+      {
+        "en": "Water soluble lubricant",
+        "es": "lubricante soluble en agua"
+      },
+      {
+        "en": "Watery discharge",
+        "es": "flujo acuoso"
+      },
+      {
+        "en": "to Wean",
+        "es": "destetar"
+      },
+      {
+        "en": "Witch hazel",
+        "es": "hamamelis"
+      },
+      {
+        "en": "1st Stage Labour",
+        "es": "primera etapa del trabajo de parto"
+      },
+      {
+        "en": "2st Stage Labour",
+        "es": "segunda etapa del trabajo de parto"
+      },
+      {
+        "en": "3st Stage Labour",
+        "es": "tercera etapa del trabajo de parto"
+      },
+      {
+        "en": "Additional shots",
+        "es": "vacunas adicionales"
+      },
+      {
+        "en": "Booster shots",
+        "es": "dosis de refuerzo"
+      },
+      {
+        "en": "Bronchitis",
+        "es": "bronquitis"
+      },
+      {
+        "en": "By mouth",
+        "es": "por vía oral"
+      },
+      {
+        "en": "Chicken pox",
+        "es": "varicela"
+      },
+      {
+        "en": "Varicella",
+        "es": "varicela"
+      },
+      {
+        "en": "Diphtheria-Tetanus-Pertussis Three-in-one shot/baby shot",
+        "es": "difteria-tétanos-tos ferina (DTP) vacuna triple"
+      },
+      {
+        "en": "DTP",
+        "es": "difteria-tétanos-tos ferina (DTP) vacuna triple"
+      },
+      {
+        "en": "Diphtheria-Tetanus-Pertussis Three-in-one shot",
+        "es": "difteria-tétanos-tos ferina (DTP) vacuna triple"
+      },
+      {
+        "en": "baby shot",
+        "es": "difteria-tétanos-tos ferina (DTP) vacuna triple"
+      },
+      {
+        "en": "Drops",
+        "es": "gotas"
+      },
+      {
+        "en": "German measles",
+        "es": "rubéola"
+      },
+      {
+        "en": "to Give a shot",
+        "es": "poner una inyección"
+      },
+      {
+        "en": "Haemophiles, Influenza, Meningitis",
+        "es": "Haemophilus influenzae, meningitis"
+      },
+      {
+        "en": "Haemophiles",
+        "es": "Haemophilus influenzae, meningitis"
+      },
+      {
+        "en": "Influenza",
+        "es": "Haemophilus influenzae, meningitis"
+      },
+      {
+        "en": "Meningitis",
+        "es": "Haemophilus influenzae, meningitis"
+      },
+      {
+        "en": "Hepatitis B",
+        "es": "hepatitis B"
+      },
+      {
+        "en": "Immunization",
+        "es": "inmunización"
+      },
+      {
+        "en": "Immunization chart",
+        "es": "calendario de vacunación"
+      },
+      {
+        "en": "Immunization-booster dose",
+        "es": "dosis de refuerzo de inmunización"
+      },
+      {
+        "en": "to Immunize",
+        "es": "inmunizar"
+      },
+      {
+        "en": "Jaundice",
+        "es": "ictericia"
+      },
+      {
+        "en": "Malaria",
+        "es": "malaria"
+      },
+      {
+        "en": "Measles",
+        "es": "sarampión"
+      },
+      {
+        "en": "Mumps",
+        "es": "paperas"
+      },
+      {
+        "en": "Pneumonia",
+        "es": "neumonía"
+      },
+      {
+        "en": "Polio",
+        "es": "polio"
+      },
+      {
+        "en": "Rabies",
+        "es": "rabia"
+      },
+      {
+        "en": "Rubella",
+        "es": "rubéola"
+      },
+      {
+        "en": "Scarlet fever",
+        "es": "escarlatina"
+      },
+      {
+        "en": "Shot",
+        "es": "inyección"
+      },
+      {
+        "en": "Shot chart / shot record",
+        "es": "registro de vacunas"
+      },
+      {
+        "en": "Shot chart",
+        "es": "registro de vacunas"
+      },
+      {
+        "en": "shot record",
+        "es": "registro de vacunas"
+      },
+      {
+        "en": "Small pox or smallpox",
+        "es": "viruela"
+      },
+      {
+        "en": "Tetanus",
+        "es": "tétanos"
+      },
+      {
+        "en": "Tonsillitis",
+        "es": "amigdalitis"
+      },
+      {
+        "en": "BCG",
+        "es": "BCG"
+      },
+      {
+        "en": "Typhoid",
+        "es": "tifoidea"
+      },
+      {
+        "en": "Typhoid fever",
+        "es": "fiebre tifoidea"
+      },
+      {
+        "en": "to Vaccinate",
+        "es": "vacunar"
+      },
+      {
+        "en": "Vaccination",
+        "es": "vacunación"
+      },
+      {
+        "en": "Whooping cough",
+        "es": "tos ferina"
+      },
+      {
+        "en": "Yellow fever",
+        "es": "fiebre amarilla"
+      },
+      {
+        "en": "Andropause",
+        "es": "andropausia"
+      },
+      {
+        "en": "Erectile dysfunction",
+        "es": "disfunción eréctil"
+      },
+      {
+        "en": "Foreskin",
+        "es": "prepucio"
+      },
+      {
+        "en": "Glands",
+        "es": "glándulas"
+      },
+      {
+        "en": "Jock itch",
+        "es": "tiña inguinal"
+      },
+      {
+        "en": "Jock strap",
+        "es": "suspensorio"
+      },
+      {
+        "en": "Penis",
+        "es": "pene"
+      },
+      {
+        "en": "Prostate",
+        "es": "próstata"
+      },
+      {
+        "en": "Scrotum",
+        "es": "escroto"
+      },
+      {
+        "en": "Testicles",
+        "es": "testículos"
+      },
+      {
+        "en": "Vasectomy",
+        "es": "vasectomía"
+      },
+      {
+        "en": "Blood smear",
+        "es": "frotis de sangre"
+      },
+      {
+        "en": "Blood test, blood work",
+        "es": "análisis de sangre"
+      },
+      {
+        "en": "Blood test",
+        "es": "análisis de sangre"
+      },
+      {
+        "en": "blood work",
+        "es": "análisis de sangre"
+      },
+      {
+        "en": "CAT scan",
+        "es": "tomografía axial computarizada"
+      },
+      {
+        "en": "computerized axial tomography",
+        "es": "tomografía axial computarizada"
+      },
+      {
+        "en": "CAT",
+        "es": "tomografía axial computarizada"
+      },
+      {
+        "en": "scan",
+        "es": "tomografía axial computarizada"
+      },
+      {
+        "en": "TAC",
+        "es": "tomografía axial computarizada"
+      },
+      {
+        "en": "CBC complete blood count",
+        "es": "hemograma completo"
+      },
+      {
+        "en": "CBC",
+        "es": "hemograma completo"
+      },
+      {
+        "en": "complete blood count",
+        "es": "hemograma completo"
+      },
+      {
+        "en": "CT scan",
+        "es": "tomografía computarizada"
+      },
+      {
+        "en": "computed tomography",
+        "es": "tomografía computarizada"
+      },
+      {
+        "en": "CT",
+        "es": "tomografía computarizada"
+      },
+      {
+        "en": "TC",
+        "es": "tomografía computarizada"
+      },
+      {
+        "en": "ECG Electrocardiogram",
+        "es": "electrocardiograma"
+      },
+      {
+        "en": "ECG",
+        "es": "electrocardiograma"
+      },
+      {
+        "en": "Electrocardiogram",
+        "es": "electrocardiograma"
+      },
+      {
+        "en": "EEG electroencephalogram",
+        "es": "electroencefalograma"
+      },
+      {
+        "en": "EEG",
+        "es": "electroencefalograma"
+      },
+      {
+        "en": "electroencephalogram",
+        "es": "electroencefalograma"
+      },
+      {
+        "en": "ELISA test",
+        "es": "prueba de ELISA"
+      },
+      {
+        "en": "ELISA",
+        "es": "prueba de ELISA"
+      },
+      {
+        "en": "test",
+        "es": "prueba de ELISA"
+      },
+      {
+        "en": "Eye exam",
+        "es": "examen de la vista"
+      },
+      {
+        "en": "Fasting blood sugar",
+        "es": "glucosa en ayunas"
+      },
+      {
+        "en": "Glucose tolerance test",
+        "es": "prueba de tolerancia a la glucosa"
+      },
+      {
+        "en": "Hearing test",
+        "es": "examen de audición"
+      },
+      {
+        "en": "MRI Magnetic Resonance Imaging",
+        "es": "resonancia magnética"
+      },
+      {
+        "en": "MRI",
+        "es": "resonancia magnética"
+      },
+      {
+        "en": "Magnetic Resonance Imaging",
+        "es": "resonancia magnética"
+      },
+      {
+        "en": "Pelvic examination",
+        "es": "examen pélvico"
+      },
+      {
+        "en": "Physical Therapy",
+        "es": "fisioterapia"
+      },
+      {
+        "en": "PT",
+        "es": "fisioterapia"
+      },
+      {
+        "en": "Post-operative tests",
+        "es": "pruebas postoperatorias"
+      },
+      {
+        "en": "Pre-operative tests",
+        "es": "pruebas preoperatorias"
+      },
+      {
+        "en": "Pulmonary function test",
+        "es": "prueba de función pulmonar"
+      },
+      {
+        "en": "RBC red blood count",
+        "es": "recuento de glóbulos rojos"
+      },
+      {
+        "en": "RBC",
+        "es": "recuento de glóbulos rojos"
+      },
+      {
+        "en": "red blood count",
+        "es": "recuento de glóbulos rojos"
+      },
+      {
+        "en": "Rectal examination",
+        "es": "examen rectal"
+      },
+      {
+        "en": "Serum glutamic oxaloacetic transaminase",
+        "es": "transaminasa glutámico oxalacética"
+      },
+      {
+        "en": "SGOT",
+        "es": "transaminasa glutámico oxalacética"
+      },
+      {
+        "en": "Skin test",
+        "es": "prueba cutánea"
+      },
+      {
+        "en": "Sonogram",
+        "es": "ecografía"
+      },
+      {
+        "en": "SR sedimentation rate",
+        "es": "velocidad de sedimentación globular"
+      },
+      {
+        "en": "SR",
+        "es": "velocidad de sedimentación globular"
+      },
+      {
+        "en": "sedimentation rate",
+        "es": "velocidad de sedimentación globular"
+      },
+      {
+        "en": "Stool specimen",
+        "es": "muestra de heces"
+      },
+      {
+        "en": "Stress test",
+        "es": "prueba de esfuerzo"
+      },
+      {
+        "en": "Urine routine, urinalysis",
+        "es": "análisis de orina rutinario"
+      },
+      {
+        "en": "Urine routine",
+        "es": "análisis de orina rutinario"
+      },
+      {
+        "en": "WBC white blood count",
+        "es": "recuento de glóbulos blancos"
+      },
+      {
+        "en": "WBC",
+        "es": "recuento de glóbulos blancos"
+      },
+      {
+        "en": "white blood count",
+        "es": "recuento de glóbulos blancos"
+      }
+    ],
+    "en-de": [],
+    "en-pl": [
+      {
+        "en": "CPR",
+        "pl": "resuscytacja krążeniowo-oddechowa"
+      },
+      {
+        "en": "Cardio-pulmonary Resuscitation",
+        "pl": "resuscytacja krążeniowo-oddechowa"
+      },
+      {
+        "en": "RKO",
+        "pl": "resuscytacja krążeniowo-oddechowa"
+      },
+      {
+        "en": "Defibrillator",
+        "pl": "defibrylator"
+      },
+      {
+        "en": "Epilepsy",
+        "pl": "padaczka"
+      },
+      {
+        "en": "Fit",
+        "pl": "drgawki"
+      },
+      {
+        "en": "Lie on the left side",
+        "pl": "połóż się na lewym boku"
+      },
+      {
+        "en": "Lie flat on back",
+        "pl": "połóż się płasko na plecach"
+      },
+      {
+        "en": "Admissions desk",
+        "pl": "izba przyjęć"
+      },
+      {
+        "en": "Seizure",
+        "pl": "drgawki"
+      },
+      {
+        "en": "Turning blue",
+        "pl": "sinienie"
+      },
+      {
+        "en": "Tilt the head back",
+        "pl": "odchyl głowę do tyłu"
+      },
+      {
+        "en": "Abdominal discomfort",
+        "pl": "dyskomfort w jamie brzusznej"
+      },
+      {
+        "en": "Abscess",
+        "pl": "ropień"
+      },
+      {
+        "en": "Acute pain",
+        "pl": "ostry ból"
+      },
+      {
+        "en": "Admissions",
+        "pl": "izba przyjęć"
+      },
+      {
+        "en": "Adrenaline",
+        "pl": "adrenalina"
+      },
+      {
+        "en": "Adverse reaction",
+        "pl": "działanie niepożądane"
+      },
+      {
+        "en": "Advice nurse",
+        "pl": "pielęgniarka konsultacyjna"
+      },
+      {
+        "en": "Allergen",
+        "pl": "alergen"
+      },
+      {
+        "en": "Allergic reaction",
+        "pl": "reakcja alergiczna"
+      },
+      {
+        "en": "Allergy",
+        "pl": "alergia"
+      },
+      {
+        "en": "Anaesthesia",
+        "pl": "znieczulenie"
+      },
+      {
+        "en": "Anaesthesiologist",
+        "pl": "anestezjolog"
+      },
+      {
+        "en": "Anaesthesiology",
+        "pl": "anestezjologia"
+      },
+      {
+        "en": "Antibacterial",
+        "pl": "przeciwbakteryjny"
+      },
+      {
+        "en": "Antibiotic",
+        "pl": "antybiotyk"
+      },
+      {
+        "en": "Antibodies",
+        "pl": "przeciwciała"
+      },
+      {
+        "en": "Anticoagulant",
+        "pl": "lek przeciwzakrzepowy"
+      },
+      {
+        "en": "Antidote",
+        "pl": "odtrutka"
+      },
+      {
+        "en": "Anti-fungal",
+        "pl": "przeciwgrzybiczy"
+      },
+      {
+        "en": "Antihistamine",
+        "pl": "leki przeciwhistaminowe"
+      },
+      {
+        "en": "Anti-inflammatory",
+        "pl": "przeciwzapalny"
+      },
+      {
+        "en": "Antiseptic",
+        "pl": "środek antyseptyczny"
+      },
+      {
+        "en": "Appendectomy",
+        "pl": "appendektomia"
+      },
+      {
+        "en": "Appendicitis",
+        "pl": "zapalenie wyrostka robaczkowego"
+      },
+      {
+        "en": "Asphyxia",
+        "pl": "asfiksja"
+      },
+      {
+        "en": "Aspirin",
+        "pl": "aspiryna"
+      },
+      {
+        "en": "Asthma",
+        "pl": "astma"
+      },
+      {
+        "en": "Asthmatic",
+        "pl": "astmatyk"
+      },
+      {
+        "en": "Athlete's foot",
+        "pl": "grzybica stóp"
+      },
+      {
+        "en": "Attending physician",
+        "pl": "lekarz prowadzący"
+      },
+      {
+        "en": "Bacteria",
+        "pl": "bakterie"
+      },
+      {
+        "en": "Bacterial infection",
+        "pl": "zakażenie bakteryjne"
+      },
+      {
+        "en": "Bandage",
+        "pl": "opatrunek"
+      },
+      {
+        "en": "Band-aid",
+        "pl": "plaster"
+      },
+      {
+        "en": "Bee venom",
+        "pl": "jad pszczeli"
+      },
+      {
+        "en": "Billing's method",
+        "pl": "metoda Billingsa"
+      },
+      {
+        "en": "Birthday",
+        "pl": "data urodzenia"
+      },
+      {
+        "en": "Blister",
+        "pl": "pęcherz"
+      },
+      {
+        "en": "Blood",
+        "pl": "krew"
+      },
+      {
+        "en": "Blood bank",
+        "pl": "bank krwi"
+      },
+      {
+        "en": "Blood clot",
+        "pl": "skrzep"
+      },
+      {
+        "en": "Blood pressure",
+        "pl": "ciśnienie krwi"
+      },
+      {
+        "en": "Body ache",
+        "pl": "ból całego ciała"
+      },
+      {
+        "en": "Bone splint",
+        "pl": "szyna kostna"
+      },
+      {
+        "en": "Breath",
+        "pl": "oddech"
+      },
+      {
+        "en": "Breathe deeply",
+        "pl": "oddychać głęboko"
+      },
+      {
+        "en": "Breathing problems",
+        "pl": "problemy z oddychaniem"
+      },
+      {
+        "en": "Bruise",
+        "pl": "siniak"
+      },
+      {
+        "en": "Burning sensation",
+        "pl": "pieczenie"
+      },
+      {
+        "en": "Cast",
+        "pl": "gips"
+      },
+      {
+        "en": "Chest discomfort/tightness",
+        "pl": "ucisk w klatce piersiowej"
+      },
+      {
+        "en": "Chest discomfort",
+        "pl": "ucisk w klatce piersiowej"
+      },
+      {
+        "en": "tightness",
+        "pl": "ucisk w klatce piersiowej"
+      },
+      {
+        "en": "Choke",
+        "pl": "krztusić się"
+      },
+      {
+        "en": "Chronic",
+        "pl": "przewlekły"
+      },
+      {
+        "en": "Circulatory",
+        "pl": "krążeniowy"
+      },
+      {
+        "en": "Cold",
+        "pl": "przeziębienie"
+      },
+      {
+        "en": "Colonoscopy",
+        "pl": "kolonoskopia"
+      },
+      {
+        "en": "Compress",
+        "pl": "kompres"
+      },
+      {
+        "en": "Congested",
+        "pl": "przekrwiony"
+      },
+      {
+        "en": "Consent",
+        "pl": "zgoda"
+      },
+      {
+        "en": "Constipated",
+        "pl": "zaparcia"
+      },
+      {
+        "en": "Cotton balls/pads",
+        "pl": "płatki kosmetyczne"
+      },
+      {
+        "en": "Cotton balls",
+        "pl": "płatki kosmetyczne"
+      },
+      {
+        "en": "pads",
+        "pl": "płatki kosmetyczne"
+      },
+      {
+        "en": "Cough",
+        "pl": "kaszel"
+      },
+      {
+        "en": "Cough medicine / cough syrup",
+        "pl": "syrop na kaszel"
+      },
+      {
+        "en": "Cough medicine",
+        "pl": "syrop na kaszel"
+      },
+      {
+        "en": "cough syrup",
+        "pl": "syrop na kaszel"
+      },
+      {
+        "en": "Coughing",
+        "pl": "kaszel"
+      },
+      {
+        "en": "Crutch",
+        "pl": "kula"
+      },
+      {
+        "en": "D&C",
+        "pl": "łyżeczkowanie macicy"
+      },
+      {
+        "en": "Dilatation & Curettage",
+        "pl": "łyżeczkowanie macicy"
+      },
+      {
+        "en": "Decongestant",
+        "pl": "lek obkurczający błonę śluzową"
+      },
+      {
+        "en": "Diabetes",
+        "pl": "cukrzyca"
+      },
+      {
+        "en": "Diagnose",
+        "pl": "zdiagnozować"
+      },
+      {
+        "en": "Diagnosis",
+        "pl": "rozpoznanie"
+      },
+      {
+        "en": "Disable",
+        "pl": "niepełnosprawność"
+      },
+      {
+        "en": "Discomfort",
+        "pl": "dyskomfort"
+      },
+      {
+        "en": "Dislocated",
+        "pl": "zwichnięty"
+      },
+      {
+        "en": "Dizziness",
+        "pl": "zawroty głowy"
+      },
+      {
+        "en": "Doctor's office",
+        "pl": "gabinet lekarski"
+      },
+      {
+        "en": "Dressing",
+        "pl": "opatrunek"
+      },
+      {
+        "en": "Drop",
+        "pl": "kropla"
+      },
+      {
+        "en": "Drowsiness",
+        "pl": "senność"
+      },
+      {
+        "en": "Drugstore",
+        "pl": "apteka"
+      },
+      {
+        "en": "Dull pain",
+        "pl": "tępy ból"
+      },
+      {
+        "en": "Ear ache",
+        "pl": "ból ucha"
+      },
+      {
+        "en": "Ear lobe",
+        "pl": "płatek ucha"
+      },
+      {
+        "en": "Ear tube",
+        "pl": "dren do ucha"
+      },
+      {
+        "en": "Ear wax",
+        "pl": "woskowina"
+      },
+      {
+        "en": "Emergency room",
+        "pl": "szpitalny oddział ratunkowy"
+      },
+      {
+        "en": "ER",
+        "pl": "szpitalny oddział ratunkowy"
+      },
+      {
+        "en": "Emphysema",
+        "pl": "rozedma płuc"
+      },
+      {
+        "en": "Endoscopy",
+        "pl": "endoskopia"
+      },
+      {
+        "en": "Enema",
+        "pl": "lewatywa"
+      },
+      {
+        "en": "Epidural",
+        "pl": "znieczulenie zewnątrzoponowe"
+      },
+      {
+        "en": "Eye drops",
+        "pl": "krople do oczu"
+      },
+      {
+        "en": "Family history",
+        "pl": "wywiad rodzinny"
+      },
+      {
+        "en": "Fasting",
+        "pl": "na czczo"
+      },
+      {
+        "en": "Faeces",
+        "pl": "kał"
+      },
+      {
+        "en": "Fever",
+        "pl": "gorączka"
+      },
+      {
+        "en": "Fever blister",
+        "pl": "opryszczka wargowa"
+      },
+      {
+        "en": "Flu",
+        "pl": "grypa"
+      },
+      {
+        "en": "Food allergy",
+        "pl": "alergia pokarmowa"
+      },
+      {
+        "en": "Fractured",
+        "pl": "złamany"
+      },
+      {
+        "en": "Front desk",
+        "pl": "recepcja"
+      },
+      {
+        "en": "Gauze",
+        "pl": "gaza"
+      },
+      {
+        "en": "General practitioner",
+        "pl": "lekarz rodzinny"
+      },
+      {
+        "en": "Glucose tests",
+        "pl": "badania glukozy"
+      },
+      {
+        "en": "Gnawing pain",
+        "pl": "dokuczliwy ból"
+      },
+      {
+        "en": "Gown / hospital gown",
+        "pl": "koszula szpitalna"
+      },
+      {
+        "en": "Gown",
+        "pl": "koszula szpitalna"
+      },
+      {
+        "en": "hospital gown",
+        "pl": "koszula szpitalna"
+      },
+      {
+        "en": "Gynaecologist",
+        "pl": "ginekolog"
+      },
+      {
+        "en": "Hacking cough",
+        "pl": "suchy męczący kaszel"
+      },
+      {
+        "en": "Hay fever",
+        "pl": "katar sienny"
+      },
+      {
+        "en": "Headache",
+        "pl": "ból głowy"
+      },
+      {
+        "en": "Health",
+        "pl": "zdrowie"
+      },
+      {
+        "en": "Heart attack",
+        "pl": "zawał serca"
+      },
+      {
+        "en": "Heart murmur",
+        "pl": "szmer serca"
+      },
+      {
+        "en": "Heavy lifting",
+        "pl": "dźwiganie ciężarów"
+      },
+      {
+        "en": "Height",
+        "pl": "wzrost"
+      },
+      {
+        "en": "Hernia",
+        "pl": "przepuklina"
+      },
+      {
+        "en": "High blood pressure",
+        "pl": "nadciśnienie tętnicze"
+      },
+      {
+        "en": "Hives",
+        "pl": "pokrzywka"
+      },
+      {
+        "en": "Hoarse",
+        "pl": "ochrypły"
+      },
+      {
+        "en": "Household chemicals",
+        "pl": "środki chemiczne domowe"
+      },
+      {
+        "en": "Hurt",
+        "pl": "boleć"
+      },
+      {
+        "en": "Hypersensitivity",
+        "pl": "nadwrażliwość"
+      },
+      {
+        "en": "Immunoglobulin E",
+        "pl": "immunoglobulina E"
+      },
+      {
+        "en": "IGE",
+        "pl": "immunoglobulina E"
+      },
+      {
+        "en": "Infection",
+        "pl": "zakażenie"
+      },
+      {
+        "en": "Inflammation",
+        "pl": "stan zapalny"
+      },
+      {
+        "en": "Inhaler",
+        "pl": "inhalator"
+      },
+      {
+        "en": "Inpatient",
+        "pl": "pacjent hospitalizowany"
+      },
+      {
+        "en": "Insulin",
+        "pl": "insulina"
+      },
+      {
+        "en": "Intensive care unit",
+        "pl": "oddział intensywnej terapii"
+      },
+      {
+        "en": "Irregular pulse",
+        "pl": "niemiarowe tętno"
+      },
+      {
+        "en": "Itch",
+        "pl": "swędzenie"
+      },
+      {
+        "en": "Itching",
+        "pl": "swędzenie"
+      },
+      {
+        "en": "Joint",
+        "pl": "staw"
+      },
+      {
+        "en": "Laparoscopy",
+        "pl": "laparoskopia"
+      },
+      {
+        "en": "Laser surgery",
+        "pl": "operacja laserowa"
+      },
+      {
+        "en": "Ligament",
+        "pl": "więzadło"
+      },
+      {
+        "en": "Lower back pain",
+        "pl": "ból lędźwi"
+      },
+      {
+        "en": "Lump",
+        "pl": "guzek"
+      },
+      {
+        "en": "Maternity ward",
+        "pl": "oddział położniczy"
+      },
+      {
+        "en": "Medical excuse",
+        "pl": "zwolnienie lekarskie"
+      },
+      {
+        "en": "Medical history",
+        "pl": "wywiad lekarski"
+      },
+      {
+        "en": "Medicated compress",
+        "pl": "kompres z lekiem"
+      },
+      {
+        "en": "Medication",
+        "pl": "lek"
+      },
+      {
+        "en": "Middle ear infection",
+        "pl": "zapalenie ucha środkowego"
+      },
+      {
+        "en": "Mold",
+        "pl": "pleśń"
+      },
+      {
+        "en": "Nasal spray",
+        "pl": "aerozol do nosa"
+      },
+      {
+        "en": "Nauseating pain",
+        "pl": "ból z mdłościami"
+      },
+      {
+        "en": "Nostril",
+        "pl": "nozdrze"
+      },
+      {
+        "en": "Numbing pain",
+        "pl": "ból z drętwieniem"
+      },
+      {
+        "en": "Nurse",
+        "pl": "pielęgniarka"
+      },
+      {
+        "en": "Nursery",
+        "pl": "oddział noworodkowy"
+      },
+      {
+        "en": "Nurses' station",
+        "pl": "dyżurka pielęgniarek"
+      },
+      {
+        "en": "to Operate",
+        "pl": "operować"
+      },
+      {
+        "en": "Operating room",
+        "pl": "sala operacyjna"
+      },
+      {
+        "en": "OR",
+        "pl": "sala operacyjna"
+      },
+      {
+        "en": "Operation",
+        "pl": "operacja"
+      },
+      {
+        "en": "Outpatient",
+        "pl": "pacjent ambulatoryjny"
+      },
+      {
+        "en": "Over-the-counter medication",
+        "pl": "lek bez recepty"
+      },
+      {
+        "en": "Oxygen",
+        "pl": "tlen"
+      },
+      {
+        "en": "Pain",
+        "pl": "ból"
+      },
+      {
+        "en": "Pass out",
+        "pl": "zemdleć"
+      },
+      {
+        "en": "Penicillin",
+        "pl": "penicylina"
+      },
+      {
+        "en": "Physical exam",
+        "pl": "badanie fizykalne"
+      },
+      {
+        "en": "Pills",
+        "pl": "tabletki"
+      },
+      {
+        "en": "Plugged ear",
+        "pl": "zatkane ucho"
+      },
+      {
+        "en": "Pollen allergy",
+        "pl": "alergia na pyłki"
+      },
+      {
+        "en": "Prescription",
+        "pl": "recepta"
+      },
+      {
+        "en": "Pressure",
+        "pl": "ciśnienie"
+      },
+      {
+        "en": "Private room",
+        "pl": "sala jednoosobowa"
+      },
+      {
+        "en": "Pulse",
+        "pl": "tętno"
+      },
+      {
+        "en": "Radiology",
+        "pl": "radiologia"
+      },
+      {
+        "en": "Rash",
+        "pl": "wysypka"
+      },
+      {
+        "en": "Recovery room",
+        "pl": "sala wybudzeń"
+      },
+      {
+        "en": "Redness",
+        "pl": "zaczerwienienie"
+      },
+      {
+        "en": "Rest",
+        "pl": "odpoczynek"
+      },
+      {
+        "en": "Rheumatic fever",
+        "pl": "gorączka reumatyczna"
+      },
+      {
+        "en": "Scab",
+        "pl": "strup"
+      },
+      {
+        "en": "Scar",
+        "pl": "blizna"
+      },
+      {
+        "en": "Scratch",
+        "pl": "zadrapanie"
+      },
+      {
+        "en": "to Scrub",
+        "pl": "myć się chirurgicznie"
+      },
+      {
+        "en": "surgically",
+        "pl": "myć się chirurgicznie"
+      },
+      {
+        "en": "Sexually transmitted disease",
+        "pl": "choroba przenoszona drogą płciową"
+      },
+      {
+        "en": "Sharp pain",
+        "pl": "ostry ból"
+      },
+      {
+        "en": "Shiver",
+        "pl": "dreszcz"
+      },
+      {
+        "en": "Shortness of breath",
+        "pl": "duszność"
+      },
+      {
+        "en": "Sinus infection",
+        "pl": "zapalenie zatok"
+      },
+      {
+        "en": "Sleepy",
+        "pl": "senny"
+      },
+      {
+        "en": "Sling",
+        "pl": "temblak"
+      },
+      {
+        "en": "Sore, cold",
+        "pl": "przeziębienie"
+      },
+      {
+        "en": "Sprain",
+        "pl": "skręcenie"
+      },
+      {
+        "en": "Stethoscope",
+        "pl": "stetoskop"
+      },
+      {
+        "en": "Stitches",
+        "pl": "szwy"
+      },
+      {
+        "en": "Stomach flu",
+        "pl": "grypa żołądkowa"
+      },
+      {
+        "en": "Strain",
+        "pl": "naciągnięcie"
+      },
+      {
+        "en": "Strenuous activity",
+        "pl": "wytężony wysiłek"
+      },
+      {
+        "en": "Strep throat",
+        "pl": "angina paciorkowcowa"
+      },
+      {
+        "en": "Stroke",
+        "pl": "udar mózgu"
+      },
+      {
+        "en": "Stuffed-up",
+        "pl": "zatkany nos"
+      },
+      {
+        "en": "Stutter",
+        "pl": "jąkanie"
+      },
+      {
+        "en": "Surgeon",
+        "pl": "chirurg"
+      },
+      {
+        "en": "Surgery",
+        "pl": "operacja"
+      },
+      {
+        "en": "Surgical procedure",
+        "pl": "zabieg chirurgiczny"
+      },
+      {
+        "en": "Suture",
+        "pl": "szew"
+      },
+      {
+        "en": "Sweat",
+        "pl": "pot"
+      },
+      {
+        "en": "Symptoms",
+        "pl": "objawy"
+      },
+      {
+        "en": "Syringe",
+        "pl": "strzykawka"
+      },
+      {
+        "en": "Tablets",
+        "pl": "tabletki"
+      },
+      {
+        "en": "Temperatures",
+        "pl": "temperatury"
+      },
+      {
+        "en": "Thyroid",
+        "pl": "tarczyca"
+      },
+      {
+        "en": "Triage nurse",
+        "pl": "pielęgniarka triażu"
+      },
+      {
+        "en": "Tubal ligation",
+        "pl": "podwiązanie jajowodów"
+      },
+      {
+        "en": "Tube",
+        "pl": "rurka"
+      },
+      {
+        "en": "Tuberculosis",
+        "pl": "gruźlica"
+      },
+      {
+        "en": "Ulcer",
+        "pl": "wrzód"
+      },
+      {
+        "en": "to Undergo surgery",
+        "pl": "przejść operację"
+      },
+      {
+        "en": "Urinalysis",
+        "pl": "badanie moczu"
+      },
+      {
+        "en": "Urinary bladder",
+        "pl": "pęcherz moczowy"
+      },
+      {
+        "en": "Urinary problem",
+        "pl": "problem z oddawaniem moczu"
+      },
+      {
+        "en": "Urinary tract",
+        "pl": "układ moczowy"
+      },
+      {
+        "en": "Urinating",
+        "pl": "oddawanie moczu"
+      },
+      {
+        "en": "Urine",
+        "pl": "mocz"
+      },
+      {
+        "en": "urine test",
+        "pl": "badanie moczu"
+      },
+      {
+        "en": "vital signs",
+        "pl": "parametry życiowe"
+      },
+      {
+        "en": "Vitamins",
+        "pl": "witaminy"
+      },
+      {
+        "en": "Waiting room",
+        "pl": "poczekalnia"
+      },
+      {
+        "en": "Watery eyes",
+        "pl": "łzawienie oczu"
+      },
+      {
+        "en": "Weight",
+        "pl": "waga"
+      },
+      {
+        "en": "Wheezing",
+        "pl": "świsty"
+      },
+      {
+        "en": "x-ray unit",
+        "pl": "pracownia rentgenowska"
+      },
+      {
+        "en": "Abdomen",
+        "pl": "brzuch"
+      },
+      {
+        "en": "Adam's apple",
+        "pl": "jabłko Adama"
+      },
+      {
+        "en": "Adrenal glands",
+        "pl": "nadnercza"
+      },
+      {
+        "en": "Amniotic fluid",
+        "pl": "płyn owodniowy"
+      },
+      {
+        "en": "Ankle",
+        "pl": "kostka"
+      },
+      {
+        "en": "Anus",
+        "pl": "odbyt"
+      },
+      {
+        "en": "Appendix",
+        "pl": "wyrostek robaczkowy"
+      },
+      {
+        "en": "Armpit",
+        "pl": "pacha"
+      },
+      {
+        "en": "Arms",
+        "pl": "ramiona"
+      },
+      {
+        "en": "Artery",
+        "pl": "tętnica"
+      },
+      {
+        "en": "Back",
+        "pl": "plecy"
+      },
+      {
+        "en": "Backbone",
+        "pl": "kręgosłup"
+      },
+      {
+        "en": "Belly button",
+        "pl": "pępek"
+      },
+      {
+        "en": "Big toe",
+        "pl": "paluch"
+      },
+      {
+        "en": "Bile",
+        "pl": "żółć"
+      },
+      {
+        "en": "Bladder",
+        "pl": "pęcherz"
+      },
+      {
+        "en": "Bodily fluids",
+        "pl": "płyny ustrojowe"
+      },
+      {
+        "en": "Bone marrow",
+        "pl": "szpik kostny"
+      },
+      {
+        "en": "Bowel movement",
+        "pl": "wypróżnienie"
+      },
+      {
+        "en": "Brain",
+        "pl": "mózg"
+      },
+      {
+        "en": "Brain stem",
+        "pl": "pień mózgu"
+      },
+      {
+        "en": "Breast",
+        "pl": "pierś"
+      },
+      {
+        "en": "Buttock",
+        "pl": "pośladek"
+      },
+      {
+        "en": "Calf",
+        "pl": "łydka"
+      },
+      {
+        "en": "Canal",
+        "pl": "kanał"
+      },
+      {
+        "en": "Cartilage",
+        "pl": "chrząstka"
+      },
+      {
+        "en": "Cheek",
+        "pl": "policzek"
+      },
+      {
+        "en": "Cheekbone",
+        "pl": "kość jarzmowa"
+      },
+      {
+        "en": "Chest",
+        "pl": "klatka piersiowa"
+      },
+      {
+        "en": "Chin",
+        "pl": "broda"
+      },
+      {
+        "en": "Collar bone",
+        "pl": "obojczyk"
+      },
+      {
+        "en": "Colon",
+        "pl": "jelito grube"
+      },
+      {
+        "en": "Diaphragm",
+        "pl": "przepona"
+      },
+      {
+        "en": "Dimple",
+        "pl": "dołek"
+      },
+      {
+        "en": "Duct",
+        "pl": "przewód"
+      },
+      {
+        "en": "Ear",
+        "pl": "ucho"
+      },
+      {
+        "en": "Elbow",
+        "pl": "łokieć"
+      },
+      {
+        "en": "Esophagus",
+        "pl": "przełyk"
+      },
+      {
+        "en": "Eye",
+        "pl": "oko"
+      },
+      {
+        "en": "Eye ball",
+        "pl": "gałka oczna"
+      },
+      {
+        "en": "Eye lid",
+        "pl": "powieka"
+      },
+      {
+        "en": "Eye socket",
+        "pl": "oczodół"
+      },
+      {
+        "en": "Eyelashes",
+        "pl": "rzęsy"
+      },
+      {
+        "en": "Femur",
+        "pl": "kość udowa"
+      },
+      {
+        "en": "Finger",
+        "pl": "palec"
+      },
+      {
+        "en": "Fingertip",
+        "pl": "opuszek palca"
+      },
+      {
+        "en": "Forearm",
+        "pl": "przedramię"
+      },
+      {
+        "en": "Forehead",
+        "pl": "czoło"
+      },
+      {
+        "en": "Gall bladder",
+        "pl": "pęcherzyk żółciowy"
+      },
+      {
+        "en": "Genitals",
+        "pl": "narządy płciowe"
+      },
+      {
+        "en": "Groin",
+        "pl": "pachwina"
+      },
+      {
+        "en": "Hair",
+        "pl": "włosy"
+      },
+      {
+        "en": "Hands",
+        "pl": "dłonie"
+      },
+      {
+        "en": "Heart",
+        "pl": "serce"
+      },
+      {
+        "en": "Heel",
+        "pl": "pięta"
+      },
+      {
+        "en": "Hip",
+        "pl": "biodro"
+      },
+      {
+        "en": "Index finger",
+        "pl": "palec wskazujący"
+      },
+      {
+        "en": "Jaw",
+        "pl": "żuchwa"
+      },
+      {
+        "en": "Kidney",
+        "pl": "nerka"
+      },
+      {
+        "en": "Knee",
+        "pl": "kolano"
+      },
+      {
+        "en": "Knuckle",
+        "pl": "knykieć"
+      },
+      {
+        "en": "Large intestine",
+        "pl": "jelito grube"
+      },
+      {
+        "en": "Larynx",
+        "pl": "krtań"
+      },
+      {
+        "en": "Legs",
+        "pl": "nogi"
+      },
+      {
+        "en": "Limb",
+        "pl": "kończyna"
+      },
+      {
+        "en": "Lips",
+        "pl": "wargi"
+      },
+      {
+        "en": "Liver",
+        "pl": "wątroba"
+      },
+      {
+        "en": "Lungs",
+        "pl": "płuca"
+      },
+      {
+        "en": "Lymph gland",
+        "pl": "gruczoł chłonny"
+      },
+      {
+        "en": "Lymph node",
+        "pl": "węzeł chłonny"
+      },
+      {
+        "en": "Mammary glands",
+        "pl": "gruczoły sutkowe"
+      },
+      {
+        "en": "Middle finger",
+        "pl": "palec środkowy"
+      },
+      {
+        "en": "Mouth",
+        "pl": "usta"
+      },
+      {
+        "en": "Muscle",
+        "pl": "mięsień"
+      },
+      {
+        "en": "Nails",
+        "pl": "paznokcie"
+      },
+      {
+        "en": "Nape",
+        "pl": "kark"
+      },
+      {
+        "en": "Neck",
+        "pl": "szyja"
+      },
+      {
+        "en": "Nipple",
+        "pl": "brodawka sutkowa"
+      },
+      {
+        "en": "Ovaries",
+        "pl": "jajniki"
+      },
+      {
+        "en": "Palm",
+        "pl": "dłoń"
+      },
+      {
+        "en": "Pancreas",
+        "pl": "trzustka"
+      },
+      {
+        "en": "Phlegm",
+        "pl": "flegma"
+      },
+      {
+        "en": "Plasma",
+        "pl": "osocze"
+      },
+      {
+        "en": "Rectum",
+        "pl": "odbytnica"
+      },
+      {
+        "en": "Rib",
+        "pl": "żebro"
+      },
+      {
+        "en": "Ribcage",
+        "pl": "klatka żebrowa"
+      },
+      {
+        "en": "Saliva",
+        "pl": "ślina"
+      },
+      {
+        "en": "Scalp",
+        "pl": "skóra głowy"
+      },
+      {
+        "en": "Scapula",
+        "pl": "łopatka"
+      },
+      {
+        "en": "Shin",
+        "pl": "goleń"
+      },
+      {
+        "en": "Shoulder",
+        "pl": "bark"
+      },
+      {
+        "en": "Shoulder blade",
+        "pl": "łopatka"
+      },
+      {
+        "en": "Skull",
+        "pl": "czaszka"
+      },
+      {
+        "en": "Small intestine",
+        "pl": "jelito cienkie"
+      },
+      {
+        "en": "Spinal column",
+        "pl": "kręgosłup"
+      },
+      {
+        "en": "Spine",
+        "pl": "kręgosłup"
+      },
+      {
+        "en": "Spleen",
+        "pl": "śledziona"
+      },
+      {
+        "en": "Sputum",
+        "pl": "plwocina"
+      },
+      {
+        "en": "Stomach",
+        "pl": "żołądek"
+      },
+      {
+        "en": "Stomach lining",
+        "pl": "błona śluzowa żołądka"
+      },
+      {
+        "en": "Teeth",
+        "pl": "zęby"
+      },
+      {
+        "en": "Temple",
+        "pl": "skroń"
+      },
+      {
+        "en": "Toes",
+        "pl": "palce stóp"
+      },
+      {
+        "en": "Tonsils",
+        "pl": "migdałki"
+      },
+      {
+        "en": "Thorax",
+        "pl": "klatka piersiowa"
+      },
+      {
+        "en": "Throat",
+        "pl": "gardło"
+      },
+      {
+        "en": "Thumb",
+        "pl": "kciuk"
+      },
+      {
+        "en": "Thyroid gland",
+        "pl": "tarczyca"
+      },
+      {
+        "en": "Trachea",
+        "pl": "tchawica"
+      },
+      {
+        "en": "Tract",
+        "pl": "układ"
+      },
+      {
+        "en": "Uterine lining",
+        "pl": "błona śluzowa macicy"
+      },
+      {
+        "en": "Uterus",
+        "pl": "macica"
+      },
+      {
+        "en": "Vein",
+        "pl": "żyła"
+      },
+      {
+        "en": "Waist",
+        "pl": "talia"
+      },
+      {
+        "en": "Windpipe",
+        "pl": "tchawica"
+      },
+      {
+        "en": "Womb",
+        "pl": "macica"
+      },
+      {
+        "en": "Wrist",
+        "pl": "nadgarstek"
+      },
+      {
+        "en": "Abdominal delivery",
+        "pl": "poród brzuszny"
+      },
+      {
+        "en": "Abdominal pregnancy",
+        "pl": "ciąża brzuszna"
+      },
+      {
+        "en": "Abortion",
+        "pl": "aborcja"
+      },
+      {
+        "en": "Afterbirth",
+        "pl": "łożysko"
+      },
+      {
+        "en": "Amniocentesis",
+        "pl": "amniopunkcja"
+      },
+      {
+        "en": "Anguish",
+        "pl": "udręka"
+      },
+      {
+        "en": "At term birth",
+        "pl": "poród o czasie"
+      },
+      {
+        "en": "to Bear down",
+        "pl": "przeć"
+      },
+      {
+        "en": "Bed pan",
+        "pl": "basen"
+      },
+      {
+        "en": "Bed rest",
+        "pl": "leżenie w łóżku"
+      },
+      {
+        "en": "Birth",
+        "pl": "narodziny"
+      },
+      {
+        "en": "Birth canal",
+        "pl": "kanał rodny"
+      },
+      {
+        "en": "Birth control",
+        "pl": "antykoncepcja"
+      },
+      {
+        "en": "Birth injury",
+        "pl": "uraz okołoporodowy"
+      },
+      {
+        "en": "Bleeding",
+        "pl": "krwawienie"
+      },
+      {
+        "en": "Bloated",
+        "pl": "wzdęty"
+      },
+      {
+        "en": "Block",
+        "pl": "zablokowanie"
+      },
+      {
+        "en": "Bodily changes",
+        "pl": "zmiany w organizmie"
+      },
+      {
+        "en": "Bottle-feed",
+        "pl": "karmić butelką"
+      },
+      {
+        "en": "Bowel movement, stools",
+        "pl": "wypróżnienie, stolec"
+      },
+      {
+        "en": "stools",
+        "pl": "wypróżnienie, stolec"
+      },
+      {
+        "en": "Breast mass",
+        "pl": "zmiana w piersi"
+      },
+      {
+        "en": "Breast milk",
+        "pl": "mleko matki"
+      },
+      {
+        "en": "Breast pump",
+        "pl": "laktator"
+      },
+      {
+        "en": "Breast self-examination",
+        "pl": "samobadanie piersi"
+      },
+      {
+        "en": "Breast tenderness",
+        "pl": "tkliwość piersi"
+      },
+      {
+        "en": "Breast-care",
+        "pl": "pielęgnacja piersi"
+      },
+      {
+        "en": "Breastfeed",
+        "pl": "karmić piersią"
+      },
+      {
+        "en": "Breech delivery",
+        "pl": "poród miednicowy"
+      },
+      {
+        "en": "Cervical pregnancy",
+        "pl": "ciąża szyjkowa"
+      },
+      {
+        "en": "Cervix",
+        "pl": "szyjka macicy"
+      },
+      {
+        "en": "Cesarean delivery",
+        "pl": "poród przez cesarskie cięcie"
+      },
+      {
+        "en": "Charley horse",
+        "pl": "skurcz mięśnia"
+      },
+      {
+        "en": "Chills",
+        "pl": "dreszcze"
+      },
+      {
+        "en": "Colic",
+        "pl": "kolka"
+      },
+      {
+        "en": "Colostrum",
+        "pl": "siara"
+      },
+      {
+        "en": "Complicated labor",
+        "pl": "poród powikłany"
+      },
+      {
+        "en": "Condom",
+        "pl": "prezerwatywa"
+      },
+      {
+        "en": "to Congested be",
+        "pl": "mieć przekrwienie"
+      },
+      {
+        "en": "Cracked nipples",
+        "pl": "popękane brodawki"
+      },
+      {
+        "en": "Cradle",
+        "pl": "kołyska"
+      },
+      {
+        "en": "Cramps, stomach",
+        "pl": "skurcze żołądka"
+      },
+      {
+        "en": "Cramps",
+        "pl": "skurcze żołądka"
+      },
+      {
+        "en": "Crankiness",
+        "pl": "rozdrażnienie"
+      },
+      {
+        "en": "Crib",
+        "pl": "łóżeczko"
+      },
+      {
+        "en": "C-section / Caesarian section",
+        "pl": "cesarskie cięcie"
+      },
+      {
+        "en": "C-section",
+        "pl": "cesarskie cięcie"
+      },
+      {
+        "en": "Caesarian section",
+        "pl": "cesarskie cięcie"
+      },
+      {
+        "en": "D&C dilation and curettage",
+        "pl": "łyżeczkowanie macicy"
+      },
+      {
+        "en": "dilation and curettage",
+        "pl": "łyżeczkowanie macicy"
+      },
+      {
+        "en": "Dead birth",
+        "pl": "martwy płód"
+      },
+      {
+        "en": "Deliver",
+        "pl": "rodzić"
+      },
+      {
+        "en": "Delivery",
+        "pl": "poród"
+      },
+      {
+        "en": "Delivery room",
+        "pl": "sala porodowa"
+      },
+      {
+        "en": "Delivery table",
+        "pl": "stół porodowy"
+      },
+      {
+        "en": "Depo-Provera shot",
+        "pl": "zastrzyk Depo-Provera"
+      },
+      {
+        "en": "Dermo Plast spray",
+        "pl": "aerozol Dermo Plast"
+      },
+      {
+        "en": "Diaper rash",
+        "pl": "odparzenia pieluszkowe"
+      },
+      {
+        "en": "Diarrhea",
+        "pl": "biegunka"
+      },
+      {
+        "en": "Discharge instructions",
+        "pl": "zalecenia przy wypisie"
+      },
+      {
+        "en": "Douche",
+        "pl": "irygacja pochwy"
+      },
+      {
+        "en": "Drainage",
+        "pl": "drenaż"
+      },
+      {
+        "en": "Dry labor",
+        "pl": "poród suchy"
+      },
+      {
+        "en": "Dryness",
+        "pl": "suchość"
+      },
+      {
+        "en": "Due date",
+        "pl": "termin porodu"
+      },
+      {
+        "en": "Dysmenorrhea",
+        "pl": "bolesne miesiączkowanie"
+      },
+      {
+        "en": "Dysuria",
+        "pl": "bolesne oddawanie moczu"
+      },
+      {
+        "en": "Ear infection",
+        "pl": "zapalenie ucha"
+      },
+      {
+        "en": "Ectopic pregnancy",
+        "pl": "ciąża pozamaciczna"
+      },
+      {
+        "en": "Egg",
+        "pl": "komórka jajowa"
+      },
+      {
+        "en": "Endometriosis",
+        "pl": "endometrioza"
+      },
+      {
+        "en": "Endometrium",
+        "pl": "endometrium"
+      },
+      {
+        "en": "to Engorged be",
+        "pl": "mieć nawał pokarmu"
+      },
+      {
+        "en": "Epidural anesthesia",
+        "pl": "znieczulenie zewnątrzoponowe"
+      },
+      {
+        "en": "Episiotomy",
+        "pl": "nacięcie krocza"
+      },
+      {
+        "en": "Estrogen replacement treatment",
+        "pl": "hormonalna terapia zastępcza estrogenami"
+      },
+      {
+        "en": "to Express out the milk",
+        "pl": "odciągać pokarm"
+      },
+      {
+        "en": "Fallopian tube",
+        "pl": "jajowód"
+      },
+      {
+        "en": "False labor",
+        "pl": "rzekome skurcze porodowe"
+      },
+      {
+        "en": "Family planning",
+        "pl": "planowanie rodziny"
+      },
+      {
+        "en": "Female sterility",
+        "pl": "bezpłodność kobieca"
+      },
+      {
+        "en": "Fertility counseling",
+        "pl": "poradnictwo płodności"
+      },
+      {
+        "en": "Fertilization treatment",
+        "pl": "leczenie niepłodności"
+      },
+      {
+        "en": "Fibroid",
+        "pl": "mięśniak"
+      },
+      {
+        "en": "Fibrous tumor",
+        "pl": "nowotwór włóknisty"
+      },
+      {
+        "en": "Forceps delivery",
+        "pl": "poród kleszczowy"
+      },
+      {
+        "en": "Foul smell of vaginal discharge",
+        "pl": "nieprzyjemny zapach wydzieliny z pochwy"
+      },
+      {
+        "en": "Frigidity",
+        "pl": "oziębłość seksualna"
+      },
+      {
+        "en": "FSH follicle stimulating hormone",
+        "pl": "hormon folikulotropowy"
+      },
+      {
+        "en": "FSH",
+        "pl": "hormon folikulotropowy"
+      },
+      {
+        "en": "follicle stimulating hormone",
+        "pl": "hormon folikulotropowy"
+      },
+      {
+        "en": "Genetic counseling",
+        "pl": "poradnictwo genetyczne"
+      },
+      {
+        "en": "Genetic trend",
+        "pl": "predyspozycja genetyczna"
+      },
+      {
+        "en": "Genitalia",
+        "pl": "narządy płciowe"
+      },
+      {
+        "en": "Gestational diabetes",
+        "pl": "cukrzyca ciążowa"
+      },
+      {
+        "en": "to Give birth",
+        "pl": "urodzić"
+      },
+      {
+        "en": "Grip",
+        "pl": "chwyt"
+      },
+      {
+        "en": "Growth and development",
+        "pl": "wzrost i rozwój"
+      },
+      {
+        "en": "Hemorrhage",
+        "pl": "krwotok"
+      },
+      {
+        "en": "Hemorrhoids",
+        "pl": "hemoroidy"
+      },
+      {
+        "en": "to Hind milk",
+        "pl": "mleko końcowe"
+      },
+      {
+        "en": "Hormonal treatment",
+        "pl": "leczenie hormonalne"
+      },
+      {
+        "en": "Hot and cold spells",
+        "pl": "napady gorąca i zimna"
+      },
+      {
+        "en": "Hot flashes",
+        "pl": "uderzenia gorąca"
+      },
+      {
+        "en": "Hysterectomy",
+        "pl": "histerektomia"
+      },
+      {
+        "en": "Ibuprofen",
+        "pl": "ibuprofen"
+      },
+      {
+        "en": "Ice pack",
+        "pl": "okład z lodu"
+      },
+      {
+        "en": "Increased pain of episiotomy",
+        "pl": "nasilony ból po nacięciu krocza"
+      },
+      {
+        "en": "Induced abortion",
+        "pl": "aborcja wywołana"
+      },
+      {
+        "en": "Induced labor",
+        "pl": "indukcja porodu"
+      },
+      {
+        "en": "Infertile",
+        "pl": "bezpłodna"
+      },
+      {
+        "en": "Inhalers, puffers",
+        "pl": "inhalatory"
+      },
+      {
+        "en": "Inhalers",
+        "pl": "inhalatory"
+      },
+      {
+        "en": "puffers",
+        "pl": "inhalatory"
+      },
+      {
+        "en": "Intrauterine device",
+        "pl": "wkładka wewnątrzmaciczna"
+      },
+      {
+        "en": "IUD",
+        "pl": "wkładka wewnątrzmaciczna"
+      },
+      {
+        "en": "In-vitro fertilization",
+        "pl": "zapłodnienie in vitro"
+      },
+      {
+        "en": "Itchiness",
+        "pl": "swędzenie"
+      },
+      {
+        "en": "Labia",
+        "pl": "wargi sromowe"
+      },
+      {
+        "en": "Labor",
+        "pl": "poród"
+      },
+      {
+        "en": "Labor pains",
+        "pl": "bóle porodowe"
+      },
+      {
+        "en": "Labor room",
+        "pl": "sala porodowa"
+      },
+      {
+        "en": "to Labor be in",
+        "pl": "być w trakcie porodu"
+      },
+      {
+        "en": "Lactation",
+        "pl": "laktacja"
+      },
+      {
+        "en": "Lamaze method",
+        "pl": "metoda Lamaze"
+      },
+      {
+        "en": "Latched on",
+        "pl": "prawidłowo przystawiony do piersi"
+      },
+      {
+        "en": "Lethargic",
+        "pl": "ospały"
+      },
+      {
+        "en": "Lice",
+        "pl": "wszy"
+      },
+      {
+        "en": "Lip of the pudendum",
+        "pl": "warga sromowa"
+      },
+      {
+        "en": "Listlessness",
+        "pl": "apatia"
+      },
+      {
+        "en": "Live-birth",
+        "pl": "żywe urodzenie"
+      },
+      {
+        "en": "LOP Length of pregnancy",
+        "pl": "czas trwania ciąży"
+      },
+      {
+        "en": "LOP",
+        "pl": "czas trwania ciąży"
+      },
+      {
+        "en": "Length of pregnancy",
+        "pl": "czas trwania ciąży"
+      },
+      {
+        "en": "Lukewarm",
+        "pl": "letni"
+      },
+      {
+        "en": "Mammogram, mammography",
+        "pl": "mammografia"
+      },
+      {
+        "en": "Mammogram",
+        "pl": "mammografia"
+      },
+      {
+        "en": "mammography",
+        "pl": "mammografia"
+      },
+      {
+        "en": "Menopause",
+        "pl": "menopauza"
+      },
+      {
+        "en": "Menstruation period, period",
+        "pl": "miesiączka"
+      },
+      {
+        "en": "Menstruation period",
+        "pl": "miesiączka"
+      },
+      {
+        "en": "Midwife",
+        "pl": "położna"
+      },
+      {
+        "en": "Milk pump",
+        "pl": "laktator"
+      },
+      {
+        "en": "Milk supply",
+        "pl": "pokarm"
+      },
+      {
+        "en": "Miscarriage",
+        "pl": "poronienie"
+      },
+      {
+        "en": "Mood swings",
+        "pl": "wahania nastroju"
+      },
+      {
+        "en": "Morning sickness",
+        "pl": "mdłości poranne"
+      },
+      {
+        "en": "Morning-after pill",
+        "pl": "tabletka dzień po"
+      },
+      {
+        "en": "Mucus",
+        "pl": "śluz"
+      },
+      {
+        "en": "Multiple birth",
+        "pl": "poród mnogi"
+      },
+      {
+        "en": "Multiple pregnancy",
+        "pl": "ciąża mnoga"
+      },
+      {
+        "en": "Narrow hips",
+        "pl": "wąskie biodra"
+      },
+      {
+        "en": "Nebulizer",
+        "pl": "nebulizator"
+      },
+      {
+        "en": "Night sweats",
+        "pl": "nocne poty"
+      },
+      {
+        "en": "Nipple discharge",
+        "pl": "wyciek z brodawki"
+      },
+      {
+        "en": "Norplant",
+        "pl": "implant antykoncepcyjny Norplant"
+      },
+      {
+        "en": "contraceptive implant",
+        "pl": "implant antykoncepcyjny Norplant"
+      },
+      {
+        "en": "Nursing pads",
+        "pl": "wkładki laktacyjne"
+      },
+      {
+        "en": "Oral contraceptive",
+        "pl": "antykoncepcja doustna"
+      },
+      {
+        "en": "Ovarian pregnancy",
+        "pl": "ciąża jajnikowa"
+      },
+      {
+        "en": "Ovary",
+        "pl": "jajnik"
+      },
+      {
+        "en": "Overactive bladder",
+        "pl": "pęcherz nadreaktywny"
+      },
+      {
+        "en": "Oviduct",
+        "pl": "jajowód"
+      },
+      {
+        "en": "Painkiller",
+        "pl": "środek przeciwbólowy"
+      },
+      {
+        "en": "Pap smear",
+        "pl": "cytologia"
+      },
+      {
+        "en": "Parturient",
+        "pl": "rodząca"
+      },
+      {
+        "en": "to Pass a clot",
+        "pl": "wydalić skrzep"
+      },
+      {
+        "en": "Patch",
+        "pl": "plaster"
+      },
+      {
+        "en": "Permanent sterility",
+        "pl": "trwała bezpłodność"
+      },
+      {
+        "en": "PMS - Pre-Menstrual Syndrome",
+        "pl": "zespół napięcia przedmiesiączkowego"
+      },
+      {
+        "en": "PMS",
+        "pl": "zespół napięcia przedmiesiączkowego"
+      },
+      {
+        "en": "- Pre-Menstrual Syndrome",
+        "pl": "zespół napięcia przedmiesiączkowego"
+      },
+      {
+        "en": "Pre-Menstrual Syndrome",
+        "pl": "zespół napięcia przedmiesiączkowego"
+      },
+      {
+        "en": "Postpartum depression",
+        "pl": "depresja poporodowa"
+      },
+      {
+        "en": "baby blues",
+        "pl": "depresja poporodowa"
+      },
+      {
+        "en": "Post-term birth",
+        "pl": "poród po terminie"
+      },
+      {
+        "en": "Precipitate labor",
+        "pl": "poród piorunujący"
+      },
+      {
+        "en": "Pregnancy",
+        "pl": "ciąża"
+      },
+      {
+        "en": "Pregnant",
+        "pl": "w ciąży"
+      },
+      {
+        "en": "Premature",
+        "pl": "wcześniak"
+      },
+      {
+        "en": "Premature birth",
+        "pl": "poród przedwczesny"
+      },
+      {
+        "en": "Premature labor, delivery",
+        "pl": "poród przedwczesny"
+      },
+      {
+        "en": "Premature labor",
+        "pl": "poród przedwczesny"
+      },
+      {
+        "en": "Prenatal",
+        "pl": "prenatalny"
+      },
+      {
+        "en": "Prolonged labor",
+        "pl": "poród przedłużony"
+      },
+      {
+        "en": "to Pump out the milk",
+        "pl": "odciągać pokarm"
+      },
+      {
+        "en": "Runny nose",
+        "pl": "katar"
+      },
+      {
+        "en": "Sanitary napkins/pads",
+        "pl": "podpaski"
+      },
+      {
+        "en": "Sanitary napkins",
+        "pl": "podpaski"
+      },
+      {
+        "en": "Scraping",
+        "pl": "łyżeczkowanie"
+      },
+      {
+        "en": "Sitz-baths",
+        "pl": "kąpiele nasiadowe"
+      },
+      {
+        "en": "Sore nipples",
+        "pl": "obolałe brodawki"
+      },
+      {
+        "en": "Sore throat",
+        "pl": "ból gardła"
+      },
+      {
+        "en": "Sperm",
+        "pl": "plemniki"
+      },
+      {
+        "en": "Spitting up",
+        "pl": "ulewanie"
+      },
+      {
+        "en": "Spontaneous abortion",
+        "pl": "poronienie samoistne"
+      },
+      {
+        "en": "Spontaneous labor",
+        "pl": "poród samoistny"
+      },
+      {
+        "en": "Spotting",
+        "pl": "plamienie"
+      },
+      {
+        "en": "Staples",
+        "pl": "zszywki chirurgiczne"
+      },
+      {
+        "en": "Sterility",
+        "pl": "bezpłodność"
+      },
+      {
+        "en": "Steri-strips",
+        "pl": "plastry Steri-Strip"
+      },
+      {
+        "en": "Still-born",
+        "pl": "martwo urodzony"
+      },
+      {
+        "en": "Stool problem",
+        "pl": "problem ze stolcem"
+      },
+      {
+        "en": "Stool softener",
+        "pl": "środek zmiękczający stolec"
+      },
+      {
+        "en": "to Stuffed be",
+        "pl": "mieć zatkany nos"
+      },
+      {
+        "en": "Tampons",
+        "pl": "tampony"
+      },
+      {
+        "en": "Therapeutic abortion",
+        "pl": "aborcja terapeutyczna"
+      },
+      {
+        "en": "Threaten abortion",
+        "pl": "zagrażające poronienie"
+      },
+      {
+        "en": "Tiredness",
+        "pl": "zmęczenie"
+      },
+      {
+        "en": "Trained midwife",
+        "pl": "wykwalifikowana położna"
+      },
+      {
+        "en": "Tubal pregnancy",
+        "pl": "ciąża jajowodowa"
+      },
+      {
+        "en": "Tummy",
+        "pl": "brzuszek"
+      },
+      {
+        "en": "Twin pregnancy",
+        "pl": "ciąża bliźniacza"
+      },
+      {
+        "en": "Ultrasound",
+        "pl": "ultrasonografia"
+      },
+      {
+        "en": "Umbilical cord",
+        "pl": "pępowina"
+      },
+      {
+        "en": "Untrained midwife",
+        "pl": "niewykwalifikowana położna"
+      },
+      {
+        "en": "Uterine cramps, after-pains",
+        "pl": "skurcze macicy po porodzie"
+      },
+      {
+        "en": "Uterine cramps",
+        "pl": "skurcze macicy po porodzie"
+      },
+      {
+        "en": "after-pains",
+        "pl": "skurcze macicy po porodzie"
+      },
+      {
+        "en": "Uterine tenderness",
+        "pl": "tkliwość macicy"
+      },
+      {
+        "en": "Vaginal bleeding",
+        "pl": "krwawienie z pochwy"
+      },
+      {
+        "en": "Vaginal cream",
+        "pl": "krem dopochwowy"
+      },
+      {
+        "en": "Vaginal discharge",
+        "pl": "wydzielina z pochwy"
+      },
+      {
+        "en": "Vaginal dryness",
+        "pl": "suchość pochwy"
+      },
+      {
+        "en": "Vaginal jelly",
+        "pl": "żel dopochwowy"
+      },
+      {
+        "en": "Vaginal lubricant",
+        "pl": "lubrykant dopochwowy"
+      },
+      {
+        "en": "Vaginal yeast infection",
+        "pl": "drożdżyca pochwy"
+      },
+      {
+        "en": "Varicose veins",
+        "pl": "żylaki"
+      },
+      {
+        "en": "Water soluble lubricant",
+        "pl": "lubrykant rozpuszczalny w wodzie"
+      },
+      {
+        "en": "Watery discharge",
+        "pl": "wodnista wydzielina"
+      },
+      {
+        "en": "to Wean",
+        "pl": "odstawić od piersi"
+      },
+      {
+        "en": "Witch hazel",
+        "pl": "oczar wirginijski"
+      },
+      {
+        "en": "1st Stage Labour",
+        "pl": "pierwszy okres porodu"
+      },
+      {
+        "en": "2st Stage Labour",
+        "pl": "drugi okres porodu"
+      },
+      {
+        "en": "3st Stage Labour",
+        "pl": "trzeci okres porodu"
+      },
+      {
+        "en": "Additional shots",
+        "pl": "dodatkowe szczepienia"
+      },
+      {
+        "en": "Booster shots",
+        "pl": "dawki przypominające"
+      },
+      {
+        "en": "Bronchitis",
+        "pl": "zapalenie oskrzeli"
+      },
+      {
+        "en": "By mouth",
+        "pl": "doustnie"
+      },
+      {
+        "en": "Chicken pox",
+        "pl": "ospa wietrzna"
+      },
+      {
+        "en": "Varicella",
+        "pl": "ospa wietrzna"
+      },
+      {
+        "en": "Diphtheria-Tetanus-Pertussis Three-in-one shot/baby shot",
+        "pl": "szczepionka błonica-tężec-krztusiec"
+      },
+      {
+        "en": "DTP",
+        "pl": "szczepionka błonica-tężec-krztusiec"
+      },
+      {
+        "en": "Diphtheria-Tetanus-Pertussis Three-in-one shot",
+        "pl": "szczepionka błonica-tężec-krztusiec"
+      },
+      {
+        "en": "baby shot",
+        "pl": "szczepionka błonica-tężec-krztusiec"
+      },
+      {
+        "en": "Drops",
+        "pl": "krople"
+      },
+      {
+        "en": "German measles",
+        "pl": "różyczka"
+      },
+      {
+        "en": "to Give a shot",
+        "pl": "zrobić zastrzyk"
+      },
+      {
+        "en": "Haemophiles, Influenza, Meningitis",
+        "pl": "Haemophilus influenzae, zapalenie opon mózgowych"
+      },
+      {
+        "en": "Haemophiles",
+        "pl": "Haemophilus influenzae, zapalenie opon mózgowych"
+      },
+      {
+        "en": "Influenza",
+        "pl": "Haemophilus influenzae, zapalenie opon mózgowych"
+      },
+      {
+        "en": "Meningitis",
+        "pl": "Haemophilus influenzae, zapalenie opon mózgowych"
+      },
+      {
+        "en": "Hepatitis B",
+        "pl": "wirusowe zapalenie wątroby typu B"
+      },
+      {
+        "en": "Immunization",
+        "pl": "szczepienie"
+      },
+      {
+        "en": "Immunization chart",
+        "pl": "kalendarz szczepień"
+      },
+      {
+        "en": "Immunization-booster dose",
+        "pl": "dawka przypominająca szczepienia"
+      },
+      {
+        "en": "to Immunize",
+        "pl": "zaszczepić"
+      },
+      {
+        "en": "Jaundice",
+        "pl": "żółtaczka"
+      },
+      {
+        "en": "Malaria",
+        "pl": "malaria"
+      },
+      {
+        "en": "Measles",
+        "pl": "odra"
+      },
+      {
+        "en": "Mumps",
+        "pl": "świnka"
+      },
+      {
+        "en": "Pneumonia",
+        "pl": "zapalenie płuc"
+      },
+      {
+        "en": "Polio",
+        "pl": "polio"
+      },
+      {
+        "en": "Rabies",
+        "pl": "wścieklizna"
+      },
+      {
+        "en": "Rubella",
+        "pl": "różyczka"
+      },
+      {
+        "en": "Scarlet fever",
+        "pl": "płonica"
+      },
+      {
+        "en": "Shot",
+        "pl": "zastrzyk"
+      },
+      {
+        "en": "Shot chart / shot record",
+        "pl": "książeczka szczepień"
+      },
+      {
+        "en": "Shot chart",
+        "pl": "książeczka szczepień"
+      },
+      {
+        "en": "shot record",
+        "pl": "książeczka szczepień"
+      },
+      {
+        "en": "Small pox or smallpox",
+        "pl": "ospa prawdziwa"
+      },
+      {
+        "en": "Tetanus",
+        "pl": "tężec"
+      },
+      {
+        "en": "Tonsillitis",
+        "pl": "zapalenie migdałków"
+      },
+      {
+        "en": "BCG",
+        "pl": "gruźlica"
+      },
+      {
+        "en": "Typhoid",
+        "pl": "dur brzuszny"
+      },
+      {
+        "en": "Typhoid fever",
+        "pl": "dur brzuszny"
+      },
+      {
+        "en": "to Vaccinate",
+        "pl": "szczepić"
+      },
+      {
+        "en": "Vaccination",
+        "pl": "szczepienie"
+      },
+      {
+        "en": "Whooping cough",
+        "pl": "krztusiec"
+      },
+      {
+        "en": "Yellow fever",
+        "pl": "żółta febra"
+      },
+      {
+        "en": "Andropause",
+        "pl": "andropauza"
+      },
+      {
+        "en": "Erectile dysfunction",
+        "pl": "zaburzenia erekcji"
+      },
+      {
+        "en": "Foreskin",
+        "pl": "napletek"
+      },
+      {
+        "en": "Glands",
+        "pl": "gruczoły"
+      },
+      {
+        "en": "Jock itch",
+        "pl": "grzybica pachwin"
+      },
+      {
+        "en": "Jock strap",
+        "pl": "suspensorium"
+      },
+      {
+        "en": "Penis",
+        "pl": "prącie"
+      },
+      {
+        "en": "Prostate",
+        "pl": "prostata"
+      },
+      {
+        "en": "Scrotum",
+        "pl": "moszna"
+      },
+      {
+        "en": "Testicles",
+        "pl": "jądra"
+      },
+      {
+        "en": "Vasectomy",
+        "pl": "wazektomia"
+      },
+      {
+        "en": "Blood smear",
+        "pl": "rozmaz krwi"
+      },
+      {
+        "en": "Blood test, blood work",
+        "pl": "badanie krwi"
+      },
+      {
+        "en": "Blood test",
+        "pl": "badanie krwi"
+      },
+      {
+        "en": "blood work",
+        "pl": "badanie krwi"
+      },
+      {
+        "en": "CAT scan",
+        "pl": "tomografia komputerowa"
+      },
+      {
+        "en": "computerized axial tomography",
+        "pl": "tomografia komputerowa"
+      },
+      {
+        "en": "CAT",
+        "pl": "tomografia komputerowa"
+      },
+      {
+        "en": "scan",
+        "pl": "tomografia komputerowa"
+      },
+      {
+        "en": "TK",
+        "pl": "tomografia komputerowa"
+      },
+      {
+        "en": "CBC complete blood count",
+        "pl": "morfologia krwi"
+      },
+      {
+        "en": "CBC",
+        "pl": "morfologia krwi"
+      },
+      {
+        "en": "complete blood count",
+        "pl": "morfologia krwi"
+      },
+      {
+        "en": "CT scan",
+        "pl": "tomografia komputerowa"
+      },
+      {
+        "en": "computed tomography",
+        "pl": "tomografia komputerowa"
+      },
+      {
+        "en": "CT",
+        "pl": "tomografia komputerowa"
+      },
+      {
+        "en": "ECG Electrocardiogram",
+        "pl": "elektrokardiogram"
+      },
+      {
+        "en": "ECG",
+        "pl": "elektrokardiogram"
+      },
+      {
+        "en": "Electrocardiogram",
+        "pl": "elektrokardiogram"
+      },
+      {
+        "en": "EEG electroencephalogram",
+        "pl": "elektroencefalogram"
+      },
+      {
+        "en": "EEG",
+        "pl": "elektroencefalogram"
+      },
+      {
+        "en": "electroencephalogram",
+        "pl": "elektroencefalogram"
+      },
+      {
+        "en": "ELISA test",
+        "pl": "test ELISA"
+      },
+      {
+        "en": "ELISA",
+        "pl": "test ELISA"
+      },
+      {
+        "en": "test",
+        "pl": "test ELISA"
+      },
+      {
+        "en": "Eye exam",
+        "pl": "badanie wzroku"
+      },
+      {
+        "en": "Fasting blood sugar",
+        "pl": "glukoza na czczo"
+      },
+      {
+        "en": "Glucose tolerance test",
+        "pl": "test obciążenia glukozą"
+      },
+      {
+        "en": "Hearing test",
+        "pl": "badanie słuchu"
+      },
+      {
+        "en": "MRI Magnetic Resonance Imaging",
+        "pl": "rezonans magnetyczny"
+      },
+      {
+        "en": "MRI",
+        "pl": "rezonans magnetyczny"
+      },
+      {
+        "en": "Magnetic Resonance Imaging",
+        "pl": "rezonans magnetyczny"
+      },
+      {
+        "en": "Pelvic examination",
+        "pl": "badanie ginekologiczne"
+      },
+      {
+        "en": "Physical Therapy",
+        "pl": "fizjoterapia"
+      },
+      {
+        "en": "PT",
+        "pl": "fizjoterapia"
+      },
+      {
+        "en": "Post-operative tests",
+        "pl": "badania pooperacyjne"
+      },
+      {
+        "en": "Pre-operative tests",
+        "pl": "badania przedoperacyjne"
+      },
+      {
+        "en": "Pulmonary function test",
+        "pl": "badanie czynności płuc"
+      },
+      {
+        "en": "RBC red blood count",
+        "pl": "liczba krwinek czerwonych"
+      },
+      {
+        "en": "RBC",
+        "pl": "liczba krwinek czerwonych"
+      },
+      {
+        "en": "red blood count",
+        "pl": "liczba krwinek czerwonych"
+      },
+      {
+        "en": "Rectal examination",
+        "pl": "badanie per rectum"
+      },
+      {
+        "en": "Serum glutamic oxaloacetic transaminase",
+        "pl": "aminotransferaza asparaginianowa"
+      },
+      {
+        "en": "SGOT",
+        "pl": "aminotransferaza asparaginianowa"
+      },
+      {
+        "en": "Skin test",
+        "pl": "test skórny"
+      },
+      {
+        "en": "Sonogram",
+        "pl": "ultrasonografia"
+      },
+      {
+        "en": "SR sedimentation rate",
+        "pl": "OB odczyn Biernackiego"
+      },
+      {
+        "en": "SR",
+        "pl": "OB odczyn Biernackiego"
+      },
+      {
+        "en": "sedimentation rate",
+        "pl": "OB odczyn Biernackiego"
+      },
+      {
+        "en": "OB",
+        "pl": "OB odczyn Biernackiego"
+      },
+      {
+        "en": "Stool specimen",
+        "pl": "próbka kału"
+      },
+      {
+        "en": "Stress test",
+        "pl": "próba wysiłkowa"
+      },
+      {
+        "en": "Urine routine, urinalysis",
+        "pl": "badanie ogólne moczu"
+      },
+      {
+        "en": "Urine routine",
+        "pl": "badanie ogólne moczu"
+      },
+      {
+        "en": "WBC white blood count",
+        "pl": "liczba krwinek białych"
+      },
+      {
+        "en": "WBC",
+        "pl": "liczba krwinek białych"
+      },
+      {
+        "en": "white blood count",
+        "pl": "liczba krwinek białych"
+      }
+    ]
+  }
+}

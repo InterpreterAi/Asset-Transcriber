@@ -31,19 +31,74 @@ export function isTrialLikePlanType(planType: string | null | undefined): boolea
 export function workspacePlanDisplayName(planType: string | undefined | null): string {
   const p = (planType ?? "").toLowerCase();
   if (p === "morsy-urgent") return "Trial";
-  if (p === "trial" || p === "trial-openai" || p === "trial-libre" || p === "trial-hetzner" || p === "trial-soniox-x") return "Trial";
-  if (p === "basic" || p === "basic-openai" || p === "basic-libre" || p === "basic-hetzner" || p === "morsy-basic" || p === "morsy-urgent" || p === "legacy2") return "Basic";
-  if (p === "professional" || p === "professional-openai" || p === "professional-libre") return "Unlimited";
+  if (
+    p === "trial" ||
+    p === "trial-openai" ||
+    p === "trial-libre" ||
+    p === "trial-hetzner" ||
+    p === "trial-soniox-x"
+  ) return "Trial";
+  if (
+    p === "basic" ||
+    p === "basic-openai" ||
+    p === "basic-libre" ||
+    p === "basic-hetzner" ||
+    p === "basic-soniox-x" ||
+    p === "morsy-basic" ||
+    p === "morsy-urgent" ||
+    p === "legacy2"
+  ) return "Basic";
+  if (
+    p === "professional" ||
+    p === "professional-openai" ||
+    p === "professional-libre" ||
+    p === "professional-soniox-x"
+  ) return "Unlimited";
   return "Unlimited";
+}
+
+/** Admin picker / user-table name (engine visible). Customers never see this. */
+export function adminPlanDisplayName(planType: string | null | undefined): string {
+  const p = (planType ?? "").trim().toLowerCase();
+  if (p === "trial-openai") return "Trial Soniox";
+  if (p === "basic-hetzner") return "Basic Soniox";
+  if (p === "professional-libre") return "Professional Soniox";
+  if (p === "trial-soniox-x" || p === "trial-hetzner") return "Trial Soniox X";
+  if (p === "basic-soniox-x") return "Basic Soniox X";
+  if (p === "professional-soniox-x") return "Professional Soniox X";
+  const tier = workspacePlanTierKey(p);
+  if (tier === "trial") return "Trial";
+  if (tier === "basic") return "Basic";
+  if (tier === "professional") return "Professional";
+  return "Platinum";
 }
 
 /** Badge / styling tier (ignores translation engine). */
 export function workspacePlanTierKey(planType: string | null | undefined): "trial" | "basic" | "professional" | "platinum" {
   const p = (planType ?? "").toLowerCase();
   if (p === "morsy-urgent") return "trial";
-  if (p === "trial" || p === "trial-openai" || p === "trial-libre" || p === "trial-hetzner" || p === "trial-soniox-x") return "trial";
-  if (p === "basic" || p === "basic-openai" || p === "basic-libre" || p === "basic-hetzner" || p === "morsy-basic" || p === "legacy2") return "basic";
-  if (p === "professional" || p === "professional-openai" || p === "professional-libre") return "professional";
+  if (
+    p === "trial" ||
+    p === "trial-openai" ||
+    p === "trial-libre" ||
+    p === "trial-hetzner" ||
+    p === "trial-soniox-x"
+  ) return "trial";
+  if (
+    p === "basic" ||
+    p === "basic-openai" ||
+    p === "basic-libre" ||
+    p === "basic-hetzner" ||
+    p === "basic-soniox-x" ||
+    p === "morsy-basic" ||
+    p === "legacy2"
+  ) return "basic";
+  if (
+    p === "professional" ||
+    p === "professional-openai" ||
+    p === "professional-libre" ||
+    p === "professional-soniox-x"
+  ) return "professional";
   return "platinum";
 }
 
@@ -62,7 +117,7 @@ export function workspaceUsageShowsSlashUnlimited(planType: string | null | unde
  */
 export function planUsesOpenAiLegacy2CleanTranslation(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
-  if (!p || p === "trial-hetzner" || p === "trial-soniox-x") return false;
+  if (!p || p === "trial-hetzner" || p === "trial-soniox-x" || p === "basic-soniox-x" || p === "professional-soniox-x") return false;
   if (
     p === "trial-libre" ||
     p === "basic-libre" ||
@@ -111,7 +166,9 @@ export function planUsesSonioxNativeTranslation(planType: string | null | undefi
     p === "basic-hetzner" ||
     p === "professional-libre" ||
     p === "trial-soniox-x" ||
-    p === "trial-hetzner"
+    p === "trial-hetzner" ||
+    p === "basic-soniox-x" ||
+    p === "professional-soniox-x"
   );
 }
 
@@ -123,7 +180,9 @@ export function adminTranslationStack(planType: string | null | undefined): "son
     p === "basic-hetzner" ||
     p === "professional-libre" ||
     p === "trial-soniox-x" ||
-    p === "trial-hetzner"
+    p === "trial-hetzner" ||
+    p === "basic-soniox-x" ||
+    p === "professional-soniox-x"
   ) return "soniox";
   if (p === "basic-libre" || p === "basic" || p === "professional") return "hetzner";
   return "openai";
@@ -137,6 +196,8 @@ export function planUsesLibreEngine(planType: string | null | undefined): boolea
     p === "trial-libre" ||
     p === "trial-hetzner" ||
     p === "trial-soniox-x" ||
+    p === "basic-soniox-x" ||
+    p === "professional-soniox-x" ||
     p === "legacy2" ||
     p === "platinum" ||
     p === "platinum-libre" ||

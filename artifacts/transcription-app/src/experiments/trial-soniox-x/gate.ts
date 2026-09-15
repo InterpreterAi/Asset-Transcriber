@@ -1,11 +1,16 @@
 /**
- * Isolated Trial · Soniox X plan gate.
- * Does not share transcription/translation engines with other InterpreterAI stacks.
+ * Isolated Soniox X plan gate (Trial / Basic / Professional).
+ * Does not share transcription/translation engines with Chunk v2 or Final Boss 3.
  */
 export const TRIAL_SONIOX_X_PLAN_TYPE = "trial-soniox-x";
 
-/** Legacy trial-hetzner accounts use this same isolated Soniox live stack (Hetzner MT is not used). */
-export const TRIAL_SONIOX_X_PLAN_TYPES = ["trial-soniox-x", "trial-hetzner"] as const;
+/** Isolated official Soniox live STT+translation. Legacy trial-hetzner stays on this stack. */
+export const TRIAL_SONIOX_X_PLAN_TYPES = [
+  "trial-soniox-x",
+  "trial-hetzner",
+  "basic-soniox-x",
+  "professional-soniox-x",
+] as const;
 
 export function planUsesTrialSonioxX(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();

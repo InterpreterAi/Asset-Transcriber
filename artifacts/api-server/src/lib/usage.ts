@@ -68,7 +68,12 @@ export function getPaidCycleDaysRemaining(user: User): number | null {
 /** Isolated official Soniox live STT+translation (no POST /translate, no Hetzner/Libre/OpenAI MT). */
 export function planUsesTrialSonioxX(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
-  return p === "trial-soniox-x" || p === "trial-hetzner";
+  return (
+    p === "trial-soniox-x" ||
+    p === "trial-hetzner" ||
+    p === "basic-soniox-x" ||
+    p === "professional-soniox-x"
+  );
 }
 
 /** DB `plan_type` values treated as trial for expiry, reminders, and admin filters. */
@@ -83,12 +88,12 @@ export function isTrialLikePlanType(planType: string | null | undefined): boolea
 /**
  * True when POST /translate must use the Libre/machine stack (not OpenAI).
  * Final Boss 3: Basic and Professional (*-libre paid tiers) use Libre/machine.
- * `trial-soniox-x` / `trial-hetzner` use isolated Soniox live translation (not this stack).
+ * `trial-soniox-x` / `basic-soniox-x` / `professional-soniox-x` / `trial-hetzner` use isolated Soniox live translation (not this stack).
  * OpenAI interpreter: `trial`, `trial-openai`, `trial-libre` (full trial window), platinum family, unlimited, etc.
  */
 export function planUsesMachineTranslationStack(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
-  if (p === "trial-soniox-x" || p === "trial-hetzner") return false;
+  if (planUsesTrialSonioxX(p)) return false;
   if (
     p === "trial" ||
     p === "trial-openai" ||
@@ -110,7 +115,7 @@ export function planUsesMachineTranslationStack(planType: string | null | undefi
  */
 export function planUsesOpenAiLegacy2CleanStack(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
-  if (!p || p === "trial-hetzner" || p === "trial-soniox-x") return false;
+  if (!p || planUsesTrialSonioxX(p)) return false;
   if (
     p === "trial-libre" ||
     p === "basic-libre" ||
@@ -191,10 +196,12 @@ function isPaidTranslationPlan(eff: string): boolean {
     e === "basic-openai" ||
     e === "basic-libre" ||
     e === "basic-hetzner" ||
+    e === "basic-soniox-x" ||
     e === "morsy-basic" ||
     e === "professional" ||
     e === "professional-openai" ||
     e === "professional-libre" ||
+    e === "professional-soniox-x" ||
     e === "platinum" ||
     e === "platinum-openai" ||
     e === "platinum-libre" ||

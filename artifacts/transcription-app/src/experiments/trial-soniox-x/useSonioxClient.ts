@@ -2,8 +2,11 @@
  * Cloned from Soniox live demo, then wired to InterpreterAI temp keys / optional MediaStream:
  * https://github.com/soniox/soniox_examples/blob/master/apps/soniox-live-demo/react/src/hooks/useSonioxClient.tsx
  *
- * start() options (model, diarization, endpointing, translation) stay identical to the demo.
- * `stream` and `audioConstraints` are official SDK fields used only for mic device / tab audio.
+ * start() model / diarization / translation match the demo. Endpoint detection
+ * is on, same as the official live demo and speech_to_text examples: a pause
+ * finalizes original + translation together (`<end>`).
+ * https://github.com/soniox/soniox_examples/tree/master/speech_to_text
+ * `stream` and `audioConstraints` are official SDK fields used only for mic / tab audio.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -13,11 +16,13 @@ import {
   type Token,
   type TranslationConfig,
 } from "@soniox/speech-to-text-web";
+import type { SonioxStartContext } from "./stable-dialect-context";
 
 interface UseSonioxClientOptions {
   apiKey: string | (() => Promise<string>);
   translationConfig?: TranslationConfig;
   languageHints?: string[];
+  context?: SonioxStartContext;
   onStarted?: () => void;
   onFinished?: () => void;
 }
@@ -31,6 +36,8 @@ type TranscriptionError = {
 export type TrialSonioxXStartOptions = {
   stream?: MediaStream;
   audioConstraints?: MediaTrackConstraints;
+  /** Prefetched temp key so start() does not wait on a second /token round-trip. */
+  apiKey?: string;
 };
 
 // useTranscribe hook wraps Soniox speech-to-text-web SDK.
@@ -38,16 +45,20 @@ export default function useSonioxClient({
   apiKey,
   translationConfig,
   languageHints,
+  context,
   onStarted,
   onFinished,
 }: UseSonioxClientOptions) {
   const sonioxClient = useRef<SonioxClient | null>(null);
   const apiKeyRef = useRef(apiKey);
+  const pendingStartKeyRef = useRef<string | null>(null);
   apiKeyRef.current = apiKey;
 
   if (sonioxClient.current == null) {
     sonioxClient.current = new SonioxClient({
       apiKey: async () => {
+        const pending = pendingStartKeyRef.current?.trim();
+        if (pending) return pending;
         const key = apiKeyRef.current;
         return typeof key === "function" ? key() : key;
       },
@@ -63,10 +74,13 @@ export default function useSonioxClient({
     setFinalTokens([]);
     setNonFinalTokens([]);
     setError(null);
+    pendingStartKeyRef.current = startOptions?.apiKey?.trim() || null;
 
     // First message we send contains configuration. Here we set if we set if we
     // are transcribing or translating. For translation we also set if it is
     // one-way or two-way.
+    // Official examples turn endpoint detection on so a pause finalizes the
+    // current original AND its translation before the next utterance starts.
     await sonioxClient.current?.start({
       model: "stt-rt-v5",
       enableLanguageIdentification: true,
@@ -74,6 +88,7 @@ export default function useSonioxClient({
       enableEndpointDetection: true,
       translation: translationConfig || undefined,
       ...(languageHints && languageHints.length > 0 ? { languageHints } : {}),
+      ...(context ? { context } : {}),
       ...(startOptions?.stream ? { stream: startOptions.stream } : {}),
       ...(startOptions?.audioConstraints
         ? { audioConstraints: startOptions.audioConstraints }
@@ -115,10 +130,15 @@ export default function useSonioxClient({
         setNonFinalTokens(newNonFinalTokens);
       },
     });
-  }, [languageHints, onFinished, onStarted, translationConfig]);
+  }, [context, languageHints, onFinished, onStarted, translationConfig]);
 
   const stopTranscription = useCallback(() => {
     sonioxClient.current?.stop();
+  }, []);
+
+  const clearTokens = useCallback(() => {
+    setFinalTokens([]);
+    setNonFinalTokens([]);
   }, []);
 
   useEffect(() => {
@@ -130,6 +150,7 @@ export default function useSonioxClient({
   return {
     startTranscription,
     stopTranscription,
+    clearTokens,
     state,
     finalTokens,
     nonFinalTokens,

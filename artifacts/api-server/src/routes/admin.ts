@@ -85,10 +85,10 @@ function billingPlanFromCustomIdSegment(raw: string): "basic" | "professional" |
   const s = raw.trim().toLowerCase();
   if (!s) return null;
   if (s === "unlimited") return "platinum";
-  if (s === "basic" || s === "basic-libre" || s === "basic-hetzner" || s === "basic-openai" || s === "morsy-basic") {
+  if (s === "basic" || s === "basic-libre" || s === "basic-hetzner" || s === "basic-openai" || s === "basic-soniox-x" || s === "morsy-basic") {
     return "basic";
   }
-  if (s === "professional" || s === "professional-libre" || s === "professional-openai") return "professional";
+  if (s === "professional" || s === "professional-libre" || s === "professional-openai" || s === "professional-soniox-x") return "professional";
   if (s === "platinum" || s === "platinum-libre" || s === "platinum-openai") return "platinum";
   return null;
 }
@@ -432,7 +432,7 @@ function paidBillingWindowForUser(
 }
 
 const SONIOX_NATIVE_ANALYTICS_WHERE = sql`(
-  LOWER(${usersTable.planType}) IN ('trial-openai', 'basic-hetzner', 'professional-libre', 'trial-soniox-x', 'trial-hetzner')
+  LOWER(${usersTable.planType}) IN ('trial-openai', 'basic-hetzner', 'professional-libre', 'trial-soniox-x', 'trial-hetzner', 'basic-soniox-x', 'professional-soniox-x')
 )`;
 const HETZNER_MT_ANALYTICS_WHERE = sql`(
   LOWER(${usersTable.planType}) IN ('basic-libre', 'basic', 'professional')
@@ -448,7 +448,9 @@ function stackKeyFromPlanType(planType: string | null | undefined): "soniox" | "
     p === "basic-hetzner" ||
     p === "professional-libre" ||
     p === "trial-soniox-x" ||
-    p === "trial-hetzner"
+    p === "trial-hetzner" ||
+    p === "basic-soniox-x" ||
+    p === "professional-soniox-x"
   ) return "soniox";
   if (p === "basic-libre" || p === "basic" || p === "professional") return "hetzner";
   return "openai";
@@ -460,9 +462,11 @@ const PLAN_PRICES: Record<string, number> = {
   "legacy2":           59,
   "basic-libre":       59,
   "basic-hetzner":     59,
+  "basic-soniox-x":    59,
   "basic-openai":      59,
   professional:        99,
   "professional-libre": 99,
+  "professional-soniox-x": 99,
   "professional-openai": 99,
   platinum:            179,
   "platinum-openai":   179,
@@ -474,6 +478,16 @@ const PLAN_PRICES: Record<string, number> = {
   "trial-hetzner":     0,
   "trial-soniox-x":    0,
 };
+
+/** Plans the admin picker can assign. Leftover DB values stay valid on save if the user already has them. */
+const ADMIN_ASSIGNABLE_PLAN_TYPES = new Set([
+  "trial-openai",
+  "basic-hetzner",
+  "professional-libre",
+  "trial-soniox-x",
+  "basic-soniox-x",
+  "professional-soniox-x",
+]);
 
 function defaultDailyLimitMinutesForPlanType(planType: string): number | null {
   const p = (planType ?? "").trim().toLowerCase();
@@ -1439,7 +1453,7 @@ router.get("/stats", requireAdmin, async (_req, res) => {
     db.select({
       stack: sql<string>`
         CASE
-          WHEN LOWER(${usersTable.planType}) IN ('trial-openai', 'basic-hetzner', 'professional-libre', 'trial-soniox-x', 'trial-hetzner') THEN 'soniox'
+          WHEN LOWER(${usersTable.planType}) IN ('trial-openai', 'basic-hetzner', 'professional-libre', 'trial-soniox-x', 'trial-hetzner', 'basic-soniox-x', 'professional-soniox-x') THEN 'soniox'
           WHEN LOWER(${usersTable.planType}) IN ('basic-libre', 'basic', 'professional') THEN 'hetzner'
           ELSE 'openai'
         END`,
@@ -1461,7 +1475,7 @@ router.get("/stats", requireAdmin, async (_req, res) => {
       ))
       .groupBy(sql`
         CASE
-          WHEN LOWER(${usersTable.planType}) IN ('trial-openai', 'basic-hetzner', 'professional-libre', 'trial-soniox-x', 'trial-hetzner') THEN 'soniox'
+          WHEN LOWER(${usersTable.planType}) IN ('trial-openai', 'basic-hetzner', 'professional-libre', 'trial-soniox-x', 'trial-hetzner', 'basic-soniox-x', 'professional-soniox-x') THEN 'soniox'
           WHEN LOWER(${usersTable.planType}) IN ('basic-libre', 'basic', 'professional') THEN 'hetzner'
           ELSE 'openai'
         END`),
@@ -1649,7 +1663,7 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
       minutes:     sql<number>`COALESCE(SUM((${sql.raw(effectiveSessionSecondsSqlAliasS())})), 0) / 60.0`,
       sonioxNativeMinutes: sql<number>`
         COALESCE(SUM(CASE
-          WHEN LOWER(${usersTable.planType}) IN ('trial-openai', 'basic-hetzner', 'professional-libre', 'trial-soniox-x', 'trial-hetzner')
+          WHEN LOWER(${usersTable.planType}) IN ('trial-openai', 'basic-hetzner', 'professional-libre', 'trial-soniox-x', 'trial-hetzner', 'basic-soniox-x', 'professional-soniox-x')
             THEN (${sql.raw(effectiveSessionSecondsSqlAliasS())})
           ELSE 0
         END), 0) / 60.0`,
@@ -1946,7 +1960,7 @@ router.get("/analytics/extended", requireAdmin, async (req, res) => {
       translationCost: sql<number>`COALESCE(SUM(COALESCE(s.translation_cost, 0)), 0)`,
       sonioxNativeMinutes: sql<number>`
         COALESCE(SUM(CASE
-          WHEN LOWER(${usersTable.planType}) IN ('trial-openai', 'basic-hetzner', 'professional-libre', 'trial-soniox-x', 'trial-hetzner')
+          WHEN LOWER(${usersTable.planType}) IN ('trial-openai', 'basic-hetzner', 'professional-libre', 'trial-soniox-x', 'trial-hetzner', 'basic-soniox-x', 'professional-soniox-x')
             THEN (${sql.raw(effectiveSessionSecondsSqlAliasS())})
           ELSE 0
         END), 0) / 60.0`,
@@ -2432,35 +2446,19 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
     defaultLangB?: string;
   };
 
-  /** Canonical tiers (includes `trial-soniox-x` official live STT+translation). */
-  const ADMIN_ASSIGNABLE_PLAN_TYPES = new Set([
-    "trial",
-    "trial-openai",
-    "trial-hetzner",
-    "trial-soniox-x",
-    "trial-libre",
-    "basic",
-    "morsy-urgent",
-    "legacy2",
-    "basic-openai",
-    "basic-libre",
-    "basic-hetzner",
-    "professional",
-    "professional-openai",
-    "professional-libre",
-    "platinum",
-    "platinum-openai",
-    "platinum-libre",
-  ]);
-  if (planType && !ADMIN_ASSIGNABLE_PLAN_TYPES.has(planType.toLowerCase())) {
-    res.status(400).json({ error: "Invalid plan type" });
-    return;
-  }
-
   const [existing] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
   if (!existing) {
     res.status(404).json({ error: "User not found" });
     return;
+  }
+
+  if (planType) {
+    const pt = planType.toLowerCase();
+    const current = (existing.planType ?? "").trim().toLowerCase();
+    if (!ADMIN_ASSIGNABLE_PLAN_TYPES.has(pt) && pt !== current) {
+      res.status(400).json({ error: "Invalid plan type" });
+      return;
+    }
   }
 
   const updates: Partial<typeof usersTable.$inferSelect> = {};

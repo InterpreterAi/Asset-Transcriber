@@ -3,11 +3,14 @@ import { planUsesTrialSonioxX } from "./gate";
 import { workspaceLangToOfficialSonioxCode } from "./soniox-lang";
 
 describe("trial-soniox-x gate", () => {
-  it("matches the new plan and the retired trial-hetzner slot", () => {
+  it("matches Soniox X trial, basic, professional, and retired trial-hetzner", () => {
     expect(planUsesTrialSonioxX("trial-soniox-x")).toBe(true);
     expect(planUsesTrialSonioxX("trial-hetzner")).toBe(true);
+    expect(planUsesTrialSonioxX("basic-soniox-x")).toBe(true);
+    expect(planUsesTrialSonioxX("professional-soniox-x")).toBe(true);
     expect(planUsesTrialSonioxX("trial-libre")).toBe(false);
     expect(planUsesTrialSonioxX("basic-hetzner")).toBe(false);
+    expect(planUsesTrialSonioxX("professional-libre")).toBe(false);
   });
 });
 

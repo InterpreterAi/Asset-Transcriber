@@ -268,7 +268,7 @@ export async function fetchPayPalSubscriptionTransactions(input: {
  * PayPal (and Paddle) billing tier → DB `plan_type` for a normal public subscriber.
  * Evidence: `/sync-paypal-subscription` and PayPal webhooks write these SKUs;
  * admin defaults label them “Default (Soniox)”; `planUsesSonioxNativeTranslation`
- * is only `trial-openai` | `basic-hetzner` | `professional-libre`.
+ * is `trial-openai` | `basic-hetzner` | `professional-libre` (Chunk v2) plus the Soniox X family.
  * `basic-libre` is leftover Hetzner `/translate`, not the $59 public Basic.
  */
 export function dbPlanTypeFromPayPalBilling(plan: BillingPlanType): string {
@@ -286,13 +286,14 @@ export function billingProductKeyFromPlanType(planType: string): BillingPlanType
     p === "basic-openai" ||
     p === "basic-libre" ||
     p === "basic-hetzner" ||
+    p === "basic-soniox-x" ||
     p === "morsy-basic" ||
     p === "morsy-urgent" ||
     p === "legacy2"
   ) {
     return "basic";
   }
-  if (p === "professional" || p === "professional-openai" || p === "professional-libre") return "professional";
+  if (p === "professional" || p === "professional-openai" || p === "professional-libre" || p === "professional-soniox-x") return "professional";
   if (p === "platinum" || p === "platinum-openai" || p === "platinum-libre" || p === "unlimited") return "platinum";
   return null;
 }

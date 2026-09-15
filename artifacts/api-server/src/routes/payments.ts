@@ -64,10 +64,10 @@ function billingPlanFromCustomIdSegment(raw: string): BillingPlanType | null {
   const s = raw.trim().toLowerCase();
   if (!s) return null;
   if (s === "unlimited") return "platinum";
-  if (s === "basic" || s === "basic-libre" || s === "basic-hetzner" || s === "basic-openai" || s === "morsy-basic") {
+  if (s === "basic" || s === "basic-libre" || s === "basic-hetzner" || s === "basic-openai" || s === "basic-soniox-x" || s === "morsy-basic") {
     return "basic";
   }
-  if (s === "professional" || s === "professional-libre" || s === "professional-openai") return "professional";
+  if (s === "professional" || s === "professional-libre" || s === "professional-openai" || s === "professional-soniox-x") return "professional";
   if (s === "platinum" || s === "platinum-libre" || s === "platinum-openai") return "platinum";
   return isBillingPlanType(s) ? s : null;
 }
@@ -654,26 +654,14 @@ router.post("/paypal-webhook", async (req, res) => {
 
 const TEST_PLAN_ACTIVATION_EMAIL = "mmorsyy1@gmail.com";
 
-/** Same `plan_type` values admins can assign in `/api/admin/users/:id` — keeps workspace “Plan testing” in sync with production. */
-/** Canonical assignable tiers: OpenAI + Hetzner + mixed trial control. */
+/** Same `plan_type` values as the Admin → Users picker. */
 const ADMIN_TEST_PLAN_TYPES = [
-  "trial",
   "trial-openai",
-  "trial-hetzner",
-  "trial-soniox-x",
-  "trial-libre",
-  "basic",
-  "morsy-urgent",
-  "legacy2",
-  "basic-openai",
-  "basic-libre",
   "basic-hetzner",
-  "professional",
-  "professional-openai",
   "professional-libre",
-  "platinum",
-  "platinum-openai",
-  "platinum-libre",
+  "trial-soniox-x",
+  "basic-soniox-x",
+  "professional-soniox-x",
 ] as const;
 
 type AdminTestPlanType = (typeof ADMIN_TEST_PLAN_TYPES)[number];
@@ -686,33 +674,14 @@ function normalizeAdminTestPlanType(raw: unknown): AdminTestPlanType | null {
 
 /** Daily cap for test switches: PayPal tiers for paid basics; high cap for unlimited-style tiers (matches workspace “Unlimited” UI threshold). */
 function dailyLimitMinutesForAdminTestPlan(planType: AdminTestPlanType): number {
-  if (
-    planType === "trial" ||
-    planType === "trial-openai" ||
-    planType === "trial-libre" ||
-    planType === "trial-hetzner" ||
-    planType === "trial-soniox-x"
-  ) {
+  if (isTrialLikePlanType(planType)) {
     return TRIAL_DAILY_LIMIT_MINUTES;
   }
-  if (
-    planType === "basic" ||
-    planType === "morsy-urgent" ||
-    planType === "legacy2" ||
-    planType === "basic-openai" ||
-    planType === "basic-libre" ||
-    planType === "basic-hetzner"
-  ) {
+  if (planType === "basic-hetzner" || planType === "basic-soniox-x") {
     return paypalPlanConfig("basic").dailyLimitMinutes;
   }
-  if (planType === "professional-libre") {
+  if (planType === "professional-libre" || planType === "professional-soniox-x") {
     return paypalPlanConfig("professional").dailyLimitMinutes;
-  }
-  if (planType === "professional" || planType === "professional-openai") {
-    return 720;
-  }
-  if (planType === "platinum" || planType === "platinum-openai" || planType === "platinum-libre") {
-    return paypalPlanConfig("platinum").dailyLimitMinutes;
   }
   return TRIAL_DAILY_LIMIT_MINUTES;
 }
@@ -741,18 +710,6 @@ router.post("/test-activate-plan", requireAuth, async (req: any, res) => {
     }
 
     const dailyLimitMinutes = dailyLimitMinutesForAdminTestPlan(planType);
-
-    if (planType === "morsy-urgent" || planType === "legacy2") {
-      await db
-        .update(usersTable)
-        .set({
-          planType,
-          // Keep admin-customized limits and billing dates untouched.
-        })
-        .where(eq(usersTable.id, userId));
-      res.json({ ok: true, planType, dailyLimitMinutes: user.dailyLimitMinutes });
-      return;
-    }
 
     if (isTrialLikePlanType(planType)) {
       const now = new Date();

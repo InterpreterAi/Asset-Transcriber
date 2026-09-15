@@ -4,7 +4,7 @@ import TrialSonioxXWorkspace from "@/experiments/trial-soniox-x/TrialSonioxXWork
 import WorkspaceDefault from "./workspace-default";
 
 /**
- * Trial · Soniox X (and retired trial-hetzner) uses an isolated official-Soniox live stack.
+ * Soniox X (Trial / Basic / Professional, plus retired trial-hetzner) uses an isolated official-Soniox live stack.
  * Every other plan keeps workspace-default / use-transcription unchanged.
  */
 export default function WorkspacePage() {
@@ -21,7 +21,11 @@ export default function WorkspacePage() {
   }
 
   if (planUsesTrialSonioxX(user?.planType)) {
-    return <TrialSonioxXWorkspace />;
+    return (
+      <div className="h-full min-h-0 overflow-hidden">
+        <TrialSonioxXWorkspace />
+      </div>
+    );
   }
 
   return <WorkspaceDefault />;

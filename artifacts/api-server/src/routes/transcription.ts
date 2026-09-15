@@ -618,7 +618,7 @@ router.post("/token", requireAuth, async (req, res) => {
     if (!masterKey) {
       res.status(503).json({
         error: clientFacingError(
-          "Transcription is unavailable: set SONIOX_API_KEY (or SONIOX_STT_API_KEY) on this API service in Railway, then redeploy.",
+          "Transcription is unavailable locally: add SONIOX_API_KEY to the repo-root .env (same value as the Railway API service), then restart the local API. You do not need to redeploy.",
           "Live transcription is temporarily unavailable. Please try again later or contact support.",
         ),
         code: clientFacingErrorCode("TRANSCRIPTION_NOT_CONFIGURED"),
