@@ -18,7 +18,7 @@ describe("stable dialect pins", () => {
     expect(STABLE_WRITTEN_DIALECT.ar).toMatch(/فصحى/);
     expect(STABLE_WRITTEN_DIALECT.ar).toMatch(/Modern Standard Arabic/);
     expect(STABLE_WRITTEN_DIALECT.es).toMatch(/español estándar/i);
-    expect(STABLE_WRITTEN_DIALECT.fr).toMatch(/français standard/i);
+    expect(STABLE_WRITTEN_DIALECT.fr).toMatch(/français de France/i);
     expect(STABLE_WRITTEN_DIALECT.de).toMatch(/Hochdeutsch/);
     expect(STABLE_WRITTEN_DIALECT.pl).toMatch(/ogólnopolski|polszczyzna/i);
   });
@@ -29,16 +29,19 @@ describe("stable dialect pins", () => {
     expect(blob.length).toBeLessThan(10_000);
     expect(ctx.general?.length ?? 0).toBeLessThanOrEqual(10);
     expect(ctx.general?.some((row) => /فصحى/.test(row.value))).toBe(true);
-    expect(ctx.general?.some((row) => /Original: transcribe exactly as spoken/i.test(row.value))).toBe(
-      true,
-    );
+    expect(ctx.general?.some((row) => /Both languages will be spoken/i.test(row.value))).toBe(true);
+    expect(ctx.general?.some((row) => /Never drop one side/i.test(row.value))).toBe(true);
+    expect(ctx.general?.some((row) => /Never drop Arabic speech/i.test(row.value))).toBe(true);
     expect(ctx.text).toMatch(/الفصحى/);
+    expect(ctx.text).not.toMatch(/Forbidden in Arabic translations/);
+    expect(ctx.text).not.toContain("يا عم");
     expect(ctx.text).not.toContain("cy:");
     expect(ctx.translation_terms?.some((t) => t.source === "next time")).toBe(true);
   });
 
   it("pins Spanish/French/German/Polish when they are in the pair", () => {
     const es = buildStableDialectContext("es", "en");
+    expect(es.general?.some((row) => /Never drop one side/i.test(row.value))).toBe(true);
     expect(es.general?.some((row) => /español estándar/i.test(row.value))).toBe(true);
     expect(es.text).toMatch(/español estándar/i);
     expect(es.text).toMatch(/ecografía/i);
@@ -47,7 +50,7 @@ describe("stable dialect pins", () => {
     );
 
     const fr = buildStableDialectContext("fr", "pl");
-    expect(fr.general?.some((row) => /français standard/i.test(row.value))).toBe(true);
+    expect(fr.general?.some((row) => /français de France/i.test(row.value))).toBe(true);
     expect(fr.general?.some((row) => /ogólnopolski|polszczyzna/i.test(row.value))).toBe(true);
     expect(fr.text).toMatch(/Hochdeutsch|français|ogólnopolski|polszczyzna|France/i);
   });

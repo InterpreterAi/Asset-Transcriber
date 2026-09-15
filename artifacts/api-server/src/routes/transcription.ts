@@ -50,7 +50,7 @@ import { runTrialHetznerCleanTranslation } from "../lib/trial-hetzner-clean-tran
 import { runMorsyChunkV2Translation } from "../lib/morsy-chunk-translation-v2.js";
 import { applyInterpreterPhrasePretranslate } from "../lib/interpreter-phrase-pretranslate.js";
 import { logger } from "../lib/logger.js";
-import { sessionStore, ensureLiveSnapshot } from "../lib/session-store.js";
+import { sessionStore, ensureLiveSnapshot, applyLiveSnapshotMicLabel } from "../lib/session-store.js";
 import { lockTranslationToOfficialRegister } from "../lib/official-translation-register.js";
 import { sessionContinuityPromptBlock } from "../lib/session-translation-continuity.js";
 import { isOpenAiConfigured } from "../lib/ai-env.js";
@@ -1339,7 +1339,6 @@ router.post("/session/start", requireAuth, async (req, res) => {
   ensureLiveSnapshot(result.id, {
     langA: srcLang,
     langB: tgtLang,
-    micLabel: "Live",
   });
 
   try {
@@ -1369,10 +1368,12 @@ router.post("/session/start", requireAuth, async (req, res) => {
 // Frontend calls this every 30 s while recording to keep the session alive.
 // Without a heartbeat the session is considered stale after STALE_SESSION_MS.
 router.post("/session/heartbeat", requireAuth, async (req, res) => {
-  const { sessionId, audioSecondsProcessed: rawAudio } = (req.body ?? {}) as {
+  const { sessionId, audioSecondsProcessed: rawAudio, micLabel: rawMicLabel } = (req.body ?? {}) as {
     sessionId?: number;
     /** Cumulative PCM seconds sent to Soniox this session (client-measured). */
     audioSecondsProcessed?: number;
+    /** "Browser Tab Audio" or a microphone device label. */
+    micLabel?: string;
   };
   if (!sessionId) { res.status(400).json({ error: "sessionId required" }); return; }
 
@@ -1394,6 +1395,7 @@ router.post("/session/heartbeat", requireAuth, async (req, res) => {
   }
 
   ensureLiveSnapshot(sessionId);
+  applyLiveSnapshotMicLabel(sessionId, rawMicLabel);
 
   const audioSeconds =
     rawAudio !== undefined && Number.isFinite(Number(rawAudio))

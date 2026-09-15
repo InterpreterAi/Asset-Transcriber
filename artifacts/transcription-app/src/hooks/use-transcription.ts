@@ -4692,6 +4692,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const maxSessionTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resetInactivityRef   = useRef<(() => void) | null>(null);
   const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const audioInputLabelRef = useRef("Microphone");
   /** Prevents double stop() when both worklet and heartbeat see the daily cap. */
   const dailyLimitAutoStopRef = useRef(false);
   /** Set from `stop` once defined — used from `dispatchTranslation` for translate 403 daily cap. */
@@ -9753,6 +9754,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const sessionRes = await sessionStartPromise;
       sessionIdRef.current = sessionRes.sessionId;
       setSessionId(sessionRes.sessionId);
+      audioInputLabelRef.current = providedStream ? "Browser Tab Audio" : "Microphone";
       const tokenRes = await getTokenMut.mutateAsync({
         data: { sessionId: sessionRes.sessionId },
       });
@@ -9780,6 +9782,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           body:        JSON.stringify({
             sessionId: sid,
             audioSecondsProcessed: Math.floor(audioPcmSecondsRef.current),
+            micLabel: audioInputLabelRef.current,
           }),
         })
           .then(async (res) => {
@@ -9833,6 +9836,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             },
           });
       streamsRef.current.push(stream);
+      if (!providedStream) {
+        const trackLabel = stream.getAudioTracks()[0]?.label?.trim();
+        if (trackLabel) audioInputLabelRef.current = trackLabel;
+      }
 
       const startWithCanonWsIsolation = canonWsIsolationGateNow();
       canonWsSnapshotFromEngineRef.current = startWithCanonWsIsolation;

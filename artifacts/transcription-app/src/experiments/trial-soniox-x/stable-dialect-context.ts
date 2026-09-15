@@ -17,68 +17,68 @@ export type SonioxStartContext = {
   translation_terms?: { source: string; target: string }[];
 };
 
-/** Stable written variety for every official Soniox live-demo language. */
+/** Stable written variety for the TRANSLATION column only. Originals stay as spoken. */
 export const STABLE_WRITTEN_DIALECT: Record<string, string> = {
-  af: "Standard Afrikaans",
-  sq: "Standard Albanian (Tosk)",
-  ar: "Modern Standard Arabic (فصحى / fuṣḥā). Never Egyptian, Levantine, Gulf, Maghrebi, or other spoken dialects.",
-  az: "Standard Azerbaijani",
-  eu: "Standard Basque (Euskara Batua)",
-  be: "Standard Belarusian",
-  bn: "Standard Bengali (written standard)",
-  bs: "Standard Bosnian",
-  bg: "Standard Bulgarian",
-  ca: "Standard Catalan",
-  zh: "Standard Mandarin Chinese (Putonghua), simplified characters. Not Cantonese or other topolects.",
-  hr: "Standard Croatian",
-  cs: "Standard Czech",
-  da: "Standard Danish (rigsdansk)",
-  nl: "Standard Dutch (Algemeen Nederlands). Not Flemish dialect.",
-  en: "Standard English (general American spelling and grammar). Not regional slang as the default.",
-  et: "Standard Estonian",
-  fi: "Standard Finnish",
-  fr: "Standard French (français standard / France). Not Québec joual, Maghrebi slang, or regional dialects.",
-  gl: "Standard Galician",
-  de: "Standard High German (Hochdeutsch / Standarddeutsch). Not Swiss German, Bavarian, or Austrian dialect.",
-  el: "Standard Modern Greek",
-  gu: "Standard Gujarati",
-  he: "Standard Modern Hebrew",
-  hi: "Standard Hindi (Khari Boli, Devanagari)",
-  hu: "Standard Hungarian",
-  id: "Standard Indonesian (Bahasa Indonesia baku). Not Jakartan slang.",
-  it: "Standard Italian. Not regional dialects.",
-  ja: "Standard Japanese (hyōjungo). Not Kansai-ben or other dialects.",
-  kn: "Standard Kannada",
-  kk: "Standard Kazakh",
-  ko: "Standard Korean (Seoul). Not regional dialects.",
-  lv: "Standard Latvian",
-  lt: "Standard Lithuanian",
-  mk: "Standard Macedonian",
-  ms: "Standard Malay (Bahasa Melayu baku)",
-  ml: "Standard Malayalam",
-  mr: "Standard Marathi",
-  no: "Standard Norwegian Bokmål",
-  fa: "Standard Persian (Iranian Farsi). Not Dari or Tajik as the default.",
-  pl: "Standard Polish (polszczyzna ogólna / język ogólnopolski). Not regional dialect or heavy slang.",
-  pt: "Standard Portuguese (norma culta). Neutral written Portuguese, not heavy regional slang.",
-  pa: "Standard Punjabi",
-  ro: "Standard Romanian",
-  ru: "Standard Russian",
-  sr: "Standard Serbian",
-  sk: "Standard Slovak",
-  sl: "Standard Slovenian",
-  es: "Neutral standard Spanish (español estándar). Not Rioplatense vos, Caribbean slang, or other regional dialects as the default.",
-  sw: "Standard Swahili",
-  sv: "Standard Swedish",
-  tl: "Standard Filipino / Tagalog",
-  ta: "Standard Tamil",
-  te: "Standard Telugu",
-  th: "Standard Thai",
-  tr: "Standard Turkish (İstanbul). Not regional dialect.",
-  uk: "Standard Ukrainian",
-  ur: "Standard Urdu",
-  vi: "Standard Vietnamese (Hanoi). Not regional dialect as the default.",
-  cy: "Standard Welsh",
+  af: "Standard Afrikaans (translation only)",
+  sq: "Standard Albanian / Tosk (translation only)",
+  ar: "Modern Standard Arabic (فصحى / fuṣḥā) for translation only. Spoken Egyptian, Levantine, Gulf, and Maghrebi must still be transcribed in the original.",
+  az: "Standard Azerbaijani (translation only)",
+  eu: "Standard Basque / Euskara Batua (translation only)",
+  be: "Standard Belarusian (translation only)",
+  bn: "Standard written Bengali (translation only)",
+  bs: "Standard Bosnian (translation only)",
+  bg: "Standard Bulgarian (translation only)",
+  ca: "Standard Catalan (translation only)",
+  zh: "Standard Mandarin / Putonghua, simplified characters (translation only). Cantonese and other topolects still go in the original if spoken.",
+  hr: "Standard Croatian (translation only)",
+  cs: "Standard Czech (translation only)",
+  da: "Standard Danish / rigsdansk (translation only)",
+  nl: "Standard Dutch / Algemeen Nederlands (translation only). Flemish dialect still goes in the original if spoken.",
+  en: "Standard English, general American spelling (translation only). Regional slang still goes in the original if spoken.",
+  et: "Standard Estonian (translation only)",
+  fi: "Standard Finnish (translation only)",
+  fr: "Standard French / français de France (translation only). Québec joual and Maghrebi slang still go in the original if spoken.",
+  gl: "Standard Galician (translation only)",
+  de: "Standard High German / Hochdeutsch (translation only). Swiss German, Bavarian, and Austrian dialect still go in the original if spoken.",
+  el: "Standard Modern Greek (translation only)",
+  gu: "Standard Gujarati (translation only)",
+  he: "Standard Modern Hebrew (translation only)",
+  hi: "Standard Hindi / Khari Boli, Devanagari (translation only)",
+  hu: "Standard Hungarian (translation only)",
+  id: "Standard Indonesian / Bahasa Indonesia baku (translation only). Jakartan slang still goes in the original if spoken.",
+  it: "Standard Italian (translation only). Regional dialects still go in the original if spoken.",
+  ja: "Standard Japanese / hyōjungo (translation only). Kansai-ben and other dialects still go in the original if spoken.",
+  kn: "Standard Kannada (translation only)",
+  kk: "Standard Kazakh (translation only)",
+  ko: "Standard Korean / Seoul (translation only). Regional dialects still go in the original if spoken.",
+  lv: "Standard Latvian (translation only)",
+  lt: "Standard Lithuanian (translation only)",
+  mk: "Standard Macedonian (translation only)",
+  ms: "Standard Malay / Bahasa Melayu baku (translation only)",
+  ml: "Standard Malayalam (translation only)",
+  mr: "Standard Marathi (translation only)",
+  no: "Standard Norwegian Bokmål (translation only)",
+  fa: "Standard Iranian Persian / Farsi (translation only). Dari or Tajik still go in the original if spoken.",
+  pl: "Standard Polish / język ogólnopolski (translation only). Regional dialect and slang still go in the original if spoken.",
+  pt: "Standard Portuguese / norma culta (translation only). Regional slang still goes in the original if spoken.",
+  pa: "Standard Punjabi (translation only)",
+  ro: "Standard Romanian (translation only)",
+  ru: "Standard Russian (translation only)",
+  sr: "Standard Serbian (translation only)",
+  sk: "Standard Slovak (translation only)",
+  sl: "Standard Slovenian (translation only)",
+  es: "Neutral standard Spanish / español estándar (translation only). Rioplatense, Caribbean, and Mexican slang still go in the original if spoken.",
+  sw: "Standard Swahili (translation only)",
+  sv: "Standard Swedish (translation only)",
+  tl: "Standard Filipino / Tagalog (translation only)",
+  ta: "Standard Tamil (translation only)",
+  te: "Standard Telugu (translation only)",
+  th: "Standard Thai (translation only)",
+  tr: "Standard Turkish / İstanbul (translation only). Regional dialect still goes in the original if spoken.",
+  uk: "Standard Ukrainian (translation only)",
+  ur: "Standard Urdu (translation only)",
+  vi: "Standard Vietnamese / Hanoi (translation only). Regional dialect still goes in the original if spoken.",
+  cy: "Standard Welsh (translation only)",
 };
 
 const LANG_NAME: Record<string, string> = Object.fromEntries(
@@ -102,25 +102,26 @@ function registerKey(code: string): string {
 /** Extra translation-only guidance when the pair includes a high-drift language. */
 const PAIR_TRANSLATION_TEXT: Record<string, string> = {
   ar:
-    "TRANSLATION into Arabic must be Modern Standard Arabic only (الفصحى), like news/subtitles. " +
-    "Do not copy the speaker's dialect into the translation even if the audio is Egyptian, Levantine, Gulf, or Maghrebi. " +
-    "Forbidden in Arabic translations: يا عم, مش, كده, عشان, عشان كده, ما فيش, لازم (use يجب أن), المرة الجاية (use المرة القادمة), تاكل (use تأكل), ده/دي (use هذا/هذه). " +
-    "Never repeat English words or Latin abbreviations in the Arabic translation; use only Arabic (Sonogram → تصوير بالموجات فوق الصوتية, not تصوير صوتي Sonogram). " +
-    "Original/transcript of Arabic speech stays exactly as spoken.",
+    "TRANSLATION COLUMN into Arabic: Modern Standard Arabic only (الفصحى), like news/subtitles. " +
+    "Do not copy dialect into the translation even if the audio is Egyptian, Levantine, Gulf, or Maghrebi. " +
+    "Never repeat English words or Latin abbreviations in the Arabic translation (Sonogram → تصوير بالموجات فوق الصوتية). " +
+    "ORIGINAL COLUMN: always transcribe spoken Arabic, including dialect. Do not drop Egyptian/Levantine/Gulf/Maghrebi speech.",
   es:
-    "TRANSLATION into Spanish must be neutral standard Spanish (español estándar), like news/subtitles. " +
-    "Do not copy the speaker's dialect into the translation even if the audio is Rioplatense, Caribbean, Mexican slang, or voseo. " +
-    "Never repeat English words or Latin abbreviations in the Spanish translation; use only Spanish (Sonogram → ecografía, not ecografía Sonogram). " +
-    "Original/transcript of Spanish speech stays exactly as spoken.",
+    "TRANSLATION COLUMN into Spanish: neutral standard Spanish (español estándar), like news/subtitles. " +
+    "Do not copy Rioplatense, Caribbean, Mexican slang, or voseo into the translation. " +
+    "Never repeat English words or Latin abbreviations in the Spanish translation (Sonogram → ecografía). " +
+    "ORIGINAL COLUMN: transcribe spoken Spanish exactly, including dialect.",
   fr:
-    "TRANSLATION into French must be standard French (français de France). Not Québec joual or Maghrebi slang. Original speech may stay dialectal.",
+    "TRANSLATION COLUMN into French: standard French (français de France). Not Québec joual or Maghrebi slang in the translation. " +
+    "ORIGINAL COLUMN: transcribe spoken French exactly, including dialect.",
   de:
-    "TRANSLATION into German must be Standard High German (Hochdeutsch). Not Swiss German or Bavarian. Original speech may stay dialectal.",
+    "TRANSLATION COLUMN into German: Standard High German (Hochdeutsch). Not Swiss German or Bavarian in the translation. " +
+    "ORIGINAL COLUMN: transcribe spoken German exactly, including dialect.",
   pl:
-    "TRANSLATION into Polish must be standard Polish (język ogólnopolski / polszczyzna ogólna), like news/subtitles. " +
+    "TRANSLATION COLUMN into Polish: standard Polish (język ogólnopolski), like news/subtitles. " +
     "Do not copy regional dialect or slang into the translation. " +
-    "Never repeat English words or Latin abbreviations in the Polish translation; use only Polish (Sonogram → ultrasonografia, not ultrasonografia Sonogram). " +
-    "Original/transcript of Polish speech stays exactly as spoken.",
+    "Never repeat English words or Latin abbreviations in the Polish translation (Sonogram → ultrasonografia). " +
+    "ORIGINAL COLUMN: transcribe spoken Polish exactly, including dialect.",
 };
 
 const AR_EN_MSA_TERMS: { source: string; target: string }[] = [
@@ -166,17 +167,25 @@ export function buildStableDialectContext(langA: string, langB: string): SonioxS
   const general: { key: string; value: string }[] = [
     { key: "domain", value: "Live two-way interpretation" },
     {
+      key: "languages",
+      value:
+        `Two-way ${LANG_NAME[a] ?? a} and ${LANG_NAME[b] ?? b}. Both languages will be spoken. Transcribe whichever is spoken; do not ignore one side.`,
+    },
+    {
       key: "transcription",
       value:
-        "Original: transcribe exactly as spoken, including dialect. Do not rewrite original Arabic into الفصحى.",
+        "Original column: transcribe everything spoken in either pair language, exactly as spoken — dialect, slang, and code-switching included. Never drop one side. Do not rewrite originals into the standard written variety." +
+        (a === "ar" || b === "ar"
+          ? " Arabic originals include Egyptian, Levantine, Gulf, and Maghrebi; never drop Arabic speech; do not rewrite original Arabic into الفصحى."
+          : ""),
     },
     {
       key: "translation",
       value:
         "Translation column only: always the stable standard written variety of the TARGET language. Never copy the spoken dialect into the translation. Never echo the source-language word or Latin abbreviation in the translation; use only the target wording from translation_terms.",
     },
-    { key: registerKey(a), value: `Translated ${LANG_NAME[a] ?? a} uses: ${pinA}` },
-    { key: registerKey(b), value: `Translated ${LANG_NAME[b] ?? b} uses: ${pinB}` },
+    { key: registerKey(a), value: `TRANSLATION into ${LANG_NAME[a] ?? a} uses: ${pinA}` },
+    { key: registerKey(b), value: `TRANSLATION into ${LANG_NAME[b] ?? b} uses: ${pinB}` },
     {
       key: "numbers",
       value:

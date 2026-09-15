@@ -25,20 +25,36 @@ export const sessionStore = new Map<number, SessionSnapshot>();
 /** Heartbeats keep lastActivityAt fresh. Treat that as a live connection even without a transcript snapshot. */
 export const LIVE_SESSION_HEARTBEAT_MS = 45_000;
 
+export const TAB_AUDIO_SNAPSHOT_LABEL = "Browser Tab Audio";
+
+export function isPlaceholderAudioLabel(label: string | null | undefined): boolean {
+  const l = (label ?? "").trim().toLowerCase();
+  return !l || l === "live" || l === "connecting" || l === "connecting…";
+}
+
+function activityTimeMs(lastActivityAt: Date | string | null | undefined): number | null {
+  if (lastActivityAt == null) return null;
+  const t = lastActivityAt instanceof Date ? lastActivityAt.getTime() : Date.parse(String(lastActivityAt));
+  return Number.isFinite(t) ? t : null;
+}
+
 export function isFreshSessionHeartbeat(
-  lastActivityAt: Date | null | undefined,
+  lastActivityAt: Date | string | null | undefined,
   nowMs = Date.now(),
 ): boolean {
-  return (
-    lastActivityAt instanceof Date &&
-    Number.isFinite(lastActivityAt.getTime()) &&
-    nowMs - lastActivityAt.getTime() <= LIVE_SESSION_HEARTBEAT_MS
-  );
+  const t = activityTimeMs(lastActivityAt);
+  return t != null && nowMs - t <= LIVE_SESSION_HEARTBEAT_MS;
+}
+
+function realMicLabel(raw: string | null | undefined): string | null {
+  const label = (raw ?? "").trim();
+  if (!label || isPlaceholderAudioLabel(label)) return null;
+  return label;
 }
 
 export function liveSessionPresence(
   sessionId: number,
-  lastActivityAt: Date | null | undefined,
+  lastActivityAt: Date | string | null | undefined,
   nowMs = Date.now(),
 ): { hasSnapshot: boolean; micLabel: string | null } {
   const id = Number(sessionId);
@@ -46,7 +62,7 @@ export function liveSessionPresence(
   const heartbeatFresh = isFreshSessionHeartbeat(lastActivityAt, nowMs);
   return {
     hasSnapshot: Boolean(snap) || heartbeatFresh,
-    micLabel: snap?.micLabel ?? (heartbeatFresh ? "Live" : null),
+    micLabel: realMicLabel(snap?.micLabel),
   };
 }
 
@@ -63,10 +79,24 @@ export function ensureLiveSnapshot(
   sessionStore.set(id, {
     langA,
     langB,
-    micLabel: opts?.micLabel?.trim() || "Live",
+    micLabel: realMicLabel(opts?.micLabel) ?? "",
     transcript: "",
     translation: "",
     updatedAt: Date.now(),
   });
+}
+
+/** Heartbeat / snapshot can name Mic vs Tab without waiting for transcript text. */
+export function applyLiveSnapshotMicLabel(sessionId: number, micLabel: unknown): void {
+  const id = Number(sessionId);
+  const label = realMicLabel(typeof micLabel === "string" ? micLabel : null);
+  if (!Number.isFinite(id) || id <= 0 || !label) return;
+  const prev = sessionStore.get(id);
+  if (prev) {
+    if (prev.micLabel === label) return;
+    sessionStore.set(id, { ...prev, micLabel: label, updatedAt: Date.now() });
+    return;
+  }
+  ensureLiveSnapshot(id, { micLabel: label });
 }
 

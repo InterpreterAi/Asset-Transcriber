@@ -571,8 +571,9 @@ function trialBadge(trialEndsAt: string | null | undefined, plan: string) {
 // ── Audio device type detector ────────────────────────────────────────────────
 function detectAudioDevice(label: string | null | undefined) {
   if (!label) return null;
-  const l = label.toLowerCase();
-  if (label === "Browser Tab Audio") {
+  const l = label.toLowerCase().trim();
+  if (!l || l === "live" || l === "connecting" || l === "connecting…") return null;
+  if (label === "Browser Tab Audio" || l === "tab audio") {
     return { type: "Tab Audio",  badgeCls: "bg-blue-50 text-blue-700 border-blue-100 dark:bg-blue-500/15 dark:text-blue-100 dark:border-blue-400/25",   icon: <Monitor   className="w-3 h-3" /> };
   }
   if (l.includes("usb")) {

@@ -39,7 +39,7 @@ import { workspaceLanguageOptions } from "@/lib/workspace-languages";
 import { useSessionHeartbeat } from "@/hooks/use-session-heartbeat";
 import useSonioxClient from "./useSonioxClient";
 import { getLanguage } from "./languages";
-import { workspaceLangToOfficialSonioxCode } from "./soniox-lang";
+import { sonioxTwoWayLanguageHints, workspaceLangToOfficialSonioxCode } from "./soniox-lang";
 import { langDir, rowsFromSonioxTokens, snapshotLinesFromSonioxXRows, stripeClassForSpeaker } from "./rows-from-tokens";
 import { BidiText } from "./BidiText";
 import { buildStableDialectContext } from "./stable-dialect-context";
@@ -254,7 +254,7 @@ export default function TrialSonioxXWorkspace() {
   );
 
   const languageHints = useMemo(
-    () => [languageA.code, languageB.code],
+    () => sonioxTwoWayLanguageHints(languageA.code, languageB.code),
     [languageA.code, languageB.code],
   );
 
@@ -522,6 +522,7 @@ export default function TrialSonioxXWorkspace() {
           audioSecondsProcessed: startTimeRef.current
             ? Math.floor((Date.now() - startTimeRef.current) / 1000)
             : 0,
+          micLabel: micLabelRef.current,
         }),
       }).catch(() => { /* best-effort */ });
     };
