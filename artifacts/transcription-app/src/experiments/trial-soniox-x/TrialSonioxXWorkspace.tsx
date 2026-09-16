@@ -341,6 +341,7 @@ export default function TrialSonioxXWorkspace() {
     apiKey: fetchTempApiKey,
     translationConfig,
     languageHints,
+    languageHintsStrict: true,
     context: sonioxContext,
   });
 

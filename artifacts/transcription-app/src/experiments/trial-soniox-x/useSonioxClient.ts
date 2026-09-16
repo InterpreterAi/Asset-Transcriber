@@ -22,6 +22,7 @@ interface UseSonioxClientOptions {
   apiKey: string | (() => Promise<string>);
   translationConfig?: TranslationConfig;
   languageHints?: string[];
+  languageHintsStrict?: boolean;
   context?: SonioxStartContext;
   onStarted?: () => void;
   onFinished?: () => void;
@@ -45,6 +46,7 @@ export default function useSonioxClient({
   apiKey,
   translationConfig,
   languageHints,
+  languageHintsStrict,
   context,
   onStarted,
   onFinished,
@@ -87,7 +89,12 @@ export default function useSonioxClient({
       enableSpeakerDiarization: true,
       enableEndpointDetection: true,
       translation: translationConfig || undefined,
-      ...(languageHints && languageHints.length > 0 ? { languageHints } : {}),
+      ...(languageHints && languageHints.length > 0
+        ? {
+            languageHints,
+            ...(typeof languageHintsStrict === "boolean" ? { languageHintsStrict } : {}),
+          }
+        : {}),
       ...(context ? { context } : {}),
       ...(startOptions?.stream ? { stream: startOptions.stream } : {}),
       ...(startOptions?.audioConstraints
@@ -130,7 +137,7 @@ export default function useSonioxClient({
         setNonFinalTokens(newNonFinalTokens);
       },
     });
-  }, [context, languageHints, onFinished, onStarted, translationConfig]);
+  }, [context, languageHints, languageHintsStrict, onFinished, onStarted, translationConfig]);
 
   const stopTranscription = useCallback(() => {
     sonioxClient.current?.stop();
