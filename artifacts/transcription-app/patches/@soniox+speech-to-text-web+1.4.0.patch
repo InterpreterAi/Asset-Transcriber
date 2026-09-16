@@ -1,0 +1,24 @@
+diff --git a/node_modules/@soniox/speech-to-text-web/dist/soniox-client.d.ts b/node_modules/@soniox/speech-to-text-web/dist/soniox-client.d.ts
+index 680ca23..d9f919a 100644
+--- a/node_modules/@soniox/speech-to-text-web/dist/soniox-client.d.ts
++++ b/node_modules/@soniox/speech-to-text-web/dist/soniox-client.d.ts
+@@ -58,6 +58,7 @@ type AudioOptions = {
+      * Example: `['en', 'fr', 'de']`
+      */
+     languageHints?: string[];
++    languageHintsStrict?: boolean;
+     /**
+      * Context string to pass to the API.
+      */
+diff --git a/node_modules/@soniox/speech-to-text-web/dist/speech-to-text-web.js b/node_modules/@soniox/speech-to-text-web/dist/speech-to-text-web.js
+index 1c5a376..0da7ca2 100644
+--- a/node_modules/@soniox/speech-to-text-web/dist/speech-to-text-web.js
++++ b/node_modules/@soniox/speech-to-text-web/dist/speech-to-text-web.js
+@@ -153,6 +153,7 @@ const m = "wss://stt-rt.soniox.com/transcribe-websocket", d = 1e3, w = 120, u =
+         sample_rate: t.sampleRate,
+         num_channels: t.numChannels,
+         language_hints: t.languageHints,
++        language_hints_strict: t.languageHintsStrict,
+         context: t.context,
+         enable_speaker_diarization: t.enableSpeakerDiarization,
+         enable_language_identification: t.enableLanguageIdentification,

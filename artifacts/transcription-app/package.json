@@ -9,7 +9,8 @@
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "test:glossary": "vitest run src/experiments/basic-morsy-urgent/canonAppendWs/utils/glossary-post-process.test.ts"
+    "test:glossary": "vitest run src/experiments/basic-morsy-urgent/canonAppendWs/utils/glossary-post-process.test.ts",
+    "postinstall": "patch-package"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -60,6 +61,7 @@
     "input-otp": "^1.4.2",
     "lucide-react": "catalog:",
     "next-themes": "^0.4.6",
+    "patch-package": "^8.0.1",
     "react": "catalog:",
     "react-day-picker": "^9.11.1",
     "react-dom": "catalog:",
