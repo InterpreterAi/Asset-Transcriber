@@ -44,7 +44,6 @@ import { dominantBidiDir } from "./bidi-islands";
 import { langDir, rowsFromSonioxTokens, snapshotLinesFromSonioxXRows, stripeClassForSpeaker } from "./rows-from-tokens";
 import { BidiText } from "./BidiText";
 import { buildStableDialectContext } from "./stable-dialect-context";
-import { shouldRefreshSonioxLidAfterMonolingualLock, spokenOriginalLangs } from "./lid-refresh";
 import {
   displayPinPairs,
   mergeSonioxXInterpreterContext,
@@ -236,7 +235,6 @@ export default function TrialSonioxXWorkspace() {
   const [liveSessionId, setLiveSessionId] = useState<number | null>(null);
   const snapshotSeqRef = useRef(0);
   const rowsRef = useRef<ReturnType<typeof rowsFromSonioxTokens>>([]);
-  const origCountAtLidRefreshRef = useRef(0);
   const langARef = useRef(langA);
   const langBRef = useRef(langB);
   const micLabelRef = useRef("Microphone");
@@ -348,53 +346,6 @@ export default function TrialSonioxXWorkspace() {
 
   const recording = isActiveState(state);
   const wsDark = workspaceTheme === "dark";
-  const finalTokensRef = useRef(finalTokens);
-  finalTokensRef.current = finalTokens;
-
-  useEffect(() => {
-    if (!recording) return;
-    if (
-      !shouldRefreshSonioxLidAfterMonolingualLock({
-        origLangs: spokenOriginalLangs(finalTokens),
-        langA: languageA.code,
-        langB: languageB.code,
-        origCountAtLastRefresh: origCountAtLidRefreshRef.current,
-      })
-    ) {
-      return;
-    }
-    const handle = window.setTimeout(() => {
-      const origLangs = spokenOriginalLangs(finalTokensRef.current);
-      if (
-        !shouldRefreshSonioxLidAfterMonolingualLock({
-          origLangs,
-          langA: languageA.code,
-          langB: languageB.code,
-          origCountAtLastRefresh: origCountAtLidRefreshRef.current,
-        })
-      ) {
-        return;
-      }
-      const stream = micStreamRef.current ?? tabStream;
-      if (!stream) return;
-      const prevCount = origCountAtLidRefreshRef.current;
-      origCountAtLidRefreshRef.current = origLangs.length;
-      void fetchTempApiKey()
-        .then((apiKey) => startTranscription({ stream, apiKey, keepTokens: true }))
-        .catch(() => {
-          origCountAtLidRefreshRef.current = prevCount;
-        });
-    }, 2000);
-    return () => window.clearTimeout(handle);
-  }, [
-    fetchTempApiKey,
-    finalTokens,
-    languageA.code,
-    languageB.code,
-    recording,
-    startTranscription,
-    tabStream,
-  ]);
 
   useEffect(() => {
     try {
@@ -468,7 +419,6 @@ export default function TrialSonioxXWorkspace() {
   }, []);
 
   const stopLive = useCallback(async () => {
-    origCountAtLidRefreshRef.current = 0;
     stopTranscription();
     stopOwnedMic();
     if (tabCaptureStopRef.current) {
@@ -640,7 +590,6 @@ export default function TrialSonioxXWorkspace() {
     }
     setStarting(true);
     setSessionError(null);
-    origCountAtLidRefreshRef.current = 0;
     setClearedForPrivacy(false);
     setMarkedRowId(null);
     tailPinnedRef.current = true;

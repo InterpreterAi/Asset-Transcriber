@@ -33,19 +33,20 @@ describe("rowsFromSonioxTokens", () => {
     expect(rows[0]?.origFinal).toBe("flavored mold");
   });
 
-  it("opens a new bubble after Soniox <end> so two utterances are not concatenated", () => {
+  it("keeps the same speaker on one bubble across <end> (spelling and phone numbers must not chop)", () => {
     const rows = rowsFromSonioxTokens([
-      tok({ text: "Thank you for calling", speaker: "1", language: "en", translation_status: "original" }),
-      tok({ text: "شكرًا لاتصالك", speaker: "1", language: "ar", translation_status: "translation" }),
+      tok({ text: "Sure. It's 215 4.", speaker: "1", language: "en", translation_status: "original" }),
+      tok({ text: "أكيد. هو 215 4.", speaker: "1", language: "ar", translation_status: "translation" }),
       tok({ text: "<end>", speaker: "1" }),
-      tok({ text: " Hello, can you hear me?", speaker: "1", language: "en", translation_status: "original" }),
-      tok({ text: " مرحبًا، هل تسمعني؟", speaker: "1", language: "ar", translation_status: "translation" }),
+      tok({ text: " 31.", speaker: "1", language: "en", translation_status: "original" }),
+      tok({ text: " 31.", speaker: "1", language: "ar", translation_status: "translation" }),
+      tok({ text: "<end>", speaker: "1" }),
+      tok({ text: " 5307.", speaker: "1", language: "en", translation_status: "original" }),
+      tok({ text: " 5307.", speaker: "1", language: "ar", translation_status: "translation" }),
     ]);
-    expect(rows).toHaveLength(2);
-    expect(rows[0]?.origFinal).toBe("Thank you for calling");
-    expect(rows[0]?.transFinal).toBe("شكرًا لاتصالك");
-    expect(rows[1]?.origFinal).toBe(" Hello, can you hear me?");
-    expect(rows[1]?.transFinal).toBe(" مرحبًا، هل تسمعني؟");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.origFinal).toBe("Sure. It's 215 4. 31. 5307.");
+    expect(rows[0]?.transFinal).toBe("أكيد. هو 215 4. 31. 5307.");
   });
 
   it("opens a new bubble after a 10s same-speaker pause, not a short pause", () => {

@@ -134,20 +134,19 @@ function effectiveSpokenSpeakers(tokens: Token[]): (string | undefined)[] {
  * https://soniox.com/docs/stt/rt/real-time-translation
  *
  * Official two-way stream: originals, then translations, then `<end>` when
- * endpoint detection finalizes. The next original after `<end>` starts a new row.
+ * endpoint detection finalizes. `<end>` is skipped — a short pause while spelling
+ * a name or a phone number must not chop the same speaker into tiny bubbles.
  * https://github.com/soniox/soniox_examples/tree/master/speech_to_text
  *
- * A new bubble opens for:
+ * A new bubble opens only for:
  * - a new speaker
+ * - a spoken-language change (EN vs AR, EN vs ES, any pair)
  * - the same speaker after a 10s pause
- * - a spoken-language change (EN vs AR must not share a line)
- * - Soniox `<end>` (next original starts a new utterance)
  */
 export function rowsFromSonioxTokens(tokens: Token[]): SonioxXRow[] {
   const rows: SonioxXRow[] = [];
   let current: SonioxXRow | null = null;
   let seq = 0;
-  let endPending = false;
   const speakers = effectiveSpokenSpeakers(tokens);
 
   const openRow = (speaker?: string): SonioxXRow => {
@@ -160,10 +159,7 @@ export function rowsFromSonioxTokens(tokens: Token[]): SonioxXRow[] {
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i]!;
     if (!token.text) continue;
-    if (token.text === "<end>") {
-      endPending = true;
-      continue;
-    }
+    if (token.text === "<end>") continue;
 
     if (!isTranslationToken(token)) {
       const speaker = speakers[i];
@@ -180,9 +176,8 @@ export function rowsFromSonioxTokens(tokens: Token[]): SonioxXRow[] {
           ms - current.lastOrigMs >= SAME_SPEAKER_PAUSE_MS,
       );
 
-      if (!current || speakerChanged || longPause || languageChanged || endPending) {
+      if (!current || speakerChanged || longPause || languageChanged) {
         current = openRow(speaker);
-        endPending = false;
       } else if (!current.speaker && speaker) {
         current.speaker = speaker;
       }

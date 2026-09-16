@@ -38,8 +38,6 @@ export type TrialSonioxXStartOptions = {
   audioConstraints?: MediaTrackConstraints;
   /** Prefetched temp key so start() does not wait on a second /token round-trip. */
   apiKey?: string;
-  /** Reopen the Soniox socket without wiping the transcript (LID unlock). */
-  keepTokens?: boolean;
 };
 
 // useTranscribe hook wraps Soniox speech-to-text-web SDK.
@@ -73,15 +71,10 @@ export default function useSonioxClient({
   const [error, setError] = useState<TranscriptionError | null>(null);
 
   const startTranscription = useCallback(async (startOptions?: TrialSonioxXStartOptions) => {
-    if (!startOptions?.keepTokens) {
-      setFinalTokens([]);
-      setNonFinalTokens([]);
-    } else {
-      setNonFinalTokens([]);
-    }
+    setFinalTokens([]);
+    setNonFinalTokens([]);
     setError(null);
     pendingStartKeyRef.current = startOptions?.apiKey?.trim() || null;
-    sonioxClient.current?.stop();
 
     // First message we send contains configuration. Here we set if we set if we
     // are transcribing or translating. For translation we also set if it is
