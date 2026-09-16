@@ -184,14 +184,19 @@ export function buildStableDialectContext(langA: string, langB: string): SonioxS
   const b = langBase(langB);
   const pinA = pinFor(a);
   const pinB = pinFor(b);
+  const nameA = LANG_NAME[a] ?? a;
+  const nameB = LANG_NAME[b] ?? b;
   const arabicPair = a === "ar" || b === "ar";
   const general: { key: string; value: string }[] = [
     { key: "domain", value: "Live two-way interpretation" },
+    // Soniox LID uses this key; a single language here locks the rest of the session.
+    // https://soniox.com/docs/stt/concepts/context#improving-language-detection
+    { key: "language", value: `${nameA} and ${nameB}` },
     {
       key: "languages",
       value: arabicPair
-        ? `Two-way ${LANG_NAME[a] ?? a} and ${LANG_NAME[b] ?? b}. Both languages will be spoken. Arabic includes ${AR_SPOKEN_DIALECTS}. Transcribe whichever is spoken; Maghrebi/Darija is Arabic, not French; do not ignore Arabic dialect as silence.`
-        : `Two-way ${LANG_NAME[a] ?? a} and ${LANG_NAME[b] ?? b}. Both languages will be spoken. Transcribe whichever is spoken; do not ignore one side.`,
+        ? `Two-way ${nameA} and ${nameB}. Both languages will be spoken. Arabic includes ${AR_SPOKEN_DIALECTS}. Transcribe whichever is spoken; Maghrebi/Darija is Arabic, not French; do not ignore Arabic dialect as silence.`
+        : `Two-way ${nameA} and ${nameB}. Both languages will be spoken. Transcribe whichever is spoken; do not ignore one side.`,
     },
     {
       key: "transcription",
@@ -207,21 +212,20 @@ export function buildStableDialectContext(langA: string, langB: string): SonioxS
         "Translation column only: always the stable standard written variety of the TARGET language. Never copy the spoken dialect into the translation. Never echo the source-language word or Latin abbreviation in the translation; use only the target wording from translation_terms." +
         (arabicPair ? " When the target is Arabic, use الفصحى / Modern Standard Arabic only." : ""),
     },
-    { key: registerKey(a), value: `TRANSLATION into ${LANG_NAME[a] ?? a} uses: ${pinA}` },
-    { key: registerKey(b), value: `TRANSLATION into ${LANG_NAME[b] ?? b} uses: ${pinB}` },
+    { key: registerKey(a), value: `TRANSLATION into ${nameA} uses: ${pinA}` },
+    { key: registerKey(b), value: `TRANSLATION into ${nameB} uses: ${pinB}` },
     {
       key: "numbers",
       value:
         "Keep phone numbers, dates, times, and numeric IDs in the same digit sequence as spoken. Do not reverse digits.",
     },
   ];
-  if (arabicPair) {
-    general.push({
-      key: "instructions",
-      value:
-        `Arabic will be spoken in any dialect (${AR_SPOKEN_DIALECTS}). Transcribe that original as dialect Arabic. Translation into Arabic is الفصحى only.`,
-    });
-  }
+  general.push({
+    key: "instructions",
+    value: arabicPair
+      ? `Speakers will alternate between ${nameA} and ${nameB}. Transcribe English in English. Transcribe Arabic (any dialect: ${AR_SPOKEN_DIALECTS}) in Arabic script — never English or Latin. Translation into Arabic is الفصحى only.`
+      : `Speakers will alternate between ${nameA} and ${nameB}. Transcribe each utterance in the language being spoken. Do not substitute one pair language for the other.`,
+  });
 
   const textParts = [a, b]
     .map((code) => PAIR_TRANSLATION_TEXT[code])

@@ -32,6 +32,9 @@ describe("stable dialect pins", () => {
     expect(ctx.general?.length ?? 0).toBeLessThanOrEqual(10);
     expect(ctx.general?.some((row) => /فصحى/.test(row.value))).toBe(true);
     expect(ctx.general?.some((row) => /Both languages will be spoken/i.test(row.value))).toBe(true);
+    expect(ctx.general?.some((row) => row.key === "language" && /Arabic/i.test(row.value) && /English/i.test(row.value))).toBe(
+      true,
+    );
     expect(ctx.general?.some((row) => /Never drop one side/i.test(row.value))).toBe(true);
     expect(ctx.general?.some((row) => /Yemeni/i.test(row.value))).toBe(true);
     expect(ctx.general?.some((row) => /Iraqi/i.test(row.value))).toBe(true);

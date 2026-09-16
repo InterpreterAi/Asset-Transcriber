@@ -6,8 +6,11 @@
  * https://github.com/soniox/soniox_examples/tree/master/speech_to_text
  *
  * English is the pivot. Each pair is `en-<lang>` with `{ "en", "<lang>" }`.
- * We emit both directions as translation_terms (highest-value first) and
- * remaining pairs as compact `text` glossary lines. Hard limit ~10,000 chars.
+ * We emit both directions as translation_terms (highest-value first).
+ * English pack words must NOT go in `terms` or `text` — Soniox uses those to
+ * lock live LID onto English after a long English stretch
+ * (https://soniox.com/docs/stt/concepts/context#improving-language-detection).
+ * Hard limit ~10,000 chars.
  */
 import type { SonioxStartContext } from "./stable-dialect-context";
 import pack from "./interpreter-glossary.json";
@@ -319,7 +322,17 @@ function fits(ctx: SonioxStartContext): boolean {
 
 function isPriorityPairStart(term: GlossaryTerm): boolean {
   const src = term.source.trim();
-  return isRecognitionPin(src) || /^(sonogram|ultrasound|mammogram|mammography)$/i.test(src);
+  return (
+    isRecognitionPin(src) ||
+    /^(sonogram|ultrasound|mammogram|mammography|stroke)$/i.test(src)
+  );
+}
+
+/** Latin/English-only strings. Putting these in `terms` locks STT onto English. */
+export function isLatinOnlyRecognitionTerm(value: string): boolean {
+  const t = value.trim();
+  if (!t) return true;
+  return /^[A-Za-z0-9&.,;:+/'()%°.\-\s]+$/.test(t);
 }
 
 function addPackPairs(
@@ -371,39 +384,31 @@ export function mergeSonioxXInterpreterContext(args: {
 
   addPackPairs(ctx, args.packTerms, seen, includedSources, userSources, isPriorityPairStart);
 
-  const terms: string[] = [...(ctx.terms ?? [])];
+  // Recognition `terms` stay in the pair's non-English script. English MRI/CPR
+  // pins and glossary `text` dumps make Soniox treat later Arabic as English.
+  void args.packPins;
+  void args.packLines;
+  const MAX_NON_ENGLISH_PACK_TERMS = 48;
+  const terms: string[] = [...(ctx.terms ?? [])].filter((t) => !isLatinOnlyRecognitionTerm(t));
   const seenTerm = new Set(terms.map((t) => t.toLowerCase()));
-  for (const pin of args.packPins) {
-    if (!includedSources.has(pin) && !isRecognitionPin(pin)) continue;
-    if (seenTerm.has(pin.toLowerCase())) continue;
-    seenTerm.add(pin.toLowerCase());
-    terms.push(pin);
+  let addedPackTerms = 0;
+  for (const row of args.packTerms) {
+    if (addedPackTerms >= MAX_NON_ENGLISH_PACK_TERMS) break;
+    const src = row.source.trim();
+    if (!src || isLatinOnlyRecognitionTerm(src)) continue;
+    if (seenTerm.has(src.toLowerCase())) continue;
+    seenTerm.add(src.toLowerCase());
+    terms.push(src);
     ctx.terms = terms;
     if (!fits(ctx)) {
       terms.pop();
       break;
     }
+    addedPackTerms += 1;
   }
   if (terms.length > 0) ctx.terms = terms;
   else delete ctx.terms;
 
-  const baseText = ctx.text ?? "";
-  const header =
-    "Bidirectional medical glossary (either side is source). Use the paired wording only; never keep the English word in the non-English translation.";
-  const extra: string[] = [];
-  for (const line of args.packLines ?? []) {
-    const en = line.split("=")[0] ?? "";
-    if (!en || includedSources.has(en)) continue;
-    const lead = /^([A-Z]{2,8}|D&C)\s+/.exec(en);
-    if (lead && includedSources.has(lead[1])) continue;
-    extra.push(line);
-    ctx.text = [baseText, header, extra.join("\n")].filter(Boolean).join("\n");
-    if (!fits(ctx)) {
-      extra.pop();
-      ctx.text = extra.length > 0 ? [baseText, header, extra.join("\n")].filter(Boolean).join("\n") : baseText || undefined;
-      break;
-    }
-  }
   if (!ctx.text) delete ctx.text;
 
   addPackPairs(ctx, args.packTerms, seen, includedSources, userSources, (start) => !isPriorityPairStart(start));
