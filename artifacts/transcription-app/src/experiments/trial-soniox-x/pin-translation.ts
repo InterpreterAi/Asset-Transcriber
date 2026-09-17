@@ -83,6 +83,46 @@ function dedupeAdjacentPreferred(text: string, preferred: string): string {
   return text.replace(new RegExp(`(${esc})(\\s+${esc})+`, "gu"), "$1");
 }
 
+/**
+ * When the original clearly said glossary source A→preferred, but Soniox put a
+ * *different* glossary target B in the translation (and B's source was never
+ * spoken), swap B → preferred.
+ *
+ * Fixes: المريء in Original + "appendix" in Translation → "Esophagus".
+ */
+function replaceCompetingGlossaryTargets(
+  translation: string,
+  preferred: string,
+  original: string,
+  pairs: readonly GlossaryTerm[],
+): string {
+  const pref = preferred.trim();
+  if (pref.length < 2 || translationHasPreferred(translation, pref)) return translation;
+
+  const competitors = pairs
+    .map((p) => p.target.trim())
+    .filter((t) => {
+      if (t.length < 4) return false;
+      if (t.toLowerCase() === pref.toLowerCase()) return false;
+      if (!phraseIn(translation, t)) return false;
+      // Keep B only if its own source was also spoken (both terms said).
+      const sourcesForTarget = pairs.filter((p) => p.target.trim().toLowerCase() === t.toLowerCase());
+      return sourcesForTarget.every((p) => !phraseIn(original, p.source));
+    })
+    .sort((a, b) => b.length - a.length);
+
+  let out = translation;
+  const seenWrong = new Set<string>();
+  for (const wrong of competitors) {
+    const key = wrong.toLowerCase();
+    if (seenWrong.has(key)) continue;
+    seenWrong.add(key);
+    if (translationHasPreferred(out, pref)) break;
+    out = out.replace(phrasePattern(wrong), pref);
+  }
+  return out;
+}
+
 export function applyExactGlossaryPins(
   original: string,
   translation: string,
@@ -107,6 +147,10 @@ export function applyExactGlossaryPins(
 
     if (!translationHasPreferred(out, target) && originalEndsWithPhrase(original, source)) {
       out = replaceTrailingGuess(out, target);
+    }
+
+    if (!translationHasPreferred(out, target)) {
+      out = replaceCompetingGlossaryTargets(out, target, original, ranked);
     }
   }
 
