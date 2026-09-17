@@ -36,10 +36,16 @@ describe("interpreter glossary", () => {
       packPins: pack.recognitionPins,
       packLines: pack.glossaryLines,
       userTerms: [{ source: "MRI", target: "الرنين المغناطيسي" }],
+      langA: "en",
+      langB: "ar",
     });
     expect(JSON.stringify(ctx).length).toBeLessThanOrEqual(SONIOX_X_CONTEXT_SAFE_CHARS);
     expect(ctx.translation_terms?.some((t) => t.source === "MRI")).toBe(true);
     expect(ctx.translation_terms?.some((t) => t.target === "MRI")).toBe(true);
+    expect(ctx.terms?.some((t) => /you're through to the Arabic interpreter/i.test(t))).toBe(true);
+    expect(ctx.general?.some((kv) => kv.key === "call_opening" && /UR3/i.test(kv.value))).toBe(true);
+    expect(ctx.general?.find((kv) => kv.key === "domain")?.value).toMatch(/Telephone and video interpreting/i);
+    expect(ctx.general?.find((kv) => kv.key === "domain")?.value).not.toMatch(/^Healthcare interpretation$/i);
   });
 
   it("loads the en-ar medical pack both directions", () => {
@@ -62,19 +68,22 @@ describe("interpreter glossary", () => {
       packPins: pack.recognitionPins,
       packLines: pack.glossaryLines,
       userTerms: [],
+      langA: "en",
+      langB: "ar",
     });
     const n = JSON.stringify(ctx).length;
     expect(n).toBeGreaterThan(8_000);
     expect(n).toBeLessThanOrEqual(SONIOX_X_CONTEXT_SAFE_CHARS);
     for (const en of ["CPR", "MRI", "ECG", "IUD", "Stroke", "Sonogram"] as const) {
-      expect(
-        ctx.translation_terms?.some((t) => t.source === en) || (ctx.text ?? "").includes(`${en}=`),
-      ).toBe(true);
+      const ok =
+        ctx.translation_terms?.some((t) => t.source === en) || (ctx.text ?? "").includes(`${en}=`);
+      expect(ok, `${en} missing; chars=${n}`).toBe(true);
     }
     const sono = ctx.translation_terms?.find((t) => t.source === "Sonogram");
     expect(sono?.target).toBe("تصوير بالموجات فوق الصوتية");
     expect(sono?.target ?? "").not.toMatch(/sonogram/i);
     expect(ctx.terms?.includes("بزاف")).toBe(true);
+    expect(ctx.terms?.some((t) => /you are through to the Arabic interpreter/i.test(t))).toBe(true);
     expect(JSON.stringify(ctx)).toMatch(/Yemeni/);
   });
 
@@ -98,6 +107,8 @@ describe("interpreter glossary", () => {
       packPins: pack.recognitionPins,
       packLines: pack.glossaryLines,
       userTerms: [],
+      langA: "en",
+      langB: "es",
     });
     const n = JSON.stringify(ctx).length;
     expect(n).toBeGreaterThan(8_000);
@@ -111,6 +122,8 @@ describe("interpreter glossary", () => {
     expect(sono?.target).toBe("ecografía");
     expect(sono?.target ?? "").not.toMatch(/sonogram/i);
     expect(ctx.text).toMatch(/español estándar/i);
+    expect(ctx.terms?.some((t) => /you're through to the Spanish interpreter/i.test(t))).toBe(true);
+    expect(ctx.terms?.some((t) => /Arabic interpreter/i.test(t))).toBe(true);
   });
 
   it("loads the en-pl medical pack both directions", () => {
@@ -133,6 +146,8 @@ describe("interpreter glossary", () => {
       packPins: pack.recognitionPins,
       packLines: pack.glossaryLines,
       userTerms: [],
+      langA: "en",
+      langB: "pl",
     });
     const n = JSON.stringify(ctx).length;
     expect(n).toBeGreaterThan(8_000);

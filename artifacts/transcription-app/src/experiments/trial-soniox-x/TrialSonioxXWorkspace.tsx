@@ -326,6 +326,8 @@ export default function TrialSonioxXWorkspace() {
       packPins: pack.recognitionPins,
       packLines: pack.glossaryLines,
       userTerms: userGlossaryToTerms(glossaryRows, languageA.code, languageB.code),
+      langA: languageA.code,
+      langB: languageB.code,
     });
   }, [dialectContext, glossaryRows, languageA.code, languageB.code]);
 
