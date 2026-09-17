@@ -12,7 +12,7 @@
 import type { SonioxStartContext } from "./stable-dialect-context";
 import pack from "./interpreter-glossary.json";
 
-export const SONIOX_X_CONTEXT_SAFE_CHARS = 9_950;
+export const SONIOX_X_CONTEXT_SAFE_CHARS = 9_600;
 
 export type GlossaryTerm = { source: string; target: string };
 type PackEntry = Record<string, string>;
@@ -72,6 +72,68 @@ const CLINICAL_SINGLE = new Set(
     "emphysema",
     "tuberculosis",
     "andropause",
+  ].map((w) => w.toLowerCase()),
+);
+
+/** Highest-priority legal pins — kept small so medical abbreviations still fit. */
+const LEGAL_PRIORITY = new Set(
+  [
+    "immigration status",
+    "felony",
+    "misdemeanor",
+    "pro bono",
+    "attorney",
+    "lawyer",
+    "asylum",
+    "deportation",
+    "green card",
+    "visa",
+    "restraining order",
+    "power of attorney",
+    "public defender",
+    "legal aid",
+  ].map((w) => w.toLowerCase()),
+);
+
+const LEGAL_SINGLE = new Set(
+  [
+    ...LEGAL_PRIORITY,
+    "naturalization",
+    "immigration court",
+    "court",
+    "judge",
+    "hearing",
+    "trial",
+    "bail",
+    "warrant",
+    "subpoena",
+    "affidavit",
+    "guilty",
+    "not guilty",
+    "sentence",
+    "probation",
+    "parole",
+    "plaintiff",
+    "defendant",
+    "witness",
+    "testimony",
+    "evidence",
+    "charges",
+    "indictment",
+    "conviction",
+    "appeal",
+    "lawsuit",
+    "settlement",
+    "divorce",
+    "notary",
+    "client",
+    "confidentiality",
+    "arrest",
+    "prosecutor",
+    "legal office",
+    "consulate",
+    "passport",
+    "undocumented",
   ].map((w) => w.toLowerCase()),
 );
 
@@ -153,8 +215,10 @@ function otherLangFromPairKey(pairKey: string): string | null {
 
 function rowScore(en: string): number {
   const t = en.trim();
-  if (RECOGNITION_ABBR.test(t) || /^[A-Z]{3,8}$/.test(t)) return 120;
-  if (/^(sonogram|ultrasound|mammogram|mammography)$/i.test(t)) return 115;
+  if (RECOGNITION_ABBR.test(t) || /^[A-Z]{3,8}$/.test(t)) return 130;
+  if (/^(sonogram|ultrasound|mammogram|mammography|stroke)$/i.test(t)) return 125;
+  if (LEGAL_PRIORITY.has(t.toLowerCase())) return 118;
+  if (LEGAL_SINGLE.has(t.toLowerCase())) return 95;
   if (CLINICAL_SINGLE.has(t.toLowerCase())) return 90;
   if (/^[A-Z]{2,8}\s+\S/.test(t)) return 50;
   const words = t.split(/\s+/).filter(Boolean).length;
@@ -400,7 +464,7 @@ function withHealthcareTopic(ctx: SonioxStartContext): void {
     ctx.general.push({
       key: "topic",
       value:
-        "Live interpreter call — introductions and handoff lines first; medical/clinical terms when spoken",
+        "Live interpreter call — introductions first; medical and legal terms when spoken",
     });
   }
 }
@@ -410,11 +474,15 @@ function fits(ctx: SonioxStartContext, reserve = 0): boolean {
 }
 
 /** Chars reserved so intro handoff terms still fit after the medical pack. */
-const INTRO_CONTEXT_RESERVE = 750;
+const INTRO_CONTEXT_RESERVE = 500;
 
 function isPriorityPairStart(term: GlossaryTerm): boolean {
   const src = term.source.trim();
-  return isRecognitionPin(src) || /^(sonogram|ultrasound|mammogram|mammography)$/i.test(src);
+  return (
+    LEGAL_PRIORITY.has(src.toLowerCase()) ||
+    isRecognitionPin(src) ||
+    /^(sonogram|ultrasound|mammogram|mammography|stroke)$/i.test(src)
+  );
 }
 
 function addPackPairs(
@@ -524,8 +592,17 @@ export function mergeSonioxXInterpreterContext(args: {
 
   // Intro handoff bias last so medical pack keeps its slot — still prepended in terms.
   withInterpreterCallFraming(ctx, args.langA, args.langB);
+  const protectedSources = new Set(
+    [...LEGAL_PRIORITY, "sonogram", "ultrasound", "mammogram", "mammography", "stroke", "cpr", "mri", "ecg", "iud"],
+  );
   while (!fits(ctx) && (ctx.translation_terms?.length ?? 0) > args.userTerms.length) {
-    ctx.translation_terms!.pop();
+    const terms = ctx.translation_terms!;
+    let idx = terms.length - 1;
+    while (idx >= 0 && protectedSources.has(terms[idx]!.source.trim().toLowerCase())) {
+      idx -= 1;
+    }
+    if (idx < 0) break;
+    terms.splice(idx, 1);
   }
   while (!fits(ctx) && (ctx.terms?.length ?? 0) > buildInterpreterIntroTerms(args.langA, args.langB).length) {
     ctx.terms!.pop();

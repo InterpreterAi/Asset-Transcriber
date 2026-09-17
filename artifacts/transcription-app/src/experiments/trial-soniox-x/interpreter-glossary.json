@@ -2844,6 +2844,242 @@
       {
         "en": "white blood count",
         "ar": "تعداد كريات الدم البيضاء"
+      },
+      {
+        "en": "Immigration status",
+        "ar": "الوضع الهجري"
+      },
+      {
+        "en": "Felony",
+        "ar": "جناية"
+      },
+      {
+        "en": "Misdemeanor",
+        "ar": "جنحة"
+      },
+      {
+        "en": "Pro bono",
+        "ar": "مجاني بدون أتعاب"
+      },
+      {
+        "en": "Attorney",
+        "ar": "محامٍ"
+      },
+      {
+        "en": "Lawyer",
+        "ar": "محامٍ"
+      },
+      {
+        "en": "Public defender",
+        "ar": "محامٍ عام"
+      },
+      {
+        "en": "Legal aid",
+        "ar": "مساعدة قانونية"
+      },
+      {
+        "en": "Asylum",
+        "ar": "لجوء"
+      },
+      {
+        "en": "Asylum seeker",
+        "ar": "طالب لجوء"
+      },
+      {
+        "en": "Refugee",
+        "ar": "لاجئ"
+      },
+      {
+        "en": "Deportation",
+        "ar": "ترحيل"
+      },
+      {
+        "en": "Detention",
+        "ar": "احتجاز"
+      },
+      {
+        "en": "Green card",
+        "ar": "البطاقة الخضراء"
+      },
+      {
+        "en": "Permanent resident",
+        "ar": "مقيم دائم"
+      },
+      {
+        "en": "Work permit",
+        "ar": "تصريح عمل"
+      },
+      {
+        "en": "Visa",
+        "ar": "تأشيرة"
+      },
+      {
+        "en": "Citizenship",
+        "ar": "جنسية"
+      },
+      {
+        "en": "Naturalization",
+        "ar": "تجنيس"
+      },
+      {
+        "en": "Immigration court",
+        "ar": "محكمة الهجرة"
+      },
+      {
+        "en": "Court",
+        "ar": "محكمة"
+      },
+      {
+        "en": "Judge",
+        "ar": "قاضٍ"
+      },
+      {
+        "en": "Hearing",
+        "ar": "جلسة استماع"
+      },
+      {
+        "en": "Trial",
+        "ar": "محاكمة"
+      },
+      {
+        "en": "Bail",
+        "ar": "كفالة"
+      },
+      {
+        "en": "Warrant",
+        "ar": "مذكرة توقيف"
+      },
+      {
+        "en": "Subpoena",
+        "ar": "أمر إحضار"
+      },
+      {
+        "en": "Affidavit",
+        "ar": "إفادة مشفوعة بيمين"
+      },
+      {
+        "en": "Guilty",
+        "ar": "مذنب"
+      },
+      {
+        "en": "Not guilty",
+        "ar": "غير مذنب"
+      },
+      {
+        "en": "Sentence",
+        "ar": "حكم قضائي"
+      },
+      {
+        "en": "Probation",
+        "ar": "مراقبة قضائية"
+      },
+      {
+        "en": "Parole",
+        "ar": "إفراج مشروط"
+      },
+      {
+        "en": "Plaintiff",
+        "ar": "المدعي"
+      },
+      {
+        "en": "Defendant",
+        "ar": "المدعى عليه"
+      },
+      {
+        "en": "Witness",
+        "ar": "شاهد"
+      },
+      {
+        "en": "Testimony",
+        "ar": "شهادة"
+      },
+      {
+        "en": "Evidence",
+        "ar": "أدلة"
+      },
+      {
+        "en": "Charges",
+        "ar": "تهم"
+      },
+      {
+        "en": "Indictment",
+        "ar": "لائحة اتهام"
+      },
+      {
+        "en": "Conviction",
+        "ar": "إدانة"
+      },
+      {
+        "en": "Appeal",
+        "ar": "استئناف"
+      },
+      {
+        "en": "Lawsuit",
+        "ar": "دعوى قضائية"
+      },
+      {
+        "en": "Settlement",
+        "ar": "تسوية"
+      },
+      {
+        "en": "Restraining order",
+        "ar": "أمر منع اقتراب"
+      },
+      {
+        "en": "Protective order",
+        "ar": "أمر حماية"
+      },
+      {
+        "en": "Child support",
+        "ar": "نفقة أطفال"
+      },
+      {
+        "en": "Custody",
+        "ar": "حضانة"
+      },
+      {
+        "en": "Divorce",
+        "ar": "طلاق"
+      },
+      {
+        "en": "Power of attorney",
+        "ar": "توكيل رسمي"
+      },
+      {
+        "en": "Notary",
+        "ar": "كاتب عدل"
+      },
+      {
+        "en": "Client",
+        "ar": "موكل"
+      },
+      {
+        "en": "Confidentiality",
+        "ar": "السرية"
+      },
+      {
+        "en": "Arrest",
+        "ar": "اعتقال"
+      },
+      {
+        "en": "Prosecutor",
+        "ar": "المدعي العام"
+      },
+      {
+        "en": "Legal office",
+        "ar": "مكتب محاماة"
+      },
+      {
+        "en": "Consulate",
+        "ar": "قنصلية"
+      },
+      {
+        "en": "Passport",
+        "ar": "جواز سفر"
+      },
+      {
+        "en": "Undocumented",
+        "ar": "بدون وثائق"
       }
     ],
     "en-nl": [],
@@ -5712,9 +5948,482 @@
       {
         "en": "white blood count",
         "es": "recuento de glóbulos blancos"
+      },
+      {
+        "en": "Immigration status",
+        "es": "estatus migratorio"
+      },
+      {
+        "en": "Felony",
+        "es": "delito grave"
+      },
+      {
+        "en": "Misdemeanor",
+        "es": "delito menor"
+      },
+      {
+        "en": "Pro bono",
+        "es": "pro bono"
+      },
+      {
+        "en": "Attorney",
+        "es": "abogado"
+      },
+      {
+        "en": "Lawyer",
+        "es": "abogado"
+      },
+      {
+        "en": "Public defender",
+        "es": "defensor público"
+      },
+      {
+        "en": "Legal aid",
+        "es": "asistencia jurídica"
+      },
+      {
+        "en": "Asylum",
+        "es": "asilo"
+      },
+      {
+        "en": "Asylum seeker",
+        "es": "solicitante de asilo"
+      },
+      {
+        "en": "Refugee",
+        "es": "refugiado"
+      },
+      {
+        "en": "Deportation",
+        "es": "deportación"
+      },
+      {
+        "en": "Detention",
+        "es": "detención"
+      },
+      {
+        "en": "Green card",
+        "es": "tarjeta verde"
+      },
+      {
+        "en": "Permanent resident",
+        "es": "residente permanente"
+      },
+      {
+        "en": "Work permit",
+        "es": "permiso de trabajo"
+      },
+      {
+        "en": "Visa",
+        "es": "visa"
+      },
+      {
+        "en": "Citizenship",
+        "es": "ciudadanía"
+      },
+      {
+        "en": "Naturalization",
+        "es": "naturalización"
+      },
+      {
+        "en": "Immigration court",
+        "es": "tribunal de inmigración"
+      },
+      {
+        "en": "Court",
+        "es": "tribunal"
+      },
+      {
+        "en": "Judge",
+        "es": "juez"
+      },
+      {
+        "en": "Hearing",
+        "es": "audiencia"
+      },
+      {
+        "en": "Trial",
+        "es": "juicio"
+      },
+      {
+        "en": "Bail",
+        "es": "fianza"
+      },
+      {
+        "en": "Warrant",
+        "es": "orden de arresto"
+      },
+      {
+        "en": "Subpoena",
+        "es": "citación"
+      },
+      {
+        "en": "Affidavit",
+        "es": "declaración jurada"
+      },
+      {
+        "en": "Guilty",
+        "es": "culpable"
+      },
+      {
+        "en": "Not guilty",
+        "es": "no culpable"
+      },
+      {
+        "en": "Sentence",
+        "es": "condena"
+      },
+      {
+        "en": "Probation",
+        "es": "libertad condicional"
+      },
+      {
+        "en": "Parole",
+        "es": "libertad condicional bajo palabra"
+      },
+      {
+        "en": "Plaintiff",
+        "es": "demandante"
+      },
+      {
+        "en": "Defendant",
+        "es": "acusado"
+      },
+      {
+        "en": "Witness",
+        "es": "testigo"
+      },
+      {
+        "en": "Testimony",
+        "es": "testimonio"
+      },
+      {
+        "en": "Evidence",
+        "es": "pruebas"
+      },
+      {
+        "en": "Charges",
+        "es": "cargos"
+      },
+      {
+        "en": "Indictment",
+        "es": "acta de acusación"
+      },
+      {
+        "en": "Conviction",
+        "es": "condena firme"
+      },
+      {
+        "en": "Appeal",
+        "es": "apelación"
+      },
+      {
+        "en": "Lawsuit",
+        "es": "demanda"
+      },
+      {
+        "en": "Settlement",
+        "es": "acuerdo extrajudicial"
+      },
+      {
+        "en": "Restraining order",
+        "es": "orden de alejamiento"
+      },
+      {
+        "en": "Protective order",
+        "es": "orden de protección"
+      },
+      {
+        "en": "Child support",
+        "es": "pensión alimenticia"
+      },
+      {
+        "en": "Custody",
+        "es": "custodia"
+      },
+      {
+        "en": "Divorce",
+        "es": "divorcio"
+      },
+      {
+        "en": "Power of attorney",
+        "es": "poder notarial"
+      },
+      {
+        "en": "Notary",
+        "es": "notario"
+      },
+      {
+        "en": "Client",
+        "es": "cliente"
+      },
+      {
+        "en": "Confidentiality",
+        "es": "confidencialidad"
+      },
+      {
+        "en": "Arrest",
+        "es": "arresto"
+      },
+      {
+        "en": "Prosecutor",
+        "es": "fiscal"
+      },
+      {
+        "en": "Legal office",
+        "es": "bufete jurídico"
+      },
+      {
+        "en": "Consulate",
+        "es": "consulado"
+      },
+      {
+        "en": "Passport",
+        "es": "pasaporte"
+      },
+      {
+        "en": "Undocumented",
+        "es": "indocumentado"
       }
     ],
-    "en-de": [],
+    "en-de": [
+      {
+        "en": "Immigration status",
+        "de": "Aufenthaltsstatus"
+      },
+      {
+        "en": "Felony",
+        "de": "Verbrechen"
+      },
+      {
+        "en": "Misdemeanor",
+        "de": "Vergehen"
+      },
+      {
+        "en": "Pro bono",
+        "de": "pro bono"
+      },
+      {
+        "en": "Attorney",
+        "de": "Anwalt"
+      },
+      {
+        "en": "Lawyer",
+        "de": "Rechtsanwalt"
+      },
+      {
+        "en": "Public defender",
+        "de": "Pflichtverteidiger"
+      },
+      {
+        "en": "Legal aid",
+        "de": "Prozesskostenhilfe"
+      },
+      {
+        "en": "Asylum",
+        "de": "Asyl"
+      },
+      {
+        "en": "Asylum seeker",
+        "de": "Asylbewerber"
+      },
+      {
+        "en": "Refugee",
+        "de": "Flüchtling"
+      },
+      {
+        "en": "Deportation",
+        "de": "Abschiebung"
+      },
+      {
+        "en": "Detention",
+        "de": "Haft"
+      },
+      {
+        "en": "Green card",
+        "de": "Green Card"
+      },
+      {
+        "en": "Permanent resident",
+        "de": "Daueraufenthaltsberechtigter"
+      },
+      {
+        "en": "Work permit",
+        "de": "Arbeitserlaubnis"
+      },
+      {
+        "en": "Visa",
+        "de": "Visum"
+      },
+      {
+        "en": "Citizenship",
+        "de": "Staatsangehörigkeit"
+      },
+      {
+        "en": "Naturalization",
+        "de": "Einbürgerung"
+      },
+      {
+        "en": "Immigration court",
+        "de": "Ausländergericht"
+      },
+      {
+        "en": "Court",
+        "de": "Gericht"
+      },
+      {
+        "en": "Judge",
+        "de": "Richter"
+      },
+      {
+        "en": "Hearing",
+        "de": "Anhörung"
+      },
+      {
+        "en": "Trial",
+        "de": "Gerichtsverfahren"
+      },
+      {
+        "en": "Bail",
+        "de": "Kaution"
+      },
+      {
+        "en": "Warrant",
+        "de": "Haftbefehl"
+      },
+      {
+        "en": "Subpoena",
+        "de": "Vorladung"
+      },
+      {
+        "en": "Affidavit",
+        "de": "eidesstattliche Erklärung"
+      },
+      {
+        "en": "Guilty",
+        "de": "schuldig"
+      },
+      {
+        "en": "Not guilty",
+        "de": "nicht schuldig"
+      },
+      {
+        "en": "Sentence",
+        "de": "Strafmaß"
+      },
+      {
+        "en": "Probation",
+        "de": "Bewährung"
+      },
+      {
+        "en": "Parole",
+        "de": "bedingte Entlassung"
+      },
+      {
+        "en": "Plaintiff",
+        "de": "Kläger"
+      },
+      {
+        "en": "Defendant",
+        "de": "Angeklagter"
+      },
+      {
+        "en": "Witness",
+        "de": "Zeuge"
+      },
+      {
+        "en": "Testimony",
+        "de": "Zeugenaussage"
+      },
+      {
+        "en": "Evidence",
+        "de": "Beweismittel"
+      },
+      {
+        "en": "Charges",
+        "de": "Anklagepunkte"
+      },
+      {
+        "en": "Indictment",
+        "de": "Anklageschrift"
+      },
+      {
+        "en": "Conviction",
+        "de": "Verurteilung"
+      },
+      {
+        "en": "Appeal",
+        "de": "Berufung"
+      },
+      {
+        "en": "Lawsuit",
+        "de": "Klage"
+      },
+      {
+        "en": "Settlement",
+        "de": "Vergleich"
+      },
+      {
+        "en": "Restraining order",
+        "de": "Kontaktverbot"
+      },
+      {
+        "en": "Protective order",
+        "de": "Schutzanordnung"
+      },
+      {
+        "en": "Child support",
+        "de": "Kindesunterhalt"
+      },
+      {
+        "en": "Custody",
+        "de": "Sorgerecht"
+      },
+      {
+        "en": "Divorce",
+        "de": "Scheidung"
+      },
+      {
+        "en": "Power of attorney",
+        "de": "Vollmacht"
+      },
+      {
+        "en": "Notary",
+        "de": "Notar"
+      },
+      {
+        "en": "Client",
+        "de": "Mandant"
+      },
+      {
+        "en": "Confidentiality",
+        "de": "Vertraulichkeit"
+      },
+      {
+        "en": "Arrest",
+        "de": "Festnahme"
+      },
+      {
+        "en": "Prosecutor",
+        "de": "Staatsanwalt"
+      },
+      {
+        "en": "Legal office",
+        "de": "Anwaltskanzlei"
+      },
+      {
+        "en": "Consulate",
+        "de": "Konsulat"
+      },
+      {
+        "en": "Passport",
+        "de": "Reisepass"
+      },
+      {
+        "en": "Undocumented",
+        "de": "ohne Papiere"
+      }
+    ],
     "en-pl": [
       {
         "en": "CPR",
@@ -8571,6 +9280,718 @@
       {
         "en": "white blood count",
         "pl": "liczba krwinek białych"
+      },
+      {
+        "en": "Immigration status",
+        "pl": "status imigracyjny"
+      },
+      {
+        "en": "Felony",
+        "pl": "zbrodnia"
+      },
+      {
+        "en": "Misdemeanor",
+        "pl": "występek"
+      },
+      {
+        "en": "Pro bono",
+        "pl": "pro bono"
+      },
+      {
+        "en": "Attorney",
+        "pl": "adwokat"
+      },
+      {
+        "en": "Lawyer",
+        "pl": "prawnik"
+      },
+      {
+        "en": "Public defender",
+        "pl": "obrońca z urzędu"
+      },
+      {
+        "en": "Legal aid",
+        "pl": "pomoc prawna"
+      },
+      {
+        "en": "Asylum",
+        "pl": "azyl"
+      },
+      {
+        "en": "Asylum seeker",
+        "pl": "osoba ubiegająca się o azyl"
+      },
+      {
+        "en": "Refugee",
+        "pl": "uchodźca"
+      },
+      {
+        "en": "Deportation",
+        "pl": "deportacja"
+      },
+      {
+        "en": "Detention",
+        "pl": "areszt"
+      },
+      {
+        "en": "Green card",
+        "pl": "zielona karta"
+      },
+      {
+        "en": "Permanent resident",
+        "pl": "stały rezydent"
+      },
+      {
+        "en": "Work permit",
+        "pl": "zezwolenie na pracę"
+      },
+      {
+        "en": "Visa",
+        "pl": "wiza"
+      },
+      {
+        "en": "Citizenship",
+        "pl": "obywatelstwo"
+      },
+      {
+        "en": "Naturalization",
+        "pl": "naturalizacja"
+      },
+      {
+        "en": "Immigration court",
+        "pl": "sąd imigracyjny"
+      },
+      {
+        "en": "Court",
+        "pl": "sąd"
+      },
+      {
+        "en": "Judge",
+        "pl": "sędzia"
+      },
+      {
+        "en": "Hearing",
+        "pl": "rozprawa"
+      },
+      {
+        "en": "Trial",
+        "pl": "proces"
+      },
+      {
+        "en": "Bail",
+        "pl": "kaucja"
+      },
+      {
+        "en": "Warrant",
+        "pl": "nakaz aresztowania"
+      },
+      {
+        "en": "Subpoena",
+        "pl": "wezwanie sądowe"
+      },
+      {
+        "en": "Affidavit",
+        "pl": "oświadczenie pod przysięgą"
+      },
+      {
+        "en": "Guilty",
+        "pl": "winny"
+      },
+      {
+        "en": "Not guilty",
+        "pl": "niewinny"
+      },
+      {
+        "en": "Sentence",
+        "pl": "wyrok"
+      },
+      {
+        "en": "Probation",
+        "pl": "nadzór kuratorski"
+      },
+      {
+        "en": "Parole",
+        "pl": "zwolnienie warunkowe"
+      },
+      {
+        "en": "Plaintiff",
+        "pl": "powód"
+      },
+      {
+        "en": "Defendant",
+        "pl": "pozwany"
+      },
+      {
+        "en": "Witness",
+        "pl": "świadek"
+      },
+      {
+        "en": "Testimony",
+        "pl": "zeznanie"
+      },
+      {
+        "en": "Evidence",
+        "pl": "dowody"
+      },
+      {
+        "en": "Charges",
+        "pl": "zarzuty"
+      },
+      {
+        "en": "Indictment",
+        "pl": "akt oskarżenia"
+      },
+      {
+        "en": "Conviction",
+        "pl": "skazanie"
+      },
+      {
+        "en": "Appeal",
+        "pl": "apelacja"
+      },
+      {
+        "en": "Lawsuit",
+        "pl": "pozew"
+      },
+      {
+        "en": "Settlement",
+        "pl": "ugoda"
+      },
+      {
+        "en": "Restraining order",
+        "pl": "zakaz zbliżania się"
+      },
+      {
+        "en": "Protective order",
+        "pl": "nakaz ochronny"
+      },
+      {
+        "en": "Child support",
+        "pl": "alimenty"
+      },
+      {
+        "en": "Custody",
+        "pl": "opieka nad dzieckiem"
+      },
+      {
+        "en": "Divorce",
+        "pl": "rozwód"
+      },
+      {
+        "en": "Power of attorney",
+        "pl": "pełnomocnictwo"
+      },
+      {
+        "en": "Notary",
+        "pl": "notariusz"
+      },
+      {
+        "en": "Client",
+        "pl": "klient"
+      },
+      {
+        "en": "Confidentiality",
+        "pl": "poufność"
+      },
+      {
+        "en": "Arrest",
+        "pl": "aresztowanie"
+      },
+      {
+        "en": "Prosecutor",
+        "pl": "prokurator"
+      },
+      {
+        "en": "Legal office",
+        "pl": "kancelaria prawna"
+      },
+      {
+        "en": "Consulate",
+        "pl": "konsulat"
+      },
+      {
+        "en": "Passport",
+        "pl": "paszport"
+      },
+      {
+        "en": "Undocumented",
+        "pl": "bez dokumentów"
+      }
+    ],
+    "en-pt": [
+      {
+        "en": "Immigration status",
+        "pt": "status migratório"
+      },
+      {
+        "en": "Felony",
+        "pt": "crime grave"
+      },
+      {
+        "en": "Misdemeanor",
+        "pt": "contravenção"
+      },
+      {
+        "en": "Pro bono",
+        "pt": "pro bono"
+      },
+      {
+        "en": "Attorney",
+        "pt": "advogado"
+      },
+      {
+        "en": "Lawyer",
+        "pt": "advogado"
+      },
+      {
+        "en": "Public defender",
+        "pt": "defensor público"
+      },
+      {
+        "en": "Legal aid",
+        "pt": "assistência jurídica"
+      },
+      {
+        "en": "Asylum",
+        "pt": "asilo"
+      },
+      {
+        "en": "Asylum seeker",
+        "pt": "requerente de asilo"
+      },
+      {
+        "en": "Refugee",
+        "pt": "refugiado"
+      },
+      {
+        "en": "Deportation",
+        "pt": "deportação"
+      },
+      {
+        "en": "Detention",
+        "pt": "detenção"
+      },
+      {
+        "en": "Green card",
+        "pt": "green card"
+      },
+      {
+        "en": "Permanent resident",
+        "pt": "residente permanente"
+      },
+      {
+        "en": "Work permit",
+        "pt": "autorização de trabalho"
+      },
+      {
+        "en": "Visa",
+        "pt": "visto"
+      },
+      {
+        "en": "Citizenship",
+        "pt": "cidadania"
+      },
+      {
+        "en": "Naturalization",
+        "pt": "naturalização"
+      },
+      {
+        "en": "Immigration court",
+        "pt": "tribunal de imigração"
+      },
+      {
+        "en": "Court",
+        "pt": "tribunal"
+      },
+      {
+        "en": "Judge",
+        "pt": "juiz"
+      },
+      {
+        "en": "Hearing",
+        "pt": "audiência"
+      },
+      {
+        "en": "Trial",
+        "pt": "julgamento"
+      },
+      {
+        "en": "Bail",
+        "pt": "fiança"
+      },
+      {
+        "en": "Warrant",
+        "pt": "mandado"
+      },
+      {
+        "en": "Subpoena",
+        "pt": "intimação"
+      },
+      {
+        "en": "Affidavit",
+        "pt": "declaração juramentada"
+      },
+      {
+        "en": "Guilty",
+        "pt": "culpado"
+      },
+      {
+        "en": "Not guilty",
+        "pt": "não culpado"
+      },
+      {
+        "en": "Sentence",
+        "pt": "sentença"
+      },
+      {
+        "en": "Probation",
+        "pt": "liberdade condicional"
+      },
+      {
+        "en": "Parole",
+        "pt": "liberdade condicional"
+      },
+      {
+        "en": "Plaintiff",
+        "pt": "autor"
+      },
+      {
+        "en": "Defendant",
+        "pt": "réu"
+      },
+      {
+        "en": "Witness",
+        "pt": "testemunha"
+      },
+      {
+        "en": "Testimony",
+        "pt": "testemunho"
+      },
+      {
+        "en": "Evidence",
+        "pt": "provas"
+      },
+      {
+        "en": "Charges",
+        "pt": "acusações"
+      },
+      {
+        "en": "Indictment",
+        "pt": "denúncia"
+      },
+      {
+        "en": "Conviction",
+        "pt": "condenação"
+      },
+      {
+        "en": "Appeal",
+        "pt": "recurso"
+      },
+      {
+        "en": "Lawsuit",
+        "pt": "ação judicial"
+      },
+      {
+        "en": "Settlement",
+        "pt": "acordo"
+      },
+      {
+        "en": "Restraining order",
+        "pt": "medida restritiva"
+      },
+      {
+        "en": "Protective order",
+        "pt": "ordem de proteção"
+      },
+      {
+        "en": "Child support",
+        "pt": "pensão alimentícia"
+      },
+      {
+        "en": "Custody",
+        "pt": "guarda"
+      },
+      {
+        "en": "Divorce",
+        "pt": "divórcio"
+      },
+      {
+        "en": "Power of attorney",
+        "pt": "procuração"
+      },
+      {
+        "en": "Notary",
+        "pt": "notário"
+      },
+      {
+        "en": "Client",
+        "pt": "cliente"
+      },
+      {
+        "en": "Confidentiality",
+        "pt": "confidencialidade"
+      },
+      {
+        "en": "Arrest",
+        "pt": "prisão"
+      },
+      {
+        "en": "Prosecutor",
+        "pt": "promotor"
+      },
+      {
+        "en": "Legal office",
+        "pt": "escritório de advocacia"
+      },
+      {
+        "en": "Consulate",
+        "pt": "consulado"
+      },
+      {
+        "en": "Passport",
+        "pt": "passaporte"
+      },
+      {
+        "en": "Undocumented",
+        "pt": "indocumentado"
+      }
+    ],
+    "en-it": [
+      {
+        "en": "Immigration status",
+        "it": "status migratorio"
+      },
+      {
+        "en": "Felony",
+        "it": "reato grave"
+      },
+      {
+        "en": "Misdemeanor",
+        "it": "reato minore"
+      },
+      {
+        "en": "Pro bono",
+        "it": "pro bono"
+      },
+      {
+        "en": "Attorney",
+        "it": "avvocato"
+      },
+      {
+        "en": "Lawyer",
+        "it": "avvocato"
+      },
+      {
+        "en": "Public defender",
+        "it": "difensore d'ufficio"
+      },
+      {
+        "en": "Legal aid",
+        "it": "patrocinio a spese dello Stato"
+      },
+      {
+        "en": "Asylum",
+        "it": "asilo"
+      },
+      {
+        "en": "Asylum seeker",
+        "it": "richiedente asilo"
+      },
+      {
+        "en": "Refugee",
+        "it": "rifugiato"
+      },
+      {
+        "en": "Deportation",
+        "it": "espulsione"
+      },
+      {
+        "en": "Detention",
+        "it": "detenzione"
+      },
+      {
+        "en": "Green card",
+        "it": "green card"
+      },
+      {
+        "en": "Permanent resident",
+        "it": "residente permanente"
+      },
+      {
+        "en": "Work permit",
+        "it": "permesso di lavoro"
+      },
+      {
+        "en": "Visa",
+        "it": "visto"
+      },
+      {
+        "en": "Citizenship",
+        "it": "cittadinanza"
+      },
+      {
+        "en": "Naturalization",
+        "it": "naturalizzazione"
+      },
+      {
+        "en": "Immigration court",
+        "it": "tribunale per l'immigrazione"
+      },
+      {
+        "en": "Court",
+        "it": "tribunale"
+      },
+      {
+        "en": "Judge",
+        "it": "giudice"
+      },
+      {
+        "en": "Hearing",
+        "it": "udienza"
+      },
+      {
+        "en": "Trial",
+        "it": "processo"
+      },
+      {
+        "en": "Bail",
+        "it": "cauzione"
+      },
+      {
+        "en": "Warrant",
+        "it": "mandato di arresto"
+      },
+      {
+        "en": "Subpoena",
+        "it": "citazione"
+      },
+      {
+        "en": "Affidavit",
+        "it": "dichiarazione giurata"
+      },
+      {
+        "en": "Guilty",
+        "it": "colpevole"
+      },
+      {
+        "en": "Not guilty",
+        "it": "non colpevole"
+      },
+      {
+        "en": "Sentence",
+        "it": "condanna"
+      },
+      {
+        "en": "Probation",
+        "it": "messa alla prova"
+      },
+      {
+        "en": "Parole",
+        "it": "liberazione condizionale"
+      },
+      {
+        "en": "Plaintiff",
+        "it": "attore"
+      },
+      {
+        "en": "Defendant",
+        "it": "imputato"
+      },
+      {
+        "en": "Witness",
+        "it": "testimone"
+      },
+      {
+        "en": "Testimony",
+        "it": "testimonianza"
+      },
+      {
+        "en": "Evidence",
+        "it": "prove"
+      },
+      {
+        "en": "Charges",
+        "it": "accuse"
+      },
+      {
+        "en": "Indictment",
+        "it": "atto d'accusa"
+      },
+      {
+        "en": "Conviction",
+        "it": "condanna"
+      },
+      {
+        "en": "Appeal",
+        "it": "appello"
+      },
+      {
+        "en": "Lawsuit",
+        "it": "causa legale"
+      },
+      {
+        "en": "Settlement",
+        "it": "transazione"
+      },
+      {
+        "en": "Restraining order",
+        "it": "ordine restrittivo"
+      },
+      {
+        "en": "Protective order",
+        "it": "ordine di protezione"
+      },
+      {
+        "en": "Child support",
+        "it": "assegno di mantenimento"
+      },
+      {
+        "en": "Custody",
+        "it": "affidamento"
+      },
+      {
+        "en": "Divorce",
+        "it": "divorzio"
+      },
+      {
+        "en": "Power of attorney",
+        "it": "procura"
+      },
+      {
+        "en": "Notary",
+        "it": "notaio"
+      },
+      {
+        "en": "Client",
+        "it": "cliente"
+      },
+      {
+        "en": "Confidentiality",
+        "it": "riservatezza"
+      },
+      {
+        "en": "Arrest",
+        "it": "arresto"
+      },
+      {
+        "en": "Prosecutor",
+        "it": "pubblico ministero"
+      },
+      {
+        "en": "Legal office",
+        "it": "studio legale"
+      },
+      {
+        "en": "Consulate",
+        "it": "consolato"
+      },
+      {
+        "en": "Passport",
+        "it": "passaporto"
+      },
+      {
+        "en": "Undocumented",
+        "it": "senza documenti"
       }
     ]
   }
