@@ -1085,16 +1085,12 @@ export default function TrialSonioxXWorkspace() {
               </span>
             </span>
             {recording && (
-              <>
-                <span className="flex sm:hidden items-center gap-1 text-[10px] text-rose-500 font-semibold shrink-0">
-                  <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse" />
-                  Live
-                </span>
-                <span className="hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-50 text-rose-600 border border-rose-200 shrink-0 font-mono">
-                  <Clock className="w-3 h-3" />
-                  {elapsedLabel}
-                </span>
-              </>
+              <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-50 text-rose-600 border border-rose-200 shrink-0 font-mono">
+                <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse sm:hidden" />
+                <Clock className="w-3 h-3 hidden sm:block" />
+                <span className="sm:hidden">Live</span>
+                {elapsedLabel}
+              </span>
             )}
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
