@@ -233,12 +233,53 @@ export function snapshotLinesFromSonioxXRows(rows: SonioxXRow[]): {
   return { transcriptLines, translationLines };
 }
 
-export function stripeClassForSpeaker(speaker: string | undefined, index: number): string {
+/**
+ * Stripe key: speaker id + spoken language.
+ * EN↔ES (and other same-script pairs) often keep Soniox speaker "1" across
+ * talkers / language turns — language must participate so stripes still rotate
+ * like EN↔AR when the spoken language changes.
+ */
+export function stripeSlotKey(speaker: string | undefined, origLang: string | undefined): string {
+  const sp = (speaker ?? "").trim() || "unknown";
+  const lang = langBase(origLang) || "und";
+  return `${sp}:${lang}`;
+}
+
+/**
+ * Stable palette slot per first-seen speaker+language in this transcript.
+ * Falls back to row index when speaker/lang are missing.
+ */
+export function stripeClassForSpeaker(
+  speaker: string | undefined,
+  index: number,
+  origLang?: string,
+  slotByKey?: Map<string, number>,
+): string {
+  const key = stripeSlotKey(speaker, origLang);
+  if (slotByKey) {
+    if (!slotByKey.has(key)) {
+      slotByKey.set(key, slotByKey.size);
+    }
+    const slot = slotByKey.get(key)!;
+    return ROW_STRIPE_COLOR_CLASSES[slot % ROW_STRIPE_COLOR_CLASSES.length]!;
+  }
   if (speaker) {
     const n = Number.parseInt(speaker, 10);
     if (Number.isFinite(n) && n > 0) {
-      return ROW_STRIPE_COLOR_CLASSES[(n - 1) % ROW_STRIPE_COLOR_CLASSES.length]!;
+      // Mix language into the numeric speaker so same speaker-id + different
+      // spoken language does not stay stuck on blue for every pair.
+      const lang = langBase(origLang);
+      const langBump = lang ? [...lang].reduce((a, c) => a + c.charCodeAt(0), 0) : 0;
+      return ROW_STRIPE_COLOR_CLASSES[(n - 1 + langBump) % ROW_STRIPE_COLOR_CLASSES.length]!;
     }
   }
   return ROW_STRIPE_COLOR_CLASSES[index % ROW_STRIPE_COLOR_CLASSES.length]!;
+}
+
+/** Build stripe classes for a full row list (one pass, stable slots). */
+export function stripeClassesForRows(rows: readonly SonioxXRow[]): string[] {
+  const slotByKey = new Map<string, number>();
+  return rows.map((row, index) =>
+    stripeClassForSpeaker(row.speaker, index, row.origLang, slotByKey),
+  );
 }

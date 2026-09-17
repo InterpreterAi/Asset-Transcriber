@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Token } from "@soniox/speech-to-text-web";
-import { rowsFromSonioxTokens, snapshotLinesFromSonioxXRows } from "./rows-from-tokens";
+import { rowsFromSonioxTokens, snapshotLinesFromSonioxXRows, ROW_STRIPE_COLOR_CLASSES, stripeClassesForRows, stripeSlotKey } from "./rows-from-tokens";
 
 function tok(partial: Partial<Token> & Pick<Token, "text">): Token {
   return {
@@ -234,5 +234,67 @@ describe("snapshotLinesFromSonioxXRows", () => {
       transcriptLines: ["Hello there"],
       translationLines: ["مرحبا"],
     });
+  });
+});
+
+describe("stripeClassesForRows", () => {
+  it("rotates stripe color when the same speaker id changes spoken language (EN↔ES)", () => {
+    const rows = rowsFromSonioxTokens([
+      tok({ text: "Hello", speaker: "1", language: "en", translation_status: "original" }),
+      tok({ text: "Hola", speaker: "1", language: "es", translation_status: "translation" }),
+      tok({ text: "<end>", speaker: "1" }),
+      tok({ text: "Buenos días", speaker: "1", language: "es", translation_status: "original" }),
+      tok({ text: "Good morning", speaker: "1", language: "en", translation_status: "translation" }),
+    ]);
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+    expect(rows[0]?.origLang).toBe("en");
+    expect(rows[1]?.origLang).toBe("es");
+    const stripes = stripeClassesForRows(rows);
+    expect(stripes[0]).not.toBe(stripes[1]);
+    expect(stripeSlotKey("1", "en")).toBe("1:en");
+    expect(stripeSlotKey("1", "es")).toBe("1:es");
+  });
+
+  it("keeps the same stripe for the same speaker+language across rows", () => {
+    const rows = rowsFromSonioxTokens([
+      tok({ text: "One", speaker: "1", language: "en", translation_status: "original" }),
+      tok({ text: "<end>", speaker: "1" }),
+      tok({
+        text: "Two",
+        speaker: "1",
+        language: "en",
+        translation_status: "original",
+        start_ms: 20_000,
+        end_ms: 21_000,
+      }),
+    ]);
+    const stripes = stripeClassesForRows(rows);
+    expect(stripes[0]).toBe(stripes[1]);
+  });
+
+  it("uses distinct slots for EN↔AR language turns with the same speaker id", () => {
+    const rows = [
+      {
+        id: "a",
+        speaker: "1",
+        origLang: "en",
+        origFinal: "Hello",
+        origPartial: "",
+        transFinal: "",
+        transPartial: "",
+      },
+      {
+        id: "b",
+        speaker: "1",
+        origLang: "ar",
+        origFinal: "مرحبا",
+        origPartial: "",
+        transFinal: "",
+        transPartial: "",
+      },
+    ];
+    const stripes = stripeClassesForRows(rows);
+    expect(stripes[0]).toBe(ROW_STRIPE_COLOR_CLASSES[0]);
+    expect(stripes[1]).toBe(ROW_STRIPE_COLOR_CLASSES[1]);
   });
 });
