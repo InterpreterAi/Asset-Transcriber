@@ -212,7 +212,7 @@ export function buildStableDialectContext(langA: string, langB: string): SonioxS
     {
       key: "numbers",
       value:
-        "Keep phone numbers, dates, times, and numeric IDs in the same digit sequence as spoken. Do not reverse digits.",
+        "Write all quantities as digits (0-9), never as spelled-out number words. Write phone numbers as one contiguous digit string with no spaces or commas between digits. Keep digit order as spoken; do not reverse digits.",
     },
   ];
   if (arabicPair) {

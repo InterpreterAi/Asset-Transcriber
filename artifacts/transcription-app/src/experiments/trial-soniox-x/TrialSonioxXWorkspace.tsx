@@ -53,6 +53,7 @@ import {
 import { applyExactGlossaryPins } from "./pin-translation";
 import { GLOSSARY_CHANGED_EVENT } from "@/lib/glossary-strict-storage";
 import { AudioMeter } from "@/components/AudioMeter";
+import { formatTranscriptNumbers } from "./format-transcript-numbers";
 
 const LANG_OPTIONS = workspaceLanguageOptions();
 const WORKSPACE_THEME_STORAGE_KEY = "interpreterai-theme";
@@ -607,6 +608,12 @@ export default function TrialSonioxXWorkspace() {
       const sessionId = sessionIdRef.current;
       if (!sessionId) return;
       const { transcriptLines, translationLines } = snapshotLinesFromSonioxXRows(rowsRef.current);
+      const formattedTranscript = transcriptLines.map((line, i) =>
+        formatTranscriptNumbers(line, rowsRef.current[i]?.origLang),
+      );
+      const formattedTranslation = translationLines.map((line, i) =>
+        formatTranscriptNumbers(line, rowsRef.current[i]?.transLang),
+      );
       snapshotSeqRef.current += 1;
       void fetch("/api/transcription/session/snapshot", {
         method: "PUT",
@@ -617,10 +624,10 @@ export default function TrialSonioxXWorkspace() {
           langA: langARef.current,
           langB: langBRef.current,
           micLabel: micLabelRef.current,
-          transcript: transcriptLines.join("\n"),
-          translation: translationLines.join("\n"),
-          transcriptLines,
-          translationLines,
+          transcript: formattedTranscript.join("\n"),
+          translation: formattedTranslation.join("\n"),
+          transcriptLines: formattedTranscript,
+          translationLines: formattedTranslation,
           snapshotSeq: snapshotSeqRef.current,
           viewerTheme: workspaceThemeRef.current,
           workspaceFontPx: workspaceFontPxRef.current,
@@ -1297,9 +1304,13 @@ export default function TrialSonioxXWorkspace() {
               {hasTranscript && (
                 <div className="[overflow-anchor:none] workspace-selectable-root">
                   {rows.map((row, index) => {
-                    const orig = row.origFinal + row.origPartial;
+                    const origRaw = row.origFinal + row.origPartial;
                     const transRaw = row.transFinal + row.transPartial;
-                    const trans = applyExactGlossaryPins(orig, transRaw, pinPairs);
+                    const transPinned = applyExactGlossaryPins(origRaw, transRaw, pinPairs);
+                    const orig = formatTranscriptNumbers(origRaw, row.origLang);
+                    const origFinal = formatTranscriptNumbers(row.origFinal, row.origLang);
+                    const origPartial = formatTranscriptNumbers(row.origPartial, row.origLang);
+                    const trans = formatTranscriptNumbers(transPinned, row.transLang);
                     const origDir = dominantBidiDir(orig, langDir(row.origLang));
                     const transDir = dominantBidiDir(trans, langDir(row.transLang));
                     const stripeClass = rowStripeClasses[index] ?? rowStripeClasses[0];
@@ -1322,9 +1333,9 @@ export default function TrialSonioxXWorkspace() {
                               dir={origDir}
                               style={{ textAlign: origDir === "rtl" ? "right" : "left", unicodeBidi: "isolate" }}
                             >
-                              <BidiText text={row.origFinal} baseDir={origDir} className="workspace-selectable-text" />
+                              <BidiText text={origFinal} baseDir={origDir} className="workspace-selectable-text" />
                               <BidiText
-                                text={row.origPartial}
+                                text={origPartial}
                                 baseDir={origDir}
                                 className="text-muted-foreground/70 italic workspace-selectable-text"
                               />
