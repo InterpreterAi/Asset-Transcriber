@@ -50,6 +50,15 @@ describe("formatTranscriptNumbers", () => {
     );
   });
 
+  it("does not turn oh / Oh interjections into 0", () => {
+    expect(formatTranscriptNumbers("Oh, hello. Oh my God.", "en")).toBe(
+      "Oh, hello. Oh my God.",
+    );
+    expect(formatTranscriptNumbers("oh, hello. oh my— oh my God.", "en")).toBe(
+      "oh, hello. oh my— oh my God.",
+    );
+  });
+
   it("collapses phone numbers after digit conversion", () => {
     expect(
       formatTranscriptNumbers("my number is 602 555 9147", "en"),

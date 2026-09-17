@@ -8,8 +8,8 @@
 
 const EN_ONES: Record<string, number> = {
   zero: 0,
-  oh: 0,
-  o: 0,
+  // Never map "oh" / "o" → 0. That turns interjections ("oh hello", "oh my God")
+  // into digits. Phone "oh" as zero is not worth that breakage.
   one: 1,
   two: 2,
   three: 3,
