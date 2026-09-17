@@ -211,4 +211,55 @@ describe("interpreter glossary", () => {
       }
     }
   });
+
+  it("pins high-value auto insurance terms for Arabic/Spanish/Portuguese/Polish/German/Italian", () => {
+    for (const [a, b] of [
+      ["en", "ar"],
+      ["en", "es"],
+      ["en", "pt"],
+      ["en", "pl"],
+      ["en", "de"],
+      ["en", "it"],
+    ] as const) {
+      const pack = packTermsForPair(a, b);
+      expect(pack.translationTerms.some((t) => t.source === "Car insurance")).toBe(true);
+      expect(pack.translationTerms.some((t) => t.source === "Car accident")).toBe(true);
+      expect(pack.translationTerms.some((t) => t.source === "Insurance claim")).toBe(true);
+      const dialect = buildStableDialectContext(a, b);
+      const ctx = mergeSonioxXInterpreterContext({
+        dialect,
+        packTerms: pack.translationTerms,
+        packPins: pack.recognitionPins,
+        packLines: pack.glossaryLines,
+        userTerms: [],
+        langA: a,
+        langB: b,
+      });
+      const n = JSON.stringify(ctx).length;
+      expect(n).toBeLessThanOrEqual(SONIOX_X_CONTEXT_SAFE_CHARS);
+      expect(n).toBeLessThan(10_000);
+      expect(
+        ctx.translation_terms?.some((t) => t.source === "Car insurance") ||
+          (ctx.text ?? "").includes("Car insurance="),
+      ).toBe(true);
+      expect(
+        ctx.translation_terms?.some((t) => t.source === "Car accident") ||
+          (ctx.text ?? "").includes("Car accident="),
+      ).toBe(true);
+      expect(
+        ctx.translation_terms?.some((t) => t.source === "Insurance claim") ||
+          (ctx.text ?? "").includes("Insurance claim="),
+      ).toBe(true);
+      if (b === "ar") {
+        expect(
+          ctx.translation_terms?.some(
+            (t) => t.source === "Car insurance" && t.target === "تأمين السيارة",
+          ),
+        ).toBe(true);
+        expect(
+          ctx.translation_terms?.some((t) => t.source === "Car accident" && t.target === "حادث سيارة"),
+        ).toBe(true);
+      }
+    }
+  });
 });

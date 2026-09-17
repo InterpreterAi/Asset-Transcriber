@@ -137,6 +137,80 @@ const LEGAL_SINGLE = new Set(
   ].map((w) => w.toLowerCase()),
 );
 
+/**
+ * Tiny auto-insurance / accident priority set — must stay small so medical + legal
+ * still fit under the ~9.6k Soniox budget. Screenshot-critical claim language only.
+ */
+const AUTO_PRIORITY = new Set(
+  [
+    "car insurance",
+    "car accident",
+    "insurance claim",
+    "hit and run",
+    "police report",
+    "deductible",
+    "at fault",
+    "policy number",
+  ].map((w) => w.toLowerCase()),
+);
+
+/** Absolute must-keep auto pins (tests + OPI claim intake). Packed before other auto. */
+const AUTO_CRITICAL = new Set(
+  ["car insurance", "car accident", "insurance claim"].map((w) => w.toLowerCase()),
+);
+
+const AUTO_SINGLE = new Set(
+  [
+    ...AUTO_PRIORITY,
+    "auto insurance",
+    "claim number",
+    "traffic accident",
+    "not at fault",
+    "total loss",
+    "liability insurance",
+    "collision coverage",
+    "comprehensive coverage",
+    "premium",
+    "liability",
+    "collision",
+    "rear-end collision",
+    "fender bender",
+    "accident report",
+    "tow truck",
+    "roadside assistance",
+    "rental car",
+    "body shop",
+    "repair shop",
+    "totaled",
+    "estimate",
+    "adjuster",
+    "insurance adjuster",
+    "license plate",
+    "driver's license",
+    "registration",
+    "vin",
+    "airbag",
+    "seat belt",
+    "whiplash",
+    "bodily injury",
+    "property damage",
+    "uninsured motorist",
+    "underinsured motorist",
+    "no-fault insurance",
+    "glass coverage",
+    "windshield",
+    "bumper",
+    "tire",
+    "engine",
+    "transmission",
+    "brake",
+    "speed limit",
+    "traffic ticket",
+    "dui",
+    "dmv",
+  ].map((w) => w.toLowerCase()),
+);
+
 const LOW_VALUE = new Set(
   [
     "blood",
@@ -217,8 +291,12 @@ function rowScore(en: string): number {
   const t = en.trim();
   if (RECOGNITION_ABBR.test(t) || /^[A-Z]{3,8}$/.test(t)) return 130;
   if (/^(sonogram|ultrasound|mammogram|mammography|stroke)$/i.test(t)) return 125;
+  // Pack claim-intake auto pins ahead of broader legal so "Car insurance" survives budget.
+  if (AUTO_CRITICAL.has(t.toLowerCase())) return 119;
   if (LEGAL_PRIORITY.has(t.toLowerCase())) return 118;
+  if (AUTO_PRIORITY.has(t.toLowerCase())) return 116;
   if (LEGAL_SINGLE.has(t.toLowerCase())) return 95;
+  if (AUTO_SINGLE.has(t.toLowerCase())) return 93;
   if (CLINICAL_SINGLE.has(t.toLowerCase())) return 90;
   if (/^[A-Z]{2,8}\s+\S/.test(t)) return 50;
   const words = t.split(/\s+/).filter(Boolean).length;
@@ -464,7 +542,7 @@ function withHealthcareTopic(ctx: SonioxStartContext): void {
     ctx.general.push({
       key: "topic",
       value:
-        "Live interpreter call — introductions first; medical and legal terms when spoken",
+        "Live interpreter call — introductions first; medical, legal, and auto-insurance terms when spoken",
     });
   }
 }
@@ -480,6 +558,7 @@ function isPriorityPairStart(term: GlossaryTerm): boolean {
   const src = term.source.trim();
   return (
     LEGAL_PRIORITY.has(src.toLowerCase()) ||
+    AUTO_PRIORITY.has(src.toLowerCase()) ||
     isRecognitionPin(src) ||
     /^(sonogram|ultrasound|mammogram|mammography|stroke)$/i.test(src)
   );
@@ -505,8 +584,9 @@ function addPackPairs(
     const before = ctx.translation_terms.length;
     ctx.translation_terms.push(...batch);
     if (!fits(ctx, reserve)) {
+      // Skip this pair and keep trying — a longer term must not block shorter priority pins.
       ctx.translation_terms.length = before;
-      break;
+      continue;
     }
     for (const t of batch) {
       seen.add(`${t.source}->${t.target}`);
@@ -593,7 +673,19 @@ export function mergeSonioxXInterpreterContext(args: {
   // Intro handoff bias last so medical pack keeps its slot — still prepended in terms.
   withInterpreterCallFraming(ctx, args.langA, args.langB);
   const protectedSources = new Set(
-    [...LEGAL_PRIORITY, "sonogram", "ultrasound", "mammogram", "mammography", "stroke", "cpr", "mri", "ecg", "iud"],
+    [
+      ...LEGAL_PRIORITY,
+      ...AUTO_PRIORITY,
+      "sonogram",
+      "ultrasound",
+      "mammogram",
+      "mammography",
+      "stroke",
+      "cpr",
+      "mri",
+      "ecg",
+      "iud",
+    ],
   );
   while (!fits(ctx) && (ctx.translation_terms?.length ?? 0) > args.userTerms.length) {
     const terms = ctx.translation_terms!;
