@@ -38,7 +38,9 @@ describe("stable dialect pins", () => {
     expect(ctx.general?.some((row) => /Algerian/i.test(row.value))).toBe(true);
     expect(ctx.general?.some((row) => /Tunisian/i.test(row.value))).toBe(true);
     expect(ctx.general?.some((row) => /not French/i.test(row.value))).toBe(true);
-    expect(ctx.general?.some((row) => /TRANSLATION column only/i.test(row.value))).toBe(true);
+    expect(ctx.general?.some((row) => row.key === "accuracy" && /No added stories/i.test(row.value))).toBe(true);
+    expect(ctx.general?.some((row) => row.key === "translation" && /Never invent/i.test(row.value))).toBe(true);
+    expect(ctx.general?.some((row) => row.key === "translation" && /use only the target wording from translation_terms/i.test(row.value))).toBe(false);
     expect(ctx.terms?.includes("بزاف")).toBe(true);
     expect(ctx.text).toMatch(/الفصحى/);
     expect(ctx.text).toMatch(/Yemeni/);
