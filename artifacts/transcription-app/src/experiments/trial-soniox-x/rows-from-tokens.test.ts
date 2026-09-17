@@ -257,7 +257,14 @@ describe("stripeClassesForRows", () => {
 
   it("keeps the same stripe for the same speaker+language across rows", () => {
     const rows = rowsFromSonioxTokens([
-      tok({ text: "One", speaker: "1", language: "en", translation_status: "original" }),
+      tok({
+        text: "One",
+        speaker: "1",
+        language: "en",
+        translation_status: "original",
+        start_ms: 0,
+        end_ms: 800,
+      }),
       tok({ text: "<end>", speaker: "1" }),
       tok({
         text: "Two",
@@ -268,6 +275,7 @@ describe("stripeClassesForRows", () => {
         end_ms: 21_000,
       }),
     ]);
+    expect(rows).toHaveLength(2);
     const stripes = stripeClassesForRows(rows);
     expect(stripes[0]).toBe(stripes[1]);
   });
