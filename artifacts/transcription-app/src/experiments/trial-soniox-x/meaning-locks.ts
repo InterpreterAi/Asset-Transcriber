@@ -7,6 +7,8 @@
  * - informal English rendered as dialect Arabic instead of فصحى
  */
 
+import { lockArabicTranslationToMsa } from "./lock-arabic-translation-msa";
+
 function lettersOnly(s: string): string {
   return (s ?? "")
     .normalize("NFC")
@@ -33,7 +35,6 @@ function withEndPunct(body: string, from: string): string {
   return punct && !endPunct(body) ? `${body}${punct}` : body;
 }
 
-/** Spoken sexual dialect that Soniox often maps to eating. */
 const SEXUAL_AR_RE = /تتناك|يتناك|اتناك|تنتاك|تنيك|ينيك|أنيك/;
 
 /**
@@ -91,6 +92,7 @@ export function applyFaithfulMeaningFixes(original: string, translation: string)
   if (!original.trim() || !translation.trim()) return translation;
   let out = lockSexualArabicToEnglish(original, translation);
   out = lockEnglishToMsa(original, out);
+  if (arabicDominant(out)) out = lockArabicTranslationToMsa(out);
   return out;
 }
 

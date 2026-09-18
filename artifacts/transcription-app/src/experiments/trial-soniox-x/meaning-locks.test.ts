@@ -36,6 +36,34 @@ describe("applyFaithfulMeaningFixes", () => {
     const trans = "Can you hear me clearly? Yes, of course, I was talking to her";
     expect(applyFaithfulMeaningFixes(orig, trans)).toBe(trans);
   });
+
+  it("rewrites a dialect Arabic translation of English into فصحى", () => {
+    const out = applyFaithfulMeaningFixes(
+      "Can you hear me clearly? I was talking to her today and that will not work.",
+      "إيه، أنا كنت بتكلم معها النهارده ومش هينفع كده يا أسطى.",
+    );
+    expect(out).not.toMatch(/إيه/);
+    expect(out).not.toMatch(/النهارده/);
+    expect(out).not.toMatch(/مش هينفع/);
+    expect(out).not.toMatch(/كده/);
+    expect(out).not.toMatch(/أسطى/);
+    expect(out).toMatch(/ماذا|ما الذي/);
+    expect(out).toMatch(/اليوم/);
+    expect(out).toMatch(/رجل/);
+  });
+
+  it("rewrites a dialect-to-dialect Arabic translation into فصحى without touching the original", () => {
+    const orig = "أنا كنت بتكلم معها وهي قالت لي لا مش هينفع كده";
+    const trans = "شو يعني ليش هيك ما بصير يا أسطى";
+    const out = applyFaithfulMeaningFixes(orig, trans);
+    expect(out).not.toMatch(/شو /);
+    expect(out).not.toMatch(/ليش/);
+    expect(out).not.toMatch(/هيك/);
+    expect(out).not.toMatch(/أسطى/);
+    expect(out).toMatch(/ماذا|لماذا|هكذا|رجل/);
+    expect(orig).toContain("بتكلم");
+    expect(orig).toContain("مش هينفع");
+  });
 });
 
 describe("meaningLockPinPairs", () => {
