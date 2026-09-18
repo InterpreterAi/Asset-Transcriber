@@ -78,4 +78,34 @@ describe("exact glossary pins", () => {
     expect(out).toContain("ultrasonografia");
     expect(out).not.toMatch(/Sonogram/i);
   });
+
+  it("fixes Soniox swapping esophagus for appendix when Original said المريء", () => {
+    const pairs = [
+      { source: "المريء", target: "Esophagus" },
+      { source: "Esophagus", target: "المريء" },
+      { source: "الزائدة الدودية", target: "Appendix" },
+      { source: "Appendix", target: "الزائدة الدودية" },
+    ];
+    const out = applyExactGlossaryPins(
+      "وماذا عن المريء؟ أي الأخبار؟",
+      "And what about the appendix?",
+      pairs,
+    );
+    expect(out).toMatch(/esophagus/i);
+    expect(out).not.toMatch(/appendix/i);
+  });
+
+  it("does not steal appendix when the original also said الزائدة الدودية", () => {
+    const pairs = [
+      { source: "المريء", target: "Esophagus" },
+      { source: "الزائدة الدودية", target: "Appendix" },
+    ];
+    const out = applyExactGlossaryPins(
+      "المريء والزائدة الدودية",
+      "the esophagus and the appendix",
+      pairs,
+    );
+    expect(out).toMatch(/esophagus/i);
+    expect(out).toMatch(/appendix/i);
+  });
 });

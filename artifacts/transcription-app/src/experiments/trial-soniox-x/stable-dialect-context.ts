@@ -122,24 +122,24 @@ const AR_DIALECT_RECOGNITION_TERMS = [
 const PAIR_TRANSLATION_TEXT: Record<string, string> = {
   ar:
     "TRANSLATION COLUMN into Arabic: Modern Standard Arabic only (الفصحى), like news/subtitles. " +
-    `Do not copy dialect into the translation even if the audio is ${AR_SPOKEN_DIALECTS}. ` +
+    `Do not copy dialect morphology into the translation even if the audio is ${AR_SPOKEN_DIALECTS}; still translate the exact meaning, including vulgar/sexual/slang sense, into فصحى — never euphemize into a different meaning. ` +
     "Never repeat English words or Latin abbreviations in the Arabic translation (Sonogram → تصوير بالموجات فوق الصوتية). " +
     `ORIGINAL COLUMN: write every Arabic dialect as spoken (${AR_SPOKEN_DIALECTS}). ` +
     "Maghrebi, Algerian, Tunisian, and Darija are Arabic, not French. Never skip or silence Arabic speech.",
   es:
     "TRANSLATION COLUMN into Spanish: neutral standard Spanish (español estándar), like news/subtitles. " +
-    "Do not copy Rioplatense, Caribbean, Mexican slang, or voseo into the translation. " +
+    "Do not copy Rioplatense, Caribbean, Mexican slang forms, or voseo into the translation; still translate their exact meaning. " +
     "Never repeat English words or Latin abbreviations in the Spanish translation (Sonogram → ecografía). " +
     "ORIGINAL COLUMN: transcribe spoken Spanish exactly, including dialect.",
   fr:
-    "TRANSLATION COLUMN into French: standard French (français de France). Not Québec joual or Maghrebi slang in the translation. " +
+    "TRANSLATION COLUMN into French: standard French (français de France). Not Québec joual or Maghrebi slang forms in the translation; still translate their exact meaning. " +
     "ORIGINAL COLUMN: transcribe spoken French exactly, including dialect.",
   de:
-    "TRANSLATION COLUMN into German: Standard High German (Hochdeutsch). Not Swiss German or Bavarian in the translation. " +
+    "TRANSLATION COLUMN into German: Standard High German (Hochdeutsch). Not Swiss German or Bavarian forms in the translation; still translate their exact meaning. " +
     "ORIGINAL COLUMN: transcribe spoken German exactly, including dialect.",
   pl:
     "TRANSLATION COLUMN into Polish: standard Polish (język ogólnopolski), like news/subtitles. " +
-    "Do not copy regional dialect or slang into the translation. " +
+    "Do not copy regional dialect forms into the translation; still translate their exact meaning, including slang. " +
     "Never repeat English words or Latin abbreviations in the Polish translation (Sonogram → ultrasonografia). " +
     "ORIGINAL COLUMN: transcribe spoken Polish exactly, including dialect.",
 };
@@ -204,8 +204,15 @@ export function buildStableDialectContext(langA: string, langB: string): SonioxS
     {
       key: "translation",
       value:
-        "Translation column only: always the stable standard written variety of the TARGET language. Never copy the spoken dialect into the translation. Never echo the source-language word or Latin abbreviation in the translation; use only the target wording from translation_terms." +
-        (arabicPair ? " When the target is Arabic, use الفصحى / Modern Standard Arabic only." : ""),
+        "Translation column: translate the FULL meaning of each original utterance into the stable standard written variety of the TARGET language. Be complete and literal to meaning — including slang, vulgar, sexual, insulting, and dialect wording. Never soften, euphemize, censor, or replace with an unrelated word. Never invent words, topics, or clauses that were not spoken. Never drop part of the utterance. Do not copy the spoken dialect form into the translation; render its meaning in the target standard. For medical/glossary phrases listed in translation_terms, use those exact target wordings; for everything else, translate normally." +
+        (arabicPair
+          ? " When the target is Arabic, use الفصحى / Modern Standard Arabic only — but still carry the exact meaning (including vulgar/slang sense) into فصحى, not a polite substitute that changes the meaning."
+          : ""),
+    },
+    {
+      key: "accuracy",
+      value:
+        "Interpreter accuracy first: translation must match what was said. No added stories, no omitted clauses, no polite rewrites. If the speaker says a vulgar or sexual word, translate that meaning; do not substitute food words, cheating, or other unrelated senses.",
     },
     { key: registerKey(a), value: `TRANSLATION into ${LANG_NAME[a] ?? a} uses: ${pinA}` },
     { key: registerKey(b), value: `TRANSLATION into ${LANG_NAME[b] ?? b} uses: ${pinB}` },

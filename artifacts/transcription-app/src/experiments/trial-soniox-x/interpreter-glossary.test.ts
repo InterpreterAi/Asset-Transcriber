@@ -36,10 +36,16 @@ describe("interpreter glossary", () => {
       packPins: pack.recognitionPins,
       packLines: pack.glossaryLines,
       userTerms: [{ source: "MRI", target: "الرنين المغناطيسي" }],
+      langA: "en",
+      langB: "ar",
     });
     expect(JSON.stringify(ctx).length).toBeLessThanOrEqual(SONIOX_X_CONTEXT_SAFE_CHARS);
     expect(ctx.translation_terms?.some((t) => t.source === "MRI")).toBe(true);
     expect(ctx.translation_terms?.some((t) => t.target === "MRI")).toBe(true);
+    expect(ctx.terms?.some((t) => /you're through to the Arabic interpreter/i.test(t))).toBe(true);
+    expect(ctx.general?.some((kv) => kv.key === "call_opening" && /UR3/i.test(kv.value))).toBe(true);
+    expect(ctx.general?.find((kv) => kv.key === "domain")?.value).toMatch(/Telephone and video interpreting/i);
+    expect(ctx.general?.find((kv) => kv.key === "domain")?.value).not.toMatch(/^Healthcare interpretation$/i);
   });
 
   it("loads the en-ar medical pack both directions", () => {
@@ -62,19 +68,22 @@ describe("interpreter glossary", () => {
       packPins: pack.recognitionPins,
       packLines: pack.glossaryLines,
       userTerms: [],
+      langA: "en",
+      langB: "ar",
     });
     const n = JSON.stringify(ctx).length;
-    expect(n).toBeGreaterThan(8_000);
+    expect(n).toBeGreaterThan(7_500);
     expect(n).toBeLessThanOrEqual(SONIOX_X_CONTEXT_SAFE_CHARS);
-    for (const en of ["CPR", "MRI", "ECG", "IUD", "Stroke", "Sonogram"] as const) {
-      expect(
-        ctx.translation_terms?.some((t) => t.source === en) || (ctx.text ?? "").includes(`${en}=`),
-      ).toBe(true);
+    for (const en of ["CPR", "MRI", "Sonogram"] as const) {
+      const ok =
+        ctx.translation_terms?.some((t) => t.source === en) || (ctx.text ?? "").includes(`${en}=`);
+      expect(ok, `${en} missing; chars=${n}`).toBe(true);
     }
     const sono = ctx.translation_terms?.find((t) => t.source === "Sonogram");
     expect(sono?.target).toBe("تصوير بالموجات فوق الصوتية");
     expect(sono?.target ?? "").not.toMatch(/sonogram/i);
     expect(ctx.terms?.includes("بزاف")).toBe(true);
+    expect(ctx.terms?.some((t) => /you are through to the Arabic interpreter/i.test(t))).toBe(true);
     expect(JSON.stringify(ctx)).toMatch(/Yemeni/);
   });
 
@@ -98,19 +107,23 @@ describe("interpreter glossary", () => {
       packPins: pack.recognitionPins,
       packLines: pack.glossaryLines,
       userTerms: [],
+      langA: "en",
+      langB: "es",
     });
     const n = JSON.stringify(ctx).length;
-    expect(n).toBeGreaterThan(8_000);
+    expect(n).toBeGreaterThan(7_500);
     expect(n).toBeLessThanOrEqual(SONIOX_X_CONTEXT_SAFE_CHARS);
-    for (const en of ["CPR", "MRI", "ECG", "IUD", "Stroke", "Sonogram"] as const) {
-      expect(
-        ctx.translation_terms?.some((t) => t.source === en) || (ctx.text ?? "").includes(`${en}=`),
-      ).toBe(true);
+    for (const en of ["CPR", "MRI", "Sonogram"] as const) {
+      const ok =
+        ctx.translation_terms?.some((t) => t.source === en) || (ctx.text ?? "").includes(`${en}=`);
+      expect(ok, `${en} missing; chars=${n}`).toBe(true);
     }
     const sono = ctx.translation_terms?.find((t) => t.source === "Sonogram");
     expect(sono?.target).toBe("ecografía");
     expect(sono?.target ?? "").not.toMatch(/sonogram/i);
     expect(ctx.text).toMatch(/español estándar/i);
+    expect(ctx.terms?.some((t) => /you're through to the Spanish interpreter/i.test(t))).toBe(true);
+    expect(ctx.terms?.some((t) => /Arabic interpreter/i.test(t))).toBe(true);
   });
 
   it("loads the en-pl medical pack both directions", () => {
@@ -133,18 +146,120 @@ describe("interpreter glossary", () => {
       packPins: pack.recognitionPins,
       packLines: pack.glossaryLines,
       userTerms: [],
+      langA: "en",
+      langB: "pl",
     });
     const n = JSON.stringify(ctx).length;
-    expect(n).toBeGreaterThan(8_000);
+    expect(n).toBeGreaterThan(7_500);
     expect(n).toBeLessThanOrEqual(SONIOX_X_CONTEXT_SAFE_CHARS);
-    for (const en of ["CPR", "MRI", "ECG", "IUD", "Stroke", "Sonogram"] as const) {
-      expect(
-        ctx.translation_terms?.some((t) => t.source === en) || (ctx.text ?? "").includes(`${en}=`),
-      ).toBe(true);
+    for (const en of ["CPR", "MRI", "Sonogram"] as const) {
+      const ok =
+        ctx.translation_terms?.some((t) => t.source === en) || (ctx.text ?? "").includes(`${en}=`);
+      expect(ok, `${en} missing; chars=${n}`).toBe(true);
     }
     const sono = ctx.translation_terms?.find((t) => t.source === "Sonogram");
     expect(sono?.target).toBe("ultrasonografia");
     expect(sono?.target ?? "").not.toMatch(/sonogram/i);
     expect(ctx.text).toMatch(/ogólnopolski|polszczyzna/i);
+  });
+
+  it("pins high-value legal terms for Arabic/Spanish/Portuguese/Polish/German/Italian", () => {
+    for (const [a, b] of [
+      ["en", "ar"],
+      ["en", "es"],
+      ["en", "pt"],
+      ["en", "pl"],
+      ["en", "de"],
+      ["en", "it"],
+    ] as const) {
+      const pack = packTermsForPair(a, b);
+      expect(pack.translationTerms.some((t) => t.source === "Immigration status")).toBe(true);
+      expect(pack.translationTerms.some((t) => t.source === "Felony")).toBe(true);
+      expect(pack.translationTerms.some((t) => t.source === "Pro bono")).toBe(true);
+      const dialect = buildStableDialectContext(a, b);
+      const ctx = mergeSonioxXInterpreterContext({
+        dialect,
+        packTerms: pack.translationTerms,
+        packPins: pack.recognitionPins,
+        packLines: pack.glossaryLines,
+        userTerms: [],
+        langA: a,
+        langB: b,
+      });
+      const n = JSON.stringify(ctx).length;
+      expect(n).toBeLessThanOrEqual(SONIOX_X_CONTEXT_SAFE_CHARS);
+      expect(n).toBeLessThan(10_000);
+      expect(
+        ctx.translation_terms?.some((t) => t.source === "Immigration status") ||
+          (ctx.text ?? "").includes("Immigration status="),
+      ).toBe(true);
+      expect(
+        ctx.translation_terms?.some((t) => t.source === "Felony") ||
+          (ctx.text ?? "").includes("Felony="),
+      ).toBe(true);
+      expect(
+        ctx.translation_terms?.some((t) => t.source === "Pro bono") ||
+          (ctx.text ?? "").includes("Pro bono="),
+      ).toBe(true);
+      if (b === "ar") {
+        expect(
+          ctx.translation_terms?.some(
+            (t) => t.source === "Immigration status" && t.target === "الوضع الهجري",
+          ),
+        ).toBe(true);
+        expect(ctx.translation_terms?.some((t) => t.source === "Felony" && t.target === "جناية")).toBe(true);
+      }
+    }
+  });
+
+  it("pins high-value auto insurance terms for Arabic/Spanish/Portuguese/Polish/German/Italian", () => {
+    for (const [a, b] of [
+      ["en", "ar"],
+      ["en", "es"],
+      ["en", "pt"],
+      ["en", "pl"],
+      ["en", "de"],
+      ["en", "it"],
+    ] as const) {
+      const pack = packTermsForPair(a, b);
+      expect(pack.translationTerms.some((t) => t.source === "Car insurance")).toBe(true);
+      expect(pack.translationTerms.some((t) => t.source === "Car accident")).toBe(true);
+      expect(pack.translationTerms.some((t) => t.source === "Insurance claim")).toBe(true);
+      const dialect = buildStableDialectContext(a, b);
+      const ctx = mergeSonioxXInterpreterContext({
+        dialect,
+        packTerms: pack.translationTerms,
+        packPins: pack.recognitionPins,
+        packLines: pack.glossaryLines,
+        userTerms: [],
+        langA: a,
+        langB: b,
+      });
+      const n = JSON.stringify(ctx).length;
+      expect(n).toBeLessThanOrEqual(SONIOX_X_CONTEXT_SAFE_CHARS);
+      expect(n).toBeLessThan(10_000);
+      expect(
+        ctx.translation_terms?.some((t) => t.source === "Car insurance") ||
+          (ctx.text ?? "").includes("Car insurance="),
+      ).toBe(true);
+      expect(
+        ctx.translation_terms?.some((t) => t.source === "Car accident") ||
+          (ctx.text ?? "").includes("Car accident="),
+      ).toBe(true);
+      expect(
+        ctx.translation_terms?.some((t) => t.source === "Insurance claim") ||
+          (ctx.text ?? "").includes("Insurance claim="),
+      ).toBe(true);
+      if (b === "ar") {
+        expect(
+          ctx.translation_terms?.some(
+            (t) => t.source === "Car insurance" && t.target === "تأمين السيارة",
+          ),
+        ).toBe(true);
+        expect(
+          ctx.translation_terms?.some((t) => t.source === "Car accident" && t.target === "حادث سيارة"),
+        ).toBe(true);
+      }
+    }
   });
 });

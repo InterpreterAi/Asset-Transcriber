@@ -12,7 +12,7 @@
 import type { SonioxStartContext } from "./stable-dialect-context";
 import pack from "./interpreter-glossary.json";
 
-export const SONIOX_X_CONTEXT_SAFE_CHARS = 9_800;
+export const SONIOX_X_CONTEXT_SAFE_CHARS = 9_600;
 
 export type GlossaryTerm = { source: string; target: string };
 type PackEntry = Record<string, string>;
@@ -72,6 +72,142 @@ const CLINICAL_SINGLE = new Set(
     "emphysema",
     "tuberculosis",
     "andropause",
+  ].map((w) => w.toLowerCase()),
+);
+
+/** Highest-priority legal pins — kept small so medical abbreviations still fit. */
+const LEGAL_PRIORITY = new Set(
+  [
+    "immigration status",
+    "felony",
+    "misdemeanor",
+    "pro bono",
+    "attorney",
+    "lawyer",
+    "asylum",
+    "deportation",
+    "green card",
+    "visa",
+    "restraining order",
+    "power of attorney",
+    "public defender",
+    "legal aid",
+  ].map((w) => w.toLowerCase()),
+);
+
+const LEGAL_SINGLE = new Set(
+  [
+    ...LEGAL_PRIORITY,
+    "naturalization",
+    "immigration court",
+    "court",
+    "judge",
+    "hearing",
+    "trial",
+    "bail",
+    "warrant",
+    "subpoena",
+    "affidavit",
+    "guilty",
+    "not guilty",
+    "sentence",
+    "probation",
+    "parole",
+    "plaintiff",
+    "defendant",
+    "witness",
+    "testimony",
+    "evidence",
+    "charges",
+    "indictment",
+    "conviction",
+    "appeal",
+    "lawsuit",
+    "settlement",
+    "divorce",
+    "notary",
+    "client",
+    "confidentiality",
+    "arrest",
+    "prosecutor",
+    "legal office",
+    "consulate",
+    "passport",
+    "undocumented",
+  ].map((w) => w.toLowerCase()),
+);
+
+/**
+ * Tiny auto-insurance / accident priority set — must stay small so medical + legal
+ * still fit under the ~9.6k Soniox budget. Screenshot-critical claim language only.
+ */
+const AUTO_PRIORITY = new Set(
+  [
+    "car insurance",
+    "car accident",
+    "insurance claim",
+    "hit and run",
+    "police report",
+    "deductible",
+    "at fault",
+    "policy number",
+  ].map((w) => w.toLowerCase()),
+);
+
+/** Absolute must-keep auto pins (tests + OPI claim intake). Packed before other auto. */
+const AUTO_CRITICAL = new Set(
+  ["car insurance", "car accident", "insurance claim"].map((w) => w.toLowerCase()),
+);
+
+const AUTO_SINGLE = new Set(
+  [
+    ...AUTO_PRIORITY,
+    "auto insurance",
+    "claim number",
+    "traffic accident",
+    "not at fault",
+    "total loss",
+    "liability insurance",
+    "collision coverage",
+    "comprehensive coverage",
+    "premium",
+    "liability",
+    "collision",
+    "rear-end collision",
+    "fender bender",
+    "accident report",
+    "tow truck",
+    "roadside assistance",
+    "rental car",
+    "body shop",
+    "repair shop",
+    "totaled",
+    "estimate",
+    "adjuster",
+    "insurance adjuster",
+    "license plate",
+    "driver's license",
+    "registration",
+    "vin",
+    "airbag",
+    "seat belt",
+    "whiplash",
+    "bodily injury",
+    "property damage",
+    "uninsured motorist",
+    "underinsured motorist",
+    "no-fault insurance",
+    "glass coverage",
+    "windshield",
+    "bumper",
+    "tire",
+    "engine",
+    "transmission",
+    "brake",
+    "speed limit",
+    "traffic ticket",
+    "dui",
+    "dmv",
   ].map((w) => w.toLowerCase()),
 );
 
@@ -153,8 +289,14 @@ function otherLangFromPairKey(pairKey: string): string | null {
 
 function rowScore(en: string): number {
   const t = en.trim();
-  if (RECOGNITION_ABBR.test(t) || /^[A-Z]{3,8}$/.test(t)) return 120;
-  if (/^(sonogram|ultrasound|mammogram|mammography)$/i.test(t)) return 115;
+  if (RECOGNITION_ABBR.test(t) || /^[A-Z]{3,8}$/.test(t)) return 130;
+  if (/^(sonogram|ultrasound|mammogram|mammography|stroke)$/i.test(t)) return 125;
+  // Pack claim-intake auto pins ahead of broader legal so "Car insurance" survives budget.
+  if (AUTO_CRITICAL.has(t.toLowerCase())) return 119;
+  if (LEGAL_PRIORITY.has(t.toLowerCase())) return 118;
+  if (AUTO_PRIORITY.has(t.toLowerCase())) return 116;
+  if (LEGAL_SINGLE.has(t.toLowerCase())) return 95;
+  if (AUTO_SINGLE.has(t.toLowerCase())) return 93;
   if (CLINICAL_SINGLE.has(t.toLowerCase())) return 90;
   if (/^[A-Z]{2,8}\s+\S/.test(t)) return 50;
   const words = t.split(/\s+/).filter(Boolean).length;
@@ -301,25 +443,125 @@ function cloneContext(dialect: SonioxStartContext): SonioxStartContext {
   };
 }
 
-function withHealthcareTopic(ctx: SonioxStartContext): void {
+/** English demonyms for interpreter handoff lines (same idea as chunk-v2 STT bias). */
+const DEMONYM_BY_BASE: Record<string, string> = {
+  ar: "Arabic",
+  es: "Spanish",
+  en: "English",
+  fr: "French",
+  de: "German",
+  pl: "Polish",
+  pt: "Portuguese",
+  ru: "Russian",
+  zh: "Chinese",
+  ja: "Japanese",
+  ko: "Korean",
+  hi: "Hindi",
+  he: "Hebrew",
+  fa: "Persian",
+  so: "Somali",
+  it: "Italian",
+  nl: "Dutch",
+  tr: "Turkish",
+  uk: "Ukrainian",
+  ur: "Urdu",
+  vi: "Vietnamese",
+};
+
+/**
+ * Call-opening phrases Soniox X was missing (chunk-v2 has these). Without them,
+ * STT latches onto "thank you for calling our…" / "UR3" instead of
+ * "you're through to the … interpreter".
+ *
+ * Deliberately omit "thank you for calling…" terms — those pull Soniox toward
+ * the wrong handoff line the user keeps seeing.
+ */
+export function buildInterpreterIntroTerms(langA: string, langB: string): string[] {
+  const demonyms = [
+    ...new Set(
+      [langBase(langA), langBase(langB), "ar", "es"]
+        .map((c) => DEMONYM_BY_BASE[c])
+        .filter((d): d is string => Boolean(d)),
+    ),
+  ];
+  const terms: string[] = [];
+  for (const d of demonyms) {
+    terms.push(
+      `you're through to the ${d} interpreter`,
+      `you are through to the ${d} interpreter`,
+      `through to the ${d} interpreter`,
+      `${d} interpreter`,
+    );
+  }
+  terms.push(
+    "you're through to the interpreter",
+    "you are through to the interpreter",
+    "you're through",
+    "you are through",
+    "interpreter",
+  );
+  return terms;
+}
+
+function withInterpreterCallFraming(ctx: SonioxStartContext, langA: string, langB: string): void {
   if (!ctx.general) ctx.general = [];
   const domain = ctx.general.find((kv) => kv.key === "domain");
-  if (domain) domain.value = "Healthcare interpretation";
+  if (domain) {
+    domain.value = "Telephone and video interpreting (including medical)";
+  } else {
+    ctx.general.unshift({
+      key: "domain",
+      value: "Telephone and video interpreting (including medical)",
+    });
+  }
+
+  const opening = ctx.general.find((kv) => kv.key === "call_opening");
+  const openingValue =
+    "Handoff line: you're through to the [language] interpreter (or you are through). " +
+    "Never write UR3 or thank you for calling our crew/team for that line. " +
+    "Each utterance is independent — do not reuse a previous wrong transcript.";
+  if (opening) opening.value = openingValue;
+  else ctx.general.push({ key: "call_opening", value: openingValue });
+
+  const intro = buildInterpreterIntroTerms(langA, langB);
+  const terms: string[] = [];
+  const seen = new Set<string>();
+  for (const t of [...intro, ...(ctx.terms ?? [])]) {
+    const k = t.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    terms.push(t);
+  }
+  if (terms.length > 0) ctx.terms = terms;
+}
+
+function withHealthcareTopic(ctx: SonioxStartContext): void {
+  if (!ctx.general) ctx.general = [];
+  // Keep telephone-interpreting domain; only add clinical topic if missing.
   if (!ctx.general.some((kv) => kv.key === "topic")) {
     ctx.general.push({
       key: "topic",
-      value: "Medical interpreting: hospitals, clinics, and common clinical terms",
+      value:
+        "Live interpreter call — introductions first; medical, legal, and auto-insurance terms when spoken",
     });
   }
 }
 
-function fits(ctx: SonioxStartContext): boolean {
-  return contextChars(ctx) <= SONIOX_X_CONTEXT_SAFE_CHARS;
+function fits(ctx: SonioxStartContext, reserve = 0): boolean {
+  return contextChars(ctx) <= SONIOX_X_CONTEXT_SAFE_CHARS - reserve;
 }
+
+/** Chars reserved so intro handoff terms still fit after the medical pack. */
+const INTRO_CONTEXT_RESERVE = 500;
 
 function isPriorityPairStart(term: GlossaryTerm): boolean {
   const src = term.source.trim();
-  return isRecognitionPin(src) || /^(sonogram|ultrasound|mammogram|mammography)$/i.test(src);
+  return (
+    LEGAL_PRIORITY.has(src.toLowerCase()) ||
+    AUTO_PRIORITY.has(src.toLowerCase()) ||
+    isRecognitionPin(src) ||
+    /^(sonogram|ultrasound|mammogram|mammography|stroke)$/i.test(src)
+  );
 }
 
 function addPackPairs(
@@ -329,6 +571,7 @@ function addPackPairs(
   includedSources: Set<string>,
   userSources: Set<string>,
   predicate: (start: GlossaryTerm) => boolean,
+  reserve = 0,
 ): void {
   ctx.translation_terms = ctx.translation_terms ?? [];
   for (let i = 0; i < packTerms.length; i += 2) {
@@ -340,9 +583,10 @@ function addPackPairs(
     if (batch.length === 0) continue;
     const before = ctx.translation_terms.length;
     ctx.translation_terms.push(...batch);
-    if (!fits(ctx)) {
+    if (!fits(ctx, reserve)) {
+      // Skip this pair and keep trying — a longer term must not block shorter priority pins.
       ctx.translation_terms.length = before;
-      break;
+      continue;
     }
     for (const t of batch) {
       seen.add(`${t.source}->${t.target}`);
@@ -351,25 +595,35 @@ function addPackPairs(
   }
 }
 
-/** Dialect first, then user glossary (kept longest), then built-in pack; trim pack if over budget. */
+/** Dialect first, then medical pack (with reserve), then interpreter intro handoff bias. */
 export function mergeSonioxXInterpreterContext(args: {
   dialect: SonioxStartContext;
   packTerms: GlossaryTerm[];
   packPins: string[];
   packLines?: string[];
   userTerms: GlossaryTerm[];
+  langA: string;
+  langB: string;
 }): SonioxStartContext {
   const ctx = cloneContext(args.dialect);
   if (args.packTerms.length > 0) withHealthcareTopic(ctx);
 
   ctx.translation_terms = [...(ctx.translation_terms ?? []), ...args.userTerms];
-  if (!fits(ctx)) ctx.translation_terms = [...args.userTerms];
+  if (!fits(ctx, INTRO_CONTEXT_RESERVE)) ctx.translation_terms = [...args.userTerms];
 
   const seen = new Set((ctx.translation_terms ?? []).map((t) => `${t.source}->${t.target}`));
   const includedSources = new Set((ctx.translation_terms ?? []).map((t) => t.source));
   const userSources = new Set(args.userTerms.map((t) => t.source));
 
-  addPackPairs(ctx, args.packTerms, seen, includedSources, userSources, isPriorityPairStart);
+  addPackPairs(
+    ctx,
+    args.packTerms,
+    seen,
+    includedSources,
+    userSources,
+    isPriorityPairStart,
+    INTRO_CONTEXT_RESERVE,
+  );
 
   const terms: string[] = [...(ctx.terms ?? [])];
   const seenTerm = new Set(terms.map((t) => t.toLowerCase()));
@@ -379,7 +633,7 @@ export function mergeSonioxXInterpreterContext(args: {
     seenTerm.add(pin.toLowerCase());
     terms.push(pin);
     ctx.terms = terms;
-    if (!fits(ctx)) {
+    if (!fits(ctx, INTRO_CONTEXT_RESERVE)) {
       terms.pop();
       break;
     }
@@ -398,7 +652,7 @@ export function mergeSonioxXInterpreterContext(args: {
     if (lead && includedSources.has(lead[1])) continue;
     extra.push(line);
     ctx.text = [baseText, header, extra.join("\n")].filter(Boolean).join("\n");
-    if (!fits(ctx)) {
+    if (!fits(ctx, INTRO_CONTEXT_RESERVE)) {
       extra.pop();
       ctx.text = extra.length > 0 ? [baseText, header, extra.join("\n")].filter(Boolean).join("\n") : baseText || undefined;
       break;
@@ -406,7 +660,46 @@ export function mergeSonioxXInterpreterContext(args: {
   }
   if (!ctx.text) delete ctx.text;
 
-  addPackPairs(ctx, args.packTerms, seen, includedSources, userSources, (start) => !isPriorityPairStart(start));
+  addPackPairs(
+    ctx,
+    args.packTerms,
+    seen,
+    includedSources,
+    userSources,
+    (start) => !isPriorityPairStart(start),
+    INTRO_CONTEXT_RESERVE,
+  );
+
+  // Intro handoff bias last so medical pack keeps its slot — still prepended in terms.
+  withInterpreterCallFraming(ctx, args.langA, args.langB);
+  const protectedSources = new Set(
+    [
+      ...LEGAL_PRIORITY,
+      ...AUTO_PRIORITY,
+      "sonogram",
+      "ultrasound",
+      "mammogram",
+      "mammography",
+      "stroke",
+      "cpr",
+      "mri",
+      "ecg",
+      "iud",
+    ],
+  );
+  while (!fits(ctx) && (ctx.translation_terms?.length ?? 0) > args.userTerms.length) {
+    const terms = ctx.translation_terms!;
+    let idx = terms.length - 1;
+    while (idx >= 0 && protectedSources.has(terms[idx]!.source.trim().toLowerCase())) {
+      idx -= 1;
+    }
+    if (idx < 0) break;
+    terms.splice(idx, 1);
+  }
+  while (!fits(ctx) && (ctx.terms?.length ?? 0) > buildInterpreterIntroTerms(args.langA, args.langB).length) {
+    ctx.terms!.pop();
+  }
+
   if (ctx.translation_terms && ctx.translation_terms.length === 0) delete ctx.translation_terms;
 
   return ctx;

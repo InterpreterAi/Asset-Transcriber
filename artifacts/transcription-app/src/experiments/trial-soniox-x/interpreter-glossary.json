@@ -2844,6 +2844,458 @@
       {
         "en": "white blood count",
         "ar": "تعداد كريات الدم البيضاء"
+      },
+      {
+        "en": "Immigration status",
+        "ar": "الوضع الهجري"
+      },
+      {
+        "en": "Felony",
+        "ar": "جناية"
+      },
+      {
+        "en": "Misdemeanor",
+        "ar": "جنحة"
+      },
+      {
+        "en": "Pro bono",
+        "ar": "مجاني بدون أتعاب"
+      },
+      {
+        "en": "Attorney",
+        "ar": "محامٍ"
+      },
+      {
+        "en": "Lawyer",
+        "ar": "محامٍ"
+      },
+      {
+        "en": "Public defender",
+        "ar": "محامٍ عام"
+      },
+      {
+        "en": "Legal aid",
+        "ar": "مساعدة قانونية"
+      },
+      {
+        "en": "Asylum",
+        "ar": "لجوء"
+      },
+      {
+        "en": "Asylum seeker",
+        "ar": "طالب لجوء"
+      },
+      {
+        "en": "Refugee",
+        "ar": "لاجئ"
+      },
+      {
+        "en": "Deportation",
+        "ar": "ترحيل"
+      },
+      {
+        "en": "Detention",
+        "ar": "احتجاز"
+      },
+      {
+        "en": "Green card",
+        "ar": "البطاقة الخضراء"
+      },
+      {
+        "en": "Permanent resident",
+        "ar": "مقيم دائم"
+      },
+      {
+        "en": "Work permit",
+        "ar": "تصريح عمل"
+      },
+      {
+        "en": "Visa",
+        "ar": "تأشيرة"
+      },
+      {
+        "en": "Citizenship",
+        "ar": "جنسية"
+      },
+      {
+        "en": "Naturalization",
+        "ar": "تجنيس"
+      },
+      {
+        "en": "Immigration court",
+        "ar": "محكمة الهجرة"
+      },
+      {
+        "en": "Court",
+        "ar": "محكمة"
+      },
+      {
+        "en": "Judge",
+        "ar": "قاضٍ"
+      },
+      {
+        "en": "Hearing",
+        "ar": "جلسة استماع"
+      },
+      {
+        "en": "Trial",
+        "ar": "محاكمة"
+      },
+      {
+        "en": "Bail",
+        "ar": "كفالة"
+      },
+      {
+        "en": "Warrant",
+        "ar": "مذكرة توقيف"
+      },
+      {
+        "en": "Subpoena",
+        "ar": "أمر إحضار"
+      },
+      {
+        "en": "Affidavit",
+        "ar": "إفادة مشفوعة بيمين"
+      },
+      {
+        "en": "Guilty",
+        "ar": "مذنب"
+      },
+      {
+        "en": "Not guilty",
+        "ar": "غير مذنب"
+      },
+      {
+        "en": "Sentence",
+        "ar": "حكم قضائي"
+      },
+      {
+        "en": "Probation",
+        "ar": "مراقبة قضائية"
+      },
+      {
+        "en": "Parole",
+        "ar": "إفراج مشروط"
+      },
+      {
+        "en": "Plaintiff",
+        "ar": "المدعي"
+      },
+      {
+        "en": "Defendant",
+        "ar": "المدعى عليه"
+      },
+      {
+        "en": "Witness",
+        "ar": "شاهد"
+      },
+      {
+        "en": "Testimony",
+        "ar": "شهادة"
+      },
+      {
+        "en": "Evidence",
+        "ar": "أدلة"
+      },
+      {
+        "en": "Charges",
+        "ar": "تهم"
+      },
+      {
+        "en": "Indictment",
+        "ar": "لائحة اتهام"
+      },
+      {
+        "en": "Conviction",
+        "ar": "إدانة"
+      },
+      {
+        "en": "Appeal",
+        "ar": "استئناف"
+      },
+      {
+        "en": "Lawsuit",
+        "ar": "دعوى قضائية"
+      },
+      {
+        "en": "Settlement",
+        "ar": "تسوية"
+      },
+      {
+        "en": "Restraining order",
+        "ar": "أمر منع اقتراب"
+      },
+      {
+        "en": "Protective order",
+        "ar": "أمر حماية"
+      },
+      {
+        "en": "Child support",
+        "ar": "نفقة أطفال"
+      },
+      {
+        "en": "Custody",
+        "ar": "حضانة"
+      },
+      {
+        "en": "Divorce",
+        "ar": "طلاق"
+      },
+      {
+        "en": "Power of attorney",
+        "ar": "توكيل رسمي"
+      },
+      {
+        "en": "Notary",
+        "ar": "كاتب عدل"
+      },
+      {
+        "en": "Client",
+        "ar": "موكل"
+      },
+      {
+        "en": "Confidentiality",
+        "ar": "السرية"
+      },
+      {
+        "en": "Arrest",
+        "ar": "اعتقال"
+      },
+      {
+        "en": "Prosecutor",
+        "ar": "المدعي العام"
+      },
+      {
+        "en": "Legal office",
+        "ar": "مكتب محاماة"
+      },
+      {
+        "en": "Consulate",
+        "ar": "قنصلية"
+      },
+      {
+        "en": "Passport",
+        "ar": "جواز سفر"
+      },
+      {
+        "en": "Undocumented",
+        "ar": "بدون وثائق"
+      },
+      {
+        "en": "Car insurance",
+        "ar": "تأمين السيارة"
+      },
+      {
+        "en": "Auto insurance",
+        "ar": "تأمين السيارات"
+      },
+      {
+        "en": "Insurance claim",
+        "ar": "مطالبة تأمين"
+      },
+      {
+        "en": "Claim number",
+        "ar": "رقم المطالبة"
+      },
+      {
+        "en": "Policy number",
+        "ar": "رقم الوثيقة"
+      },
+      {
+        "en": "Deductible",
+        "ar": "التحمل / الخصم"
+      },
+      {
+        "en": "Premium",
+        "ar": "قسط التأمين"
+      },
+      {
+        "en": "Liability",
+        "ar": "المسؤولية"
+      },
+      {
+        "en": "Liability insurance",
+        "ar": "تأمين المسؤولية"
+      },
+      {
+        "en": "Collision",
+        "ar": "تصادم"
+      },
+      {
+        "en": "Collision coverage",
+        "ar": "تغطية التصادم"
+      },
+      {
+        "en": "Comprehensive coverage",
+        "ar": "تغطية شاملة"
+      },
+      {
+        "en": "Car accident",
+        "ar": "حادث سيارة"
+      },
+      {
+        "en": "Traffic accident",
+        "ar": "حادث مروري"
+      },
+      {
+        "en": "Hit and run",
+        "ar": "دهس وهروب"
+      },
+      {
+        "en": "Rear-end collision",
+        "ar": "تصادم خلفي"
+      },
+      {
+        "en": "Fender bender",
+        "ar": "حادث بسيط"
+      },
+      {
+        "en": "At fault",
+        "ar": "المخطئ / المسؤول عن الحادث"
+      },
+      {
+        "en": "Not at fault",
+        "ar": "غير مخطئ"
+      },
+      {
+        "en": "Police report",
+        "ar": "تقرير الشرطة"
+      },
+      {
+        "en": "Accident report",
+        "ar": "تقرير الحادث"
+      },
+      {
+        "en": "Tow truck",
+        "ar": "شاحنة سحب"
+      },
+      {
+        "en": "Roadside assistance",
+        "ar": "مساعدة على الطريق"
+      },
+      {
+        "en": "Rental car",
+        "ar": "سيارة مستأجرة"
+      },
+      {
+        "en": "Body shop",
+        "ar": "ورشة سمكرة"
+      },
+      {
+        "en": "Repair shop",
+        "ar": "ورشة تصليح"
+      },
+      {
+        "en": "Totaled",
+        "ar": "خسارة كلية"
+      },
+      {
+        "en": "Total loss",
+        "ar": "خسارة كلية"
+      },
+      {
+        "en": "Estimate",
+        "ar": "تقدير التكلفة"
+      },
+      {
+        "en": "Adjuster",
+        "ar": "مقدّر أضرار التأمين"
+      },
+      {
+        "en": "Insurance adjuster",
+        "ar": "خبير تأمين"
+      },
+      {
+        "en": "License plate",
+        "ar": "لوحة السيارة"
+      },
+      {
+        "en": "Driver's license",
+        "ar": "رخصة قيادة"
+      },
+      {
+        "en": "Registration",
+        "ar": "تسجيل المركبة"
+      },
+      {
+        "en": "VIN",
+        "ar": "رقم الهيكل"
+      },
+      {
+        "en": "Airbag",
+        "ar": "وسادة هوائية"
+      },
+      {
+        "en": "Seat belt",
+        "ar": "حزام الأمان"
+      },
+      {
+        "en": "Whiplash",
+        "ar": "إصابة الرقبة / الصدمة الارتدادية"
+      },
+      {
+        "en": "Bodily injury",
+        "ar": "إصابة جسدية"
+      },
+      {
+        "en": "Property damage",
+        "ar": "أضرار الممتلكات"
+      },
+      {
+        "en": "Uninsured motorist",
+        "ar": "سائق بدون تأمين"
+      },
+      {
+        "en": "Underinsured motorist",
+        "ar": "سائق بتأمين غير كافٍ"
+      },
+      {
+        "en": "No-fault insurance",
+        "ar": "تأمين بدون تحديد خطأ"
+      },
+      {
+        "en": "Glass coverage",
+        "ar": "تغطية الزجاج"
+      },
+      {
+        "en": "Windshield",
+        "ar": "الزجاج الأمامي"
+      },
+      {
+        "en": "Bumper",
+        "ar": "المصد"
+      },
+      {
+        "en": "Tire",
+        "ar": "إطار"
+      },
+      {
+        "en": "Engine",
+        "ar": "محرك"
+      },
+      {
+        "en": "Transmission",
+        "ar": "ناقل الحركة"
+      },
+      {
+        "en": "Brake",
+        "ar": "فرامل"
+      },
+      {
+        "en": "Speed limit",
+        "ar": "الحد الأقصى للسرعة"
+      },
+      {
+        "en": "Traffic ticket",
+        "ar": "مخالفة مرورية"
+      },
+      {
+        "en": "DUI",
+        "ar": "القيادة تحت تأثير الكحول"
+      },
+      {
+        "en": "DMV",
+        "ar": "إدارة المرور"
       }
     ],
     "en-nl": [],
@@ -5712,9 +6164,914 @@
       {
         "en": "white blood count",
         "es": "recuento de glóbulos blancos"
+      },
+      {
+        "en": "Immigration status",
+        "es": "estatus migratorio"
+      },
+      {
+        "en": "Felony",
+        "es": "delito grave"
+      },
+      {
+        "en": "Misdemeanor",
+        "es": "delito menor"
+      },
+      {
+        "en": "Pro bono",
+        "es": "pro bono"
+      },
+      {
+        "en": "Attorney",
+        "es": "abogado"
+      },
+      {
+        "en": "Lawyer",
+        "es": "abogado"
+      },
+      {
+        "en": "Public defender",
+        "es": "defensor público"
+      },
+      {
+        "en": "Legal aid",
+        "es": "asistencia jurídica"
+      },
+      {
+        "en": "Asylum",
+        "es": "asilo"
+      },
+      {
+        "en": "Asylum seeker",
+        "es": "solicitante de asilo"
+      },
+      {
+        "en": "Refugee",
+        "es": "refugiado"
+      },
+      {
+        "en": "Deportation",
+        "es": "deportación"
+      },
+      {
+        "en": "Detention",
+        "es": "detención"
+      },
+      {
+        "en": "Green card",
+        "es": "tarjeta verde"
+      },
+      {
+        "en": "Permanent resident",
+        "es": "residente permanente"
+      },
+      {
+        "en": "Work permit",
+        "es": "permiso de trabajo"
+      },
+      {
+        "en": "Visa",
+        "es": "visa"
+      },
+      {
+        "en": "Citizenship",
+        "es": "ciudadanía"
+      },
+      {
+        "en": "Naturalization",
+        "es": "naturalización"
+      },
+      {
+        "en": "Immigration court",
+        "es": "tribunal de inmigración"
+      },
+      {
+        "en": "Court",
+        "es": "tribunal"
+      },
+      {
+        "en": "Judge",
+        "es": "juez"
+      },
+      {
+        "en": "Hearing",
+        "es": "audiencia"
+      },
+      {
+        "en": "Trial",
+        "es": "juicio"
+      },
+      {
+        "en": "Bail",
+        "es": "fianza"
+      },
+      {
+        "en": "Warrant",
+        "es": "orden de arresto"
+      },
+      {
+        "en": "Subpoena",
+        "es": "citación"
+      },
+      {
+        "en": "Affidavit",
+        "es": "declaración jurada"
+      },
+      {
+        "en": "Guilty",
+        "es": "culpable"
+      },
+      {
+        "en": "Not guilty",
+        "es": "no culpable"
+      },
+      {
+        "en": "Sentence",
+        "es": "condena"
+      },
+      {
+        "en": "Probation",
+        "es": "libertad condicional"
+      },
+      {
+        "en": "Parole",
+        "es": "libertad condicional bajo palabra"
+      },
+      {
+        "en": "Plaintiff",
+        "es": "demandante"
+      },
+      {
+        "en": "Defendant",
+        "es": "acusado"
+      },
+      {
+        "en": "Witness",
+        "es": "testigo"
+      },
+      {
+        "en": "Testimony",
+        "es": "testimonio"
+      },
+      {
+        "en": "Evidence",
+        "es": "pruebas"
+      },
+      {
+        "en": "Charges",
+        "es": "cargos"
+      },
+      {
+        "en": "Indictment",
+        "es": "acta de acusación"
+      },
+      {
+        "en": "Conviction",
+        "es": "condena firme"
+      },
+      {
+        "en": "Appeal",
+        "es": "apelación"
+      },
+      {
+        "en": "Lawsuit",
+        "es": "demanda"
+      },
+      {
+        "en": "Settlement",
+        "es": "acuerdo extrajudicial"
+      },
+      {
+        "en": "Restraining order",
+        "es": "orden de alejamiento"
+      },
+      {
+        "en": "Protective order",
+        "es": "orden de protección"
+      },
+      {
+        "en": "Child support",
+        "es": "pensión alimenticia"
+      },
+      {
+        "en": "Custody",
+        "es": "custodia"
+      },
+      {
+        "en": "Divorce",
+        "es": "divorcio"
+      },
+      {
+        "en": "Power of attorney",
+        "es": "poder notarial"
+      },
+      {
+        "en": "Notary",
+        "es": "notario"
+      },
+      {
+        "en": "Client",
+        "es": "cliente"
+      },
+      {
+        "en": "Confidentiality",
+        "es": "confidencialidad"
+      },
+      {
+        "en": "Arrest",
+        "es": "arresto"
+      },
+      {
+        "en": "Prosecutor",
+        "es": "fiscal"
+      },
+      {
+        "en": "Legal office",
+        "es": "bufete jurídico"
+      },
+      {
+        "en": "Consulate",
+        "es": "consulado"
+      },
+      {
+        "en": "Passport",
+        "es": "pasaporte"
+      },
+      {
+        "en": "Undocumented",
+        "es": "indocumentado"
+      },
+      {
+        "en": "Car insurance",
+        "es": "seguro de auto"
+      },
+      {
+        "en": "Auto insurance",
+        "es": "seguro de automóvil"
+      },
+      {
+        "en": "Insurance claim",
+        "es": "reclamación de seguro"
+      },
+      {
+        "en": "Claim number",
+        "es": "número de reclamo"
+      },
+      {
+        "en": "Policy number",
+        "es": "número de póliza"
+      },
+      {
+        "en": "Deductible",
+        "es": "deducible"
+      },
+      {
+        "en": "Premium",
+        "es": "prima"
+      },
+      {
+        "en": "Liability",
+        "es": "responsabilidad"
+      },
+      {
+        "en": "Liability insurance",
+        "es": "seguro de responsabilidad"
+      },
+      {
+        "en": "Collision",
+        "es": "colisión"
+      },
+      {
+        "en": "Collision coverage",
+        "es": "cobertura de colisión"
+      },
+      {
+        "en": "Comprehensive coverage",
+        "es": "cobertura integral"
+      },
+      {
+        "en": "Car accident",
+        "es": "accidente de auto"
+      },
+      {
+        "en": "Traffic accident",
+        "es": "accidente de tráfico"
+      },
+      {
+        "en": "Hit and run",
+        "es": "atropello y fuga"
+      },
+      {
+        "en": "Rear-end collision",
+        "es": "colisión trasera"
+      },
+      {
+        "en": "Fender bender",
+        "es": "choque leve"
+      },
+      {
+        "en": "At fault",
+        "es": "culpable"
+      },
+      {
+        "en": "Not at fault",
+        "es": "no culpable"
+      },
+      {
+        "en": "Police report",
+        "es": "reporte policial"
+      },
+      {
+        "en": "Accident report",
+        "es": "informe del accidente"
+      },
+      {
+        "en": "Tow truck",
+        "es": "grúa"
+      },
+      {
+        "en": "Roadside assistance",
+        "es": "asistencia en carretera"
+      },
+      {
+        "en": "Rental car",
+        "es": "auto de alquiler"
+      },
+      {
+        "en": "Body shop",
+        "es": "taller de carrocería"
+      },
+      {
+        "en": "Repair shop",
+        "es": "taller de reparación"
+      },
+      {
+        "en": "Totaled",
+        "es": "pérdida total"
+      },
+      {
+        "en": "Total loss",
+        "es": "pérdida total"
+      },
+      {
+        "en": "Estimate",
+        "es": "presupuesto"
+      },
+      {
+        "en": "Adjuster",
+        "es": "ajustador"
+      },
+      {
+        "en": "Insurance adjuster",
+        "es": "ajustador de seguros"
+      },
+      {
+        "en": "License plate",
+        "es": "placa"
+      },
+      {
+        "en": "Driver's license",
+        "es": "licencia de conducir"
+      },
+      {
+        "en": "Registration",
+        "es": "registro del vehículo"
+      },
+      {
+        "en": "VIN",
+        "es": "número de chasis"
+      },
+      {
+        "en": "Airbag",
+        "es": "bolsa de aire"
+      },
+      {
+        "en": "Seat belt",
+        "es": "cinturón de seguridad"
+      },
+      {
+        "en": "Whiplash",
+        "es": "latigazo cervical"
+      },
+      {
+        "en": "Bodily injury",
+        "es": "lesiones corporales"
+      },
+      {
+        "en": "Property damage",
+        "es": "daños a la propiedad"
+      },
+      {
+        "en": "Uninsured motorist",
+        "es": "conductor sin seguro"
+      },
+      {
+        "en": "Underinsured motorist",
+        "es": "conductor con seguro insuficiente"
+      },
+      {
+        "en": "No-fault insurance",
+        "es": "seguro sin culpa"
+      },
+      {
+        "en": "Glass coverage",
+        "es": "cobertura de cristales"
+      },
+      {
+        "en": "Windshield",
+        "es": "parabrisas"
+      },
+      {
+        "en": "Bumper",
+        "es": "parachoques"
+      },
+      {
+        "en": "Tire",
+        "es": "llanta"
+      },
+      {
+        "en": "Engine",
+        "es": "motor"
+      },
+      {
+        "en": "Transmission",
+        "es": "transmisión"
+      },
+      {
+        "en": "Brake",
+        "es": "freno"
+      },
+      {
+        "en": "Speed limit",
+        "es": "límite de velocidad"
+      },
+      {
+        "en": "Traffic ticket",
+        "es": "multa de tráfico"
+      },
+      {
+        "en": "DUI",
+        "es": "conducir bajo influencia"
+      },
+      {
+        "en": "DMV",
+        "es": "departamento de vehículos"
       }
     ],
-    "en-de": [],
+    "en-de": [
+      {
+        "en": "Immigration status",
+        "de": "Aufenthaltsstatus"
+      },
+      {
+        "en": "Felony",
+        "de": "Verbrechen"
+      },
+      {
+        "en": "Misdemeanor",
+        "de": "Vergehen"
+      },
+      {
+        "en": "Pro bono",
+        "de": "pro bono"
+      },
+      {
+        "en": "Attorney",
+        "de": "Anwalt"
+      },
+      {
+        "en": "Lawyer",
+        "de": "Rechtsanwalt"
+      },
+      {
+        "en": "Public defender",
+        "de": "Pflichtverteidiger"
+      },
+      {
+        "en": "Legal aid",
+        "de": "Prozesskostenhilfe"
+      },
+      {
+        "en": "Asylum",
+        "de": "Asyl"
+      },
+      {
+        "en": "Asylum seeker",
+        "de": "Asylbewerber"
+      },
+      {
+        "en": "Refugee",
+        "de": "Flüchtling"
+      },
+      {
+        "en": "Deportation",
+        "de": "Abschiebung"
+      },
+      {
+        "en": "Detention",
+        "de": "Haft"
+      },
+      {
+        "en": "Green card",
+        "de": "Green Card"
+      },
+      {
+        "en": "Permanent resident",
+        "de": "Daueraufenthaltsberechtigter"
+      },
+      {
+        "en": "Work permit",
+        "de": "Arbeitserlaubnis"
+      },
+      {
+        "en": "Visa",
+        "de": "Visum"
+      },
+      {
+        "en": "Citizenship",
+        "de": "Staatsangehörigkeit"
+      },
+      {
+        "en": "Naturalization",
+        "de": "Einbürgerung"
+      },
+      {
+        "en": "Immigration court",
+        "de": "Ausländergericht"
+      },
+      {
+        "en": "Court",
+        "de": "Gericht"
+      },
+      {
+        "en": "Judge",
+        "de": "Richter"
+      },
+      {
+        "en": "Hearing",
+        "de": "Anhörung"
+      },
+      {
+        "en": "Trial",
+        "de": "Gerichtsverfahren"
+      },
+      {
+        "en": "Bail",
+        "de": "Kaution"
+      },
+      {
+        "en": "Warrant",
+        "de": "Haftbefehl"
+      },
+      {
+        "en": "Subpoena",
+        "de": "Vorladung"
+      },
+      {
+        "en": "Affidavit",
+        "de": "eidesstattliche Erklärung"
+      },
+      {
+        "en": "Guilty",
+        "de": "schuldig"
+      },
+      {
+        "en": "Not guilty",
+        "de": "nicht schuldig"
+      },
+      {
+        "en": "Sentence",
+        "de": "Strafmaß"
+      },
+      {
+        "en": "Probation",
+        "de": "Bewährung"
+      },
+      {
+        "en": "Parole",
+        "de": "bedingte Entlassung"
+      },
+      {
+        "en": "Plaintiff",
+        "de": "Kläger"
+      },
+      {
+        "en": "Defendant",
+        "de": "Angeklagter"
+      },
+      {
+        "en": "Witness",
+        "de": "Zeuge"
+      },
+      {
+        "en": "Testimony",
+        "de": "Zeugenaussage"
+      },
+      {
+        "en": "Evidence",
+        "de": "Beweismittel"
+      },
+      {
+        "en": "Charges",
+        "de": "Anklagepunkte"
+      },
+      {
+        "en": "Indictment",
+        "de": "Anklageschrift"
+      },
+      {
+        "en": "Conviction",
+        "de": "Verurteilung"
+      },
+      {
+        "en": "Appeal",
+        "de": "Berufung"
+      },
+      {
+        "en": "Lawsuit",
+        "de": "Klage"
+      },
+      {
+        "en": "Settlement",
+        "de": "Vergleich"
+      },
+      {
+        "en": "Restraining order",
+        "de": "Kontaktverbot"
+      },
+      {
+        "en": "Protective order",
+        "de": "Schutzanordnung"
+      },
+      {
+        "en": "Child support",
+        "de": "Kindesunterhalt"
+      },
+      {
+        "en": "Custody",
+        "de": "Sorgerecht"
+      },
+      {
+        "en": "Divorce",
+        "de": "Scheidung"
+      },
+      {
+        "en": "Power of attorney",
+        "de": "Vollmacht"
+      },
+      {
+        "en": "Notary",
+        "de": "Notar"
+      },
+      {
+        "en": "Client",
+        "de": "Mandant"
+      },
+      {
+        "en": "Confidentiality",
+        "de": "Vertraulichkeit"
+      },
+      {
+        "en": "Arrest",
+        "de": "Festnahme"
+      },
+      {
+        "en": "Prosecutor",
+        "de": "Staatsanwalt"
+      },
+      {
+        "en": "Legal office",
+        "de": "Anwaltskanzlei"
+      },
+      {
+        "en": "Consulate",
+        "de": "Konsulat"
+      },
+      {
+        "en": "Passport",
+        "de": "Reisepass"
+      },
+      {
+        "en": "Undocumented",
+        "de": "ohne Papiere"
+      },
+      {
+        "en": "Car insurance",
+        "de": "Autoversicherung"
+      },
+      {
+        "en": "Auto insurance",
+        "de": "Kfz-Versicherung"
+      },
+      {
+        "en": "Insurance claim",
+        "de": "Versicherungsanspruch"
+      },
+      {
+        "en": "Claim number",
+        "de": "Schadennummer"
+      },
+      {
+        "en": "Policy number",
+        "de": "Policennummer"
+      },
+      {
+        "en": "Deductible",
+        "de": "Selbstbeteiligung"
+      },
+      {
+        "en": "Premium",
+        "de": "Prämie"
+      },
+      {
+        "en": "Liability",
+        "de": "Haftpflicht"
+      },
+      {
+        "en": "Liability insurance",
+        "de": "Haftpflichtversicherung"
+      },
+      {
+        "en": "Collision",
+        "de": "Kollision"
+      },
+      {
+        "en": "Collision coverage",
+        "de": "Kollisionsversicherung"
+      },
+      {
+        "en": "Comprehensive coverage",
+        "de": "Vollkasko"
+      },
+      {
+        "en": "Car accident",
+        "de": "Autounfall"
+      },
+      {
+        "en": "Traffic accident",
+        "de": "Verkehrsunfall"
+      },
+      {
+        "en": "Hit and run",
+        "de": "Fahrerflucht"
+      },
+      {
+        "en": "Rear-end collision",
+        "de": "Auffahrunfall"
+      },
+      {
+        "en": "Fender bender",
+        "de": "Blechschaden"
+      },
+      {
+        "en": "At fault",
+        "de": "schuldhaft"
+      },
+      {
+        "en": "Not at fault",
+        "de": "unschuldig"
+      },
+      {
+        "en": "Police report",
+        "de": "Polizeibericht"
+      },
+      {
+        "en": "Accident report",
+        "de": "Unfallbericht"
+      },
+      {
+        "en": "Tow truck",
+        "de": "Abschleppwagen"
+      },
+      {
+        "en": "Roadside assistance",
+        "de": "Pannenhilfe"
+      },
+      {
+        "en": "Rental car",
+        "de": "Mietwagen"
+      },
+      {
+        "en": "Body shop",
+        "de": "Karosseriewerkstatt"
+      },
+      {
+        "en": "Repair shop",
+        "de": "Werkstatt"
+      },
+      {
+        "en": "Totaled",
+        "de": "Totalschaden"
+      },
+      {
+        "en": "Total loss",
+        "de": "Totalschaden"
+      },
+      {
+        "en": "Estimate",
+        "de": "Kostenvoranschlag"
+      },
+      {
+        "en": "Adjuster",
+        "de": "Schadensregulierer"
+      },
+      {
+        "en": "Insurance adjuster",
+        "de": "Versicherungssachverständiger"
+      },
+      {
+        "en": "License plate",
+        "de": "Kennzeichen"
+      },
+      {
+        "en": "Driver's license",
+        "de": "Führerschein"
+      },
+      {
+        "en": "Registration",
+        "de": "Zulassung"
+      },
+      {
+        "en": "VIN",
+        "de": "FIN"
+      },
+      {
+        "en": "Airbag",
+        "de": "Airbag"
+      },
+      {
+        "en": "Seat belt",
+        "de": "Sicherheitsgurt"
+      },
+      {
+        "en": "Whiplash",
+        "de": "Schleudertrauma"
+      },
+      {
+        "en": "Bodily injury",
+        "de": "Körperverletzung"
+      },
+      {
+        "en": "Property damage",
+        "de": "Sachschaden"
+      },
+      {
+        "en": "Uninsured motorist",
+        "de": "unversicherter Fahrer"
+      },
+      {
+        "en": "Underinsured motorist",
+        "de": "unterversicherter Fahrer"
+      },
+      {
+        "en": "No-fault insurance",
+        "de": "No-Fault-Versicherung"
+      },
+      {
+        "en": "Glass coverage",
+        "de": "Glasversicherung"
+      },
+      {
+        "en": "Windshield",
+        "de": "Windschutzscheibe"
+      },
+      {
+        "en": "Bumper",
+        "de": "Stoßstange"
+      },
+      {
+        "en": "Tire",
+        "de": "Reifen"
+      },
+      {
+        "en": "Engine",
+        "de": "Motor"
+      },
+      {
+        "en": "Transmission",
+        "de": "Getriebe"
+      },
+      {
+        "en": "Brake",
+        "de": "Bremse"
+      },
+      {
+        "en": "Speed limit",
+        "de": "Geschwindigkeitsbegrenzung"
+      },
+      {
+        "en": "Traffic ticket",
+        "de": "Bußgeld"
+      },
+      {
+        "en": "DUI",
+        "de": "Trunkenheit am Steuer"
+      },
+      {
+        "en": "DMV",
+        "de": "Kfz-Zulassungsstelle"
+      }
+    ],
     "en-pl": [
       {
         "en": "CPR",
@@ -8571,6 +9928,1366 @@
       {
         "en": "white blood count",
         "pl": "liczba krwinek białych"
+      },
+      {
+        "en": "Immigration status",
+        "pl": "status imigracyjny"
+      },
+      {
+        "en": "Felony",
+        "pl": "zbrodnia"
+      },
+      {
+        "en": "Misdemeanor",
+        "pl": "występek"
+      },
+      {
+        "en": "Pro bono",
+        "pl": "pro bono"
+      },
+      {
+        "en": "Attorney",
+        "pl": "adwokat"
+      },
+      {
+        "en": "Lawyer",
+        "pl": "prawnik"
+      },
+      {
+        "en": "Public defender",
+        "pl": "obrońca z urzędu"
+      },
+      {
+        "en": "Legal aid",
+        "pl": "pomoc prawna"
+      },
+      {
+        "en": "Asylum",
+        "pl": "azyl"
+      },
+      {
+        "en": "Asylum seeker",
+        "pl": "osoba ubiegająca się o azyl"
+      },
+      {
+        "en": "Refugee",
+        "pl": "uchodźca"
+      },
+      {
+        "en": "Deportation",
+        "pl": "deportacja"
+      },
+      {
+        "en": "Detention",
+        "pl": "areszt"
+      },
+      {
+        "en": "Green card",
+        "pl": "zielona karta"
+      },
+      {
+        "en": "Permanent resident",
+        "pl": "stały rezydent"
+      },
+      {
+        "en": "Work permit",
+        "pl": "zezwolenie na pracę"
+      },
+      {
+        "en": "Visa",
+        "pl": "wiza"
+      },
+      {
+        "en": "Citizenship",
+        "pl": "obywatelstwo"
+      },
+      {
+        "en": "Naturalization",
+        "pl": "naturalizacja"
+      },
+      {
+        "en": "Immigration court",
+        "pl": "sąd imigracyjny"
+      },
+      {
+        "en": "Court",
+        "pl": "sąd"
+      },
+      {
+        "en": "Judge",
+        "pl": "sędzia"
+      },
+      {
+        "en": "Hearing",
+        "pl": "rozprawa"
+      },
+      {
+        "en": "Trial",
+        "pl": "proces"
+      },
+      {
+        "en": "Bail",
+        "pl": "kaucja"
+      },
+      {
+        "en": "Warrant",
+        "pl": "nakaz aresztowania"
+      },
+      {
+        "en": "Subpoena",
+        "pl": "wezwanie sądowe"
+      },
+      {
+        "en": "Affidavit",
+        "pl": "oświadczenie pod przysięgą"
+      },
+      {
+        "en": "Guilty",
+        "pl": "winny"
+      },
+      {
+        "en": "Not guilty",
+        "pl": "niewinny"
+      },
+      {
+        "en": "Sentence",
+        "pl": "wyrok"
+      },
+      {
+        "en": "Probation",
+        "pl": "nadzór kuratorski"
+      },
+      {
+        "en": "Parole",
+        "pl": "zwolnienie warunkowe"
+      },
+      {
+        "en": "Plaintiff",
+        "pl": "powód"
+      },
+      {
+        "en": "Defendant",
+        "pl": "pozwany"
+      },
+      {
+        "en": "Witness",
+        "pl": "świadek"
+      },
+      {
+        "en": "Testimony",
+        "pl": "zeznanie"
+      },
+      {
+        "en": "Evidence",
+        "pl": "dowody"
+      },
+      {
+        "en": "Charges",
+        "pl": "zarzuty"
+      },
+      {
+        "en": "Indictment",
+        "pl": "akt oskarżenia"
+      },
+      {
+        "en": "Conviction",
+        "pl": "skazanie"
+      },
+      {
+        "en": "Appeal",
+        "pl": "apelacja"
+      },
+      {
+        "en": "Lawsuit",
+        "pl": "pozew"
+      },
+      {
+        "en": "Settlement",
+        "pl": "ugoda"
+      },
+      {
+        "en": "Restraining order",
+        "pl": "zakaz zbliżania się"
+      },
+      {
+        "en": "Protective order",
+        "pl": "nakaz ochronny"
+      },
+      {
+        "en": "Child support",
+        "pl": "alimenty"
+      },
+      {
+        "en": "Custody",
+        "pl": "opieka nad dzieckiem"
+      },
+      {
+        "en": "Divorce",
+        "pl": "rozwód"
+      },
+      {
+        "en": "Power of attorney",
+        "pl": "pełnomocnictwo"
+      },
+      {
+        "en": "Notary",
+        "pl": "notariusz"
+      },
+      {
+        "en": "Client",
+        "pl": "klient"
+      },
+      {
+        "en": "Confidentiality",
+        "pl": "poufność"
+      },
+      {
+        "en": "Arrest",
+        "pl": "aresztowanie"
+      },
+      {
+        "en": "Prosecutor",
+        "pl": "prokurator"
+      },
+      {
+        "en": "Legal office",
+        "pl": "kancelaria prawna"
+      },
+      {
+        "en": "Consulate",
+        "pl": "konsulat"
+      },
+      {
+        "en": "Passport",
+        "pl": "paszport"
+      },
+      {
+        "en": "Undocumented",
+        "pl": "bez dokumentów"
+      },
+      {
+        "en": "Car insurance",
+        "pl": "ubezpieczenie samochodu"
+      },
+      {
+        "en": "Auto insurance",
+        "pl": "ubezpieczenie OC"
+      },
+      {
+        "en": "Insurance claim",
+        "pl": "roszczenie ubezpieczeniowe"
+      },
+      {
+        "en": "Claim number",
+        "pl": "numer szkody"
+      },
+      {
+        "en": "Policy number",
+        "pl": "numer polisy"
+      },
+      {
+        "en": "Deductible",
+        "pl": "udział własny"
+      },
+      {
+        "en": "Premium",
+        "pl": "składka"
+      },
+      {
+        "en": "Liability",
+        "pl": "odpowiedzialność"
+      },
+      {
+        "en": "Liability insurance",
+        "pl": "ubezpieczenie OC"
+      },
+      {
+        "en": "Collision",
+        "pl": "kolizja"
+      },
+      {
+        "en": "Collision coverage",
+        "pl": "ubezpieczenie od kolizji"
+      },
+      {
+        "en": "Comprehensive coverage",
+        "pl": "ubezpieczenie Autocasco"
+      },
+      {
+        "en": "Car accident",
+        "pl": "wypadek samochodowy"
+      },
+      {
+        "en": "Traffic accident",
+        "pl": "wypadek drogowy"
+      },
+      {
+        "en": "Hit and run",
+        "pl": "ucieczka z miejsca wypadku"
+      },
+      {
+        "en": "Rear-end collision",
+        "pl": "zderzenie tylne"
+      },
+      {
+        "en": "Fender bender",
+        "pl": "stłuczka"
+      },
+      {
+        "en": "At fault",
+        "pl": "winny"
+      },
+      {
+        "en": "Not at fault",
+        "pl": "niewinny"
+      },
+      {
+        "en": "Police report",
+        "pl": "protokół policyjny"
+      },
+      {
+        "en": "Accident report",
+        "pl": "raport z wypadku"
+      },
+      {
+        "en": "Tow truck",
+        "pl": "laweta"
+      },
+      {
+        "en": "Roadside assistance",
+        "pl": "pomoc drogowa"
+      },
+      {
+        "en": "Rental car",
+        "pl": "samochód zastępczy"
+      },
+      {
+        "en": "Body shop",
+        "pl": "blacharnia"
+      },
+      {
+        "en": "Repair shop",
+        "pl": "warsztat"
+      },
+      {
+        "en": "Totaled",
+        "pl": "szkoda całkowita"
+      },
+      {
+        "en": "Total loss",
+        "pl": "szkoda całkowita"
+      },
+      {
+        "en": "Estimate",
+        "pl": "wycena"
+      },
+      {
+        "en": "Adjuster",
+        "pl": "rzeczoznawca"
+      },
+      {
+        "en": "Insurance adjuster",
+        "pl": "likwidator szkód"
+      },
+      {
+        "en": "License plate",
+        "pl": "tablica rejestracyjna"
+      },
+      {
+        "en": "Driver's license",
+        "pl": "prawo jazdy"
+      },
+      {
+        "en": "Registration",
+        "pl": "rejestracja"
+      },
+      {
+        "en": "VIN",
+        "pl": "numer VIN"
+      },
+      {
+        "en": "Airbag",
+        "pl": "poduszka powietrzna"
+      },
+      {
+        "en": "Seat belt",
+        "pl": "pas bezpieczeństwa"
+      },
+      {
+        "en": "Whiplash",
+        "pl": "uraz kręgosłupa szyjnego"
+      },
+      {
+        "en": "Bodily injury",
+        "pl": "obrażenia ciała"
+      },
+      {
+        "en": "Property damage",
+        "pl": "szkoda majątkowa"
+      },
+      {
+        "en": "Uninsured motorist",
+        "pl": "kierowca bez ubezpieczenia"
+      },
+      {
+        "en": "Underinsured motorist",
+        "pl": "kierowca z niedostatecznym ubezpieczeniem"
+      },
+      {
+        "en": "No-fault insurance",
+        "pl": "ubezpieczenie no-fault"
+      },
+      {
+        "en": "Glass coverage",
+        "pl": "ubezpieczenie szyb"
+      },
+      {
+        "en": "Windshield",
+        "pl": "przednia szyba"
+      },
+      {
+        "en": "Bumper",
+        "pl": "zderzak"
+      },
+      {
+        "en": "Tire",
+        "pl": "opona"
+      },
+      {
+        "en": "Engine",
+        "pl": "silnik"
+      },
+      {
+        "en": "Transmission",
+        "pl": "skrzynia biegów"
+      },
+      {
+        "en": "Brake",
+        "pl": "hamulec"
+      },
+      {
+        "en": "Speed limit",
+        "pl": "ograniczenie prędkości"
+      },
+      {
+        "en": "Traffic ticket",
+        "pl": "mandat"
+      },
+      {
+        "en": "DUI",
+        "pl": "jazda po alkoholu"
+      },
+      {
+        "en": "DMV",
+        "pl": "wydział komunikacji"
+      }
+    ],
+    "en-pt": [
+      {
+        "en": "Immigration status",
+        "pt": "status migratório"
+      },
+      {
+        "en": "Felony",
+        "pt": "crime grave"
+      },
+      {
+        "en": "Misdemeanor",
+        "pt": "contravenção"
+      },
+      {
+        "en": "Pro bono",
+        "pt": "pro bono"
+      },
+      {
+        "en": "Attorney",
+        "pt": "advogado"
+      },
+      {
+        "en": "Lawyer",
+        "pt": "advogado"
+      },
+      {
+        "en": "Public defender",
+        "pt": "defensor público"
+      },
+      {
+        "en": "Legal aid",
+        "pt": "assistência jurídica"
+      },
+      {
+        "en": "Asylum",
+        "pt": "asilo"
+      },
+      {
+        "en": "Asylum seeker",
+        "pt": "requerente de asilo"
+      },
+      {
+        "en": "Refugee",
+        "pt": "refugiado"
+      },
+      {
+        "en": "Deportation",
+        "pt": "deportação"
+      },
+      {
+        "en": "Detention",
+        "pt": "detenção"
+      },
+      {
+        "en": "Green card",
+        "pt": "green card"
+      },
+      {
+        "en": "Permanent resident",
+        "pt": "residente permanente"
+      },
+      {
+        "en": "Work permit",
+        "pt": "autorização de trabalho"
+      },
+      {
+        "en": "Visa",
+        "pt": "visto"
+      },
+      {
+        "en": "Citizenship",
+        "pt": "cidadania"
+      },
+      {
+        "en": "Naturalization",
+        "pt": "naturalização"
+      },
+      {
+        "en": "Immigration court",
+        "pt": "tribunal de imigração"
+      },
+      {
+        "en": "Court",
+        "pt": "tribunal"
+      },
+      {
+        "en": "Judge",
+        "pt": "juiz"
+      },
+      {
+        "en": "Hearing",
+        "pt": "audiência"
+      },
+      {
+        "en": "Trial",
+        "pt": "julgamento"
+      },
+      {
+        "en": "Bail",
+        "pt": "fiança"
+      },
+      {
+        "en": "Warrant",
+        "pt": "mandado"
+      },
+      {
+        "en": "Subpoena",
+        "pt": "intimação"
+      },
+      {
+        "en": "Affidavit",
+        "pt": "declaração juramentada"
+      },
+      {
+        "en": "Guilty",
+        "pt": "culpado"
+      },
+      {
+        "en": "Not guilty",
+        "pt": "não culpado"
+      },
+      {
+        "en": "Sentence",
+        "pt": "sentença"
+      },
+      {
+        "en": "Probation",
+        "pt": "liberdade condicional"
+      },
+      {
+        "en": "Parole",
+        "pt": "liberdade condicional"
+      },
+      {
+        "en": "Plaintiff",
+        "pt": "autor"
+      },
+      {
+        "en": "Defendant",
+        "pt": "réu"
+      },
+      {
+        "en": "Witness",
+        "pt": "testemunha"
+      },
+      {
+        "en": "Testimony",
+        "pt": "testemunho"
+      },
+      {
+        "en": "Evidence",
+        "pt": "provas"
+      },
+      {
+        "en": "Charges",
+        "pt": "acusações"
+      },
+      {
+        "en": "Indictment",
+        "pt": "denúncia"
+      },
+      {
+        "en": "Conviction",
+        "pt": "condenação"
+      },
+      {
+        "en": "Appeal",
+        "pt": "recurso"
+      },
+      {
+        "en": "Lawsuit",
+        "pt": "ação judicial"
+      },
+      {
+        "en": "Settlement",
+        "pt": "acordo"
+      },
+      {
+        "en": "Restraining order",
+        "pt": "medida restritiva"
+      },
+      {
+        "en": "Protective order",
+        "pt": "ordem de proteção"
+      },
+      {
+        "en": "Child support",
+        "pt": "pensão alimentícia"
+      },
+      {
+        "en": "Custody",
+        "pt": "guarda"
+      },
+      {
+        "en": "Divorce",
+        "pt": "divórcio"
+      },
+      {
+        "en": "Power of attorney",
+        "pt": "procuração"
+      },
+      {
+        "en": "Notary",
+        "pt": "notário"
+      },
+      {
+        "en": "Client",
+        "pt": "cliente"
+      },
+      {
+        "en": "Confidentiality",
+        "pt": "confidencialidade"
+      },
+      {
+        "en": "Arrest",
+        "pt": "prisão"
+      },
+      {
+        "en": "Prosecutor",
+        "pt": "promotor"
+      },
+      {
+        "en": "Legal office",
+        "pt": "escritório de advocacia"
+      },
+      {
+        "en": "Consulate",
+        "pt": "consulado"
+      },
+      {
+        "en": "Passport",
+        "pt": "passaporte"
+      },
+      {
+        "en": "Undocumented",
+        "pt": "indocumentado"
+      },
+      {
+        "en": "Car insurance",
+        "pt": "seguro de carro"
+      },
+      {
+        "en": "Auto insurance",
+        "pt": "seguro automóvel"
+      },
+      {
+        "en": "Insurance claim",
+        "pt": "sinistro de seguro"
+      },
+      {
+        "en": "Claim number",
+        "pt": "número do sinistro"
+      },
+      {
+        "en": "Policy number",
+        "pt": "número da apólice"
+      },
+      {
+        "en": "Deductible",
+        "pt": "franquia"
+      },
+      {
+        "en": "Premium",
+        "pt": "prémio"
+      },
+      {
+        "en": "Liability",
+        "pt": "responsabilidade"
+      },
+      {
+        "en": "Liability insurance",
+        "pt": "seguro de responsabilidade"
+      },
+      {
+        "en": "Collision",
+        "pt": "colisão"
+      },
+      {
+        "en": "Collision coverage",
+        "pt": "cobertura de colisão"
+      },
+      {
+        "en": "Comprehensive coverage",
+        "pt": "cobertura compreensiva"
+      },
+      {
+        "en": "Car accident",
+        "pt": "acidente de carro"
+      },
+      {
+        "en": "Traffic accident",
+        "pt": "acidente de trânsito"
+      },
+      {
+        "en": "Hit and run",
+        "pt": "atropelamento e fuga"
+      },
+      {
+        "en": "Rear-end collision",
+        "pt": "colisão traseira"
+      },
+      {
+        "en": "Fender bender",
+        "pt": "batida leve"
+      },
+      {
+        "en": "At fault",
+        "pt": "culpado"
+      },
+      {
+        "en": "Not at fault",
+        "pt": "não culpado"
+      },
+      {
+        "en": "Police report",
+        "pt": "boletim de ocorrência"
+      },
+      {
+        "en": "Accident report",
+        "pt": "relatório do acidente"
+      },
+      {
+        "en": "Tow truck",
+        "pt": "reboque"
+      },
+      {
+        "en": "Roadside assistance",
+        "pt": "assistência na estrada"
+      },
+      {
+        "en": "Rental car",
+        "pt": "carro alugado"
+      },
+      {
+        "en": "Body shop",
+        "pt": "oficina de funilaria"
+      },
+      {
+        "en": "Repair shop",
+        "pt": "oficina"
+      },
+      {
+        "en": "Totaled",
+        "pt": "perda total"
+      },
+      {
+        "en": "Total loss",
+        "pt": "perda total"
+      },
+      {
+        "en": "Estimate",
+        "pt": "orçamento"
+      },
+      {
+        "en": "Adjuster",
+        "pt": "perito"
+      },
+      {
+        "en": "Insurance adjuster",
+        "pt": "perito de seguros"
+      },
+      {
+        "en": "License plate",
+        "pt": "placa"
+      },
+      {
+        "en": "Driver's license",
+        "pt": "carta de condução"
+      },
+      {
+        "en": "Registration",
+        "pt": "registro do veículo"
+      },
+      {
+        "en": "VIN",
+        "pt": "número de chassi"
+      },
+      {
+        "en": "Airbag",
+        "pt": "airbag"
+      },
+      {
+        "en": "Seat belt",
+        "pt": "cinto de segurança"
+      },
+      {
+        "en": "Whiplash",
+        "pt": "chicote cervical"
+      },
+      {
+        "en": "Bodily injury",
+        "pt": "lesões corporais"
+      },
+      {
+        "en": "Property damage",
+        "pt": "danos materiais"
+      },
+      {
+        "en": "Uninsured motorist",
+        "pt": "condutor sem seguro"
+      },
+      {
+        "en": "Underinsured motorist",
+        "pt": "condutor com seguro insuficiente"
+      },
+      {
+        "en": "No-fault insurance",
+        "pt": "seguro sem culpa"
+      },
+      {
+        "en": "Glass coverage",
+        "pt": "cobertura de vidros"
+      },
+      {
+        "en": "Windshield",
+        "pt": "para-brisas"
+      },
+      {
+        "en": "Bumper",
+        "pt": "para-choques"
+      },
+      {
+        "en": "Tire",
+        "pt": "pneu"
+      },
+      {
+        "en": "Engine",
+        "pt": "motor"
+      },
+      {
+        "en": "Transmission",
+        "pt": "caixa de velocidades"
+      },
+      {
+        "en": "Brake",
+        "pt": "travão"
+      },
+      {
+        "en": "Speed limit",
+        "pt": "limite de velocidade"
+      },
+      {
+        "en": "Traffic ticket",
+        "pt": "multa de trânsito"
+      },
+      {
+        "en": "DUI",
+        "pt": "condução sob efeito de álcool"
+      },
+      {
+        "en": "DMV",
+        "pt": "departamento de trânsito"
+      }
+    ],
+    "en-it": [
+      {
+        "en": "Immigration status",
+        "it": "status migratorio"
+      },
+      {
+        "en": "Felony",
+        "it": "reato grave"
+      },
+      {
+        "en": "Misdemeanor",
+        "it": "reato minore"
+      },
+      {
+        "en": "Pro bono",
+        "it": "pro bono"
+      },
+      {
+        "en": "Attorney",
+        "it": "avvocato"
+      },
+      {
+        "en": "Lawyer",
+        "it": "avvocato"
+      },
+      {
+        "en": "Public defender",
+        "it": "difensore d'ufficio"
+      },
+      {
+        "en": "Legal aid",
+        "it": "patrocinio a spese dello Stato"
+      },
+      {
+        "en": "Asylum",
+        "it": "asilo"
+      },
+      {
+        "en": "Asylum seeker",
+        "it": "richiedente asilo"
+      },
+      {
+        "en": "Refugee",
+        "it": "rifugiato"
+      },
+      {
+        "en": "Deportation",
+        "it": "espulsione"
+      },
+      {
+        "en": "Detention",
+        "it": "detenzione"
+      },
+      {
+        "en": "Green card",
+        "it": "green card"
+      },
+      {
+        "en": "Permanent resident",
+        "it": "residente permanente"
+      },
+      {
+        "en": "Work permit",
+        "it": "permesso di lavoro"
+      },
+      {
+        "en": "Visa",
+        "it": "visto"
+      },
+      {
+        "en": "Citizenship",
+        "it": "cittadinanza"
+      },
+      {
+        "en": "Naturalization",
+        "it": "naturalizzazione"
+      },
+      {
+        "en": "Immigration court",
+        "it": "tribunale per l'immigrazione"
+      },
+      {
+        "en": "Court",
+        "it": "tribunale"
+      },
+      {
+        "en": "Judge",
+        "it": "giudice"
+      },
+      {
+        "en": "Hearing",
+        "it": "udienza"
+      },
+      {
+        "en": "Trial",
+        "it": "processo"
+      },
+      {
+        "en": "Bail",
+        "it": "cauzione"
+      },
+      {
+        "en": "Warrant",
+        "it": "mandato di arresto"
+      },
+      {
+        "en": "Subpoena",
+        "it": "citazione"
+      },
+      {
+        "en": "Affidavit",
+        "it": "dichiarazione giurata"
+      },
+      {
+        "en": "Guilty",
+        "it": "colpevole"
+      },
+      {
+        "en": "Not guilty",
+        "it": "non colpevole"
+      },
+      {
+        "en": "Sentence",
+        "it": "condanna"
+      },
+      {
+        "en": "Probation",
+        "it": "messa alla prova"
+      },
+      {
+        "en": "Parole",
+        "it": "liberazione condizionale"
+      },
+      {
+        "en": "Plaintiff",
+        "it": "attore"
+      },
+      {
+        "en": "Defendant",
+        "it": "imputato"
+      },
+      {
+        "en": "Witness",
+        "it": "testimone"
+      },
+      {
+        "en": "Testimony",
+        "it": "testimonianza"
+      },
+      {
+        "en": "Evidence",
+        "it": "prove"
+      },
+      {
+        "en": "Charges",
+        "it": "accuse"
+      },
+      {
+        "en": "Indictment",
+        "it": "atto d'accusa"
+      },
+      {
+        "en": "Conviction",
+        "it": "condanna"
+      },
+      {
+        "en": "Appeal",
+        "it": "appello"
+      },
+      {
+        "en": "Lawsuit",
+        "it": "causa legale"
+      },
+      {
+        "en": "Settlement",
+        "it": "transazione"
+      },
+      {
+        "en": "Restraining order",
+        "it": "ordine restrittivo"
+      },
+      {
+        "en": "Protective order",
+        "it": "ordine di protezione"
+      },
+      {
+        "en": "Child support",
+        "it": "assegno di mantenimento"
+      },
+      {
+        "en": "Custody",
+        "it": "affidamento"
+      },
+      {
+        "en": "Divorce",
+        "it": "divorzio"
+      },
+      {
+        "en": "Power of attorney",
+        "it": "procura"
+      },
+      {
+        "en": "Notary",
+        "it": "notaio"
+      },
+      {
+        "en": "Client",
+        "it": "cliente"
+      },
+      {
+        "en": "Confidentiality",
+        "it": "riservatezza"
+      },
+      {
+        "en": "Arrest",
+        "it": "arresto"
+      },
+      {
+        "en": "Prosecutor",
+        "it": "pubblico ministero"
+      },
+      {
+        "en": "Legal office",
+        "it": "studio legale"
+      },
+      {
+        "en": "Consulate",
+        "it": "consolato"
+      },
+      {
+        "en": "Passport",
+        "it": "passaporto"
+      },
+      {
+        "en": "Undocumented",
+        "it": "senza documenti"
+      },
+      {
+        "en": "Car insurance",
+        "it": "assicurazione auto"
+      },
+      {
+        "en": "Auto insurance",
+        "it": "assicurazione automobilistica"
+      },
+      {
+        "en": "Insurance claim",
+        "it": "richiesta di risarcimento"
+      },
+      {
+        "en": "Claim number",
+        "it": "numero di sinistro"
+      },
+      {
+        "en": "Policy number",
+        "it": "numero di polizza"
+      },
+      {
+        "en": "Deductible",
+        "it": "franchigia"
+      },
+      {
+        "en": "Premium",
+        "it": "premio"
+      },
+      {
+        "en": "Liability",
+        "it": "responsabilità"
+      },
+      {
+        "en": "Liability insurance",
+        "it": "assicurazione di responsabilità civile"
+      },
+      {
+        "en": "Collision",
+        "it": "collisione"
+      },
+      {
+        "en": "Collision coverage",
+        "it": "copertura collisione"
+      },
+      {
+        "en": "Comprehensive coverage",
+        "it": "copertura kasko"
+      },
+      {
+        "en": "Car accident",
+        "it": "incidente stradale"
+      },
+      {
+        "en": "Traffic accident",
+        "it": "incidente stradale"
+      },
+      {
+        "en": "Hit and run",
+        "it": "investimento e fuga"
+      },
+      {
+        "en": "Rear-end collision",
+        "it": "tamponamento"
+      },
+      {
+        "en": "Fender bender",
+        "it": "incidente minore"
+      },
+      {
+        "en": "At fault",
+        "it": "in torto"
+      },
+      {
+        "en": "Not at fault",
+        "it": "non in torto"
+      },
+      {
+        "en": "Police report",
+        "it": "verbale di polizia"
+      },
+      {
+        "en": "Accident report",
+        "it": "rapporto di incidente"
+      },
+      {
+        "en": "Tow truck",
+        "it": "carro attrezzi"
+      },
+      {
+        "en": "Roadside assistance",
+        "it": "assistenza stradale"
+      },
+      {
+        "en": "Rental car",
+        "it": "auto a noleggio"
+      },
+      {
+        "en": "Body shop",
+        "it": "carrozzeria"
+      },
+      {
+        "en": "Repair shop",
+        "it": "officina"
+      },
+      {
+        "en": "Totaled",
+        "it": "sinistro totale"
+      },
+      {
+        "en": "Total loss",
+        "it": "perdita totale"
+      },
+      {
+        "en": "Estimate",
+        "it": "preventivo"
+      },
+      {
+        "en": "Adjuster",
+        "it": "perito assicurativo"
+      },
+      {
+        "en": "Insurance adjuster",
+        "it": "liquidatore assicurativo"
+      },
+      {
+        "en": "License plate",
+        "it": "targa"
+      },
+      {
+        "en": "Driver's license",
+        "it": "patente di guida"
+      },
+      {
+        "en": "Registration",
+        "it": "immatricolazione"
+      },
+      {
+        "en": "VIN",
+        "it": "numero di telaio"
+      },
+      {
+        "en": "Airbag",
+        "it": "airbag"
+      },
+      {
+        "en": "Seat belt",
+        "it": "cintura di sicurezza"
+      },
+      {
+        "en": "Whiplash",
+        "it": "colpo di frusta"
+      },
+      {
+        "en": "Bodily injury",
+        "it": "lesioni personali"
+      },
+      {
+        "en": "Property damage",
+        "it": "danni materiali"
+      },
+      {
+        "en": "Uninsured motorist",
+        "it": "conducente non assicurato"
+      },
+      {
+        "en": "Underinsured motorist",
+        "it": "conducente sottoassicurato"
+      },
+      {
+        "en": "No-fault insurance",
+        "it": "assicurazione no-fault"
+      },
+      {
+        "en": "Glass coverage",
+        "it": "copertura cristalli"
+      },
+      {
+        "en": "Windshield",
+        "it": "parabrezza"
+      },
+      {
+        "en": "Bumper",
+        "it": "paraurti"
+      },
+      {
+        "en": "Tire",
+        "it": "pneumatico"
+      },
+      {
+        "en": "Engine",
+        "it": "motore"
+      },
+      {
+        "en": "Transmission",
+        "it": "cambio"
+      },
+      {
+        "en": "Brake",
+        "it": "freno"
+      },
+      {
+        "en": "Speed limit",
+        "it": "limite di velocità"
+      },
+      {
+        "en": "Traffic ticket",
+        "it": "multa stradale"
+      },
+      {
+        "en": "DUI",
+        "it": "guida in stato di ebbrezza"
+      },
+      {
+        "en": "DMV",
+        "it": "motorizzazione"
       }
     ]
   }
