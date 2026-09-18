@@ -284,6 +284,24 @@ function isDailyCapReachedFromBillable(usedMinutes: number, dailyLimitMinutes: n
   return used >= cap - 1e-6;
 }
 
+/**
+ * New Start / token: leftover under 1 displayed minute is treated as the day used.
+ * `formatMinutes` floors, so 4h 59m / 5h 0m with 10s remaining used to allow a
+ * session that heartbeat-killed immediately. Heartbeat still uses the true cap
+ * so an in-progress last minute can finish.
+ */
+function isDailyCapExhaustedForNewSession(usedMinutes: number, dailyLimitMinutes: number): boolean {
+  if (isDailyCapReachedFromBillable(usedMinutes, dailyLimitMinutes)) return true;
+  const cap = Number(dailyLimitMinutes);
+  if (!Number.isFinite(cap) || cap <= 0 || cap >= UNLIMITED_DAILY_CAP_MINUTES) return false;
+  const used = Math.max(0, Number(usedMinutes) || 0);
+  return cap - used < 1 - 1e-6;
+}
+
+function usedMinutesForDailyCap(billableToday: number, minutesUsedToday: number): number {
+  return Math.max(Math.max(0, Number(billableToday) || 0), Math.max(0, Number(minutesUsedToday) || 0));
+}
+
 function trialLimitBypassedForAdmin(user: { isAdmin?: boolean | null }): boolean {
   return user.isAdmin === true;
 }
@@ -376,8 +394,12 @@ async function closeOpenSessionWithBillingIfNeeded(
       cap > 0 &&
       cap < UNLIMITED_DAILY_CAP_MINUTES
     ) {
-      const maxCreditMin = Math.max(0, cap - used);
-      creditSeconds = Math.min(creditSeconds, Math.floor(maxCreditMin * 60));
+      const remainingMin = Math.max(0, cap - used);
+      const maxCreditSec =
+        remainingMin < 1 - 1e-6
+          ? Math.max(0, Math.ceil(remainingMin * 60 - 1e-9))
+          : Math.floor(remainingMin * 60);
+      creditSeconds = Math.min(creditSeconds, maxCreditSec);
     }
   }
 
@@ -436,10 +458,22 @@ async function closeOpenSessionWithBillingIfNeeded(
     return { closed: true, minutesUsed };
   }
 
+  const cap = Number(user.dailyLimitMinutes);
+  let newMinutesUsedToday = Number(user.minutesUsedToday) + minutesUsed;
+  if (
+    !trialLimitBypassedForAdmin(user) &&
+    Number.isFinite(cap) &&
+    cap > 0 &&
+    cap < UNLIMITED_DAILY_CAP_MINUTES &&
+    (newMinutesUsedToday + 1e-6 >= cap || cap - newMinutesUsedToday < 1 - 1e-6)
+  ) {
+    newMinutesUsedToday = cap;
+  }
+
   await db
     .update(usersTable)
     .set({
-      minutesUsedToday: user.minutesUsedToday + minutesUsed,
+      minutesUsedToday: newMinutesUsedToday,
       totalMinutesUsed: user.totalMinutesUsed + minutesUsed,
       totalSessions:    user.totalSessions + 1,
     })
@@ -447,7 +481,6 @@ async function closeOpenSessionWithBillingIfNeeded(
 
   globalCapCache.lastChecked = 0;
 
-  const newMinutesUsedToday = Number(user.minutesUsedToday) + minutesUsed;
   void maybeSendDailyLimitReachedEmail(user, newMinutesUsedToday);
 
   return { closed: true, minutesUsed };
@@ -557,7 +590,13 @@ router.post("/token", requireAuth, async (req, res) => {
 
     const liveBillable = await sumOpenSessionsBillableMinutes(user.id);
     const billableToday = await getBillableMinutesUsedToday(user.id);
-    if (!trialLimitBypassedForAdmin(user) && isDailyCapReachedFromBillable(billableToday, user.dailyLimitMinutes)) {
+    if (
+      !trialLimitBypassedForAdmin(user) &&
+      isDailyCapExhaustedForNewSession(
+        usedMinutesForDailyCap(billableToday, user.minutesUsedToday),
+        user.dailyLimitMinutes,
+      )
+    ) {
       res.status(403).json({
         error: isTrialLikePlanType(user.planType) ? dailyLimitTrialMessage() : DAILY_LIMIT_PAID_MESSAGE,
         code: "DAILY_LIMIT_REACHED",
@@ -1295,7 +1334,13 @@ router.post("/session/start", requireAuth, async (req, res) => {
   const userForCap = (await getUserWithResetCheck(user.id)) ?? user;
   const liveAfterOrphans = await sumOpenSessionsBillableMinutes(userForCap.id);
   const billableToday = await getBillableMinutesUsedToday(userForCap.id);
-  if (!trialLimitBypassedForAdmin(userForCap) && isDailyCapReachedFromBillable(billableToday, userForCap.dailyLimitMinutes)) {
+  if (
+    !trialLimitBypassedForAdmin(userForCap) &&
+    isDailyCapExhaustedForNewSession(
+      usedMinutesForDailyCap(billableToday, userForCap.minutesUsedToday),
+      userForCap.dailyLimitMinutes,
+    )
+  ) {
     res.status(403).json({
       error: isTrialLikePlanType(userForCap.planType) ? dailyLimitTrialMessage() : DAILY_LIMIT_PAID_MESSAGE,
       code: "DAILY_LIMIT_REACHED",

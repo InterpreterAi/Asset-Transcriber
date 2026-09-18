@@ -82,6 +82,19 @@ function errMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
+/** Leftover under 1 displayed minute is the day used (`formatMinutes` floors 4h 59m / 5h 0m). */
+function sonioxXDailyCapExhausted(user: {
+  dailyLimitMinutes: number;
+  minutesRemainingToday: number;
+  planType?: string;
+}): boolean {
+  if (user.dailyLimitMinutes >= 9000 || workspaceUsageShowsSlashUnlimited(user.planType)) return false;
+  const cap = Number(user.dailyLimitMinutes);
+  if (!Number.isFinite(cap) || cap <= 0) return false;
+  const remaining = Number(user.minutesRemainingToday);
+  return Number.isFinite(remaining) && remaining < 1 - 1e-6;
+}
+
 function CopyBtn({ text }: { text: string }) {
   const [done, setDone] = useState(false);
   const copy = () => {
@@ -231,6 +244,8 @@ export default function TrialSonioxXWorkspace() {
   const micStreamRef = useRef<MediaStream | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const tailPinnedRef = useRef(true);
+  const stopLiveRef = useRef<() => Promise<void>>(async () => {});
+  const stoppingForCapRef = useRef(false);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [liveSessionId, setLiveSessionId] = useState<number | null>(null);
   const snapshotSeqRef = useRef(0);
@@ -435,6 +450,7 @@ export default function TrialSonioxXWorkspace() {
     setClearedForPrivacy(true);
     setTimeout(() => setClearedForPrivacy(false), 4000);
   }, [closeBillingSession, stopOwnedMic, stopTranscription, tabStream]);
+  stopLiveRef.current = stopLive;
 
   useEffect(() => {
     if (state !== "Error" && state !== "Canceled") return;
@@ -545,7 +561,22 @@ export default function TrialSonioxXWorkspace() {
             : 0,
           micLabel: micLabelRef.current,
         }),
-      }).catch(() => { /* best-effort */ });
+      })
+        .then(async (res) => {
+          const data = (await res.json().catch(() => ({}))) as {
+            dailyLimitReached?: unknown;
+            sessionEnded?: unknown;
+          };
+          if (data.dailyLimitReached !== true || data.sessionEnded !== true) return;
+          if (stoppingForCapRef.current) return;
+          stoppingForCapRef.current = true;
+          try {
+            await stopLiveRef.current();
+          } finally {
+            stoppingForCapRef.current = false;
+          }
+        })
+        .catch(() => { /* best-effort */ });
     };
     sendHeartbeat();
     heartbeatRef.current = setInterval(sendHeartbeat, 10_000);
@@ -585,6 +616,10 @@ export default function TrialSonioxXWorkspace() {
 
   const startLive = useCallback(async (providedStream?: MediaStream) => {
     if (starting || recording) return;
+    if (user && sonioxXDailyCapExhausted(user)) {
+      setSessionError("You have used all of your allowed minutes for today.");
+      return;
+    }
     if (!pairReady || !sonioxA || !sonioxB) {
       setSessionError("Choose two Soniox-supported languages before starting.");
       return;
@@ -657,6 +692,7 @@ export default function TrialSonioxXWorkspace() {
     startTranscription,
     starting,
     stopOwnedMic,
+    user,
   ]);
 
   const handleStartTabAudio = async () => {
@@ -680,6 +716,7 @@ export default function TrialSonioxXWorkspace() {
       void stopLive();
       return;
     }
+    if (user && sonioxXDailyCapExhausted(user)) return;
     if (inputMode === "tab") {
       void handleStartTabAudio();
       return;
@@ -742,10 +779,11 @@ export default function TrialSonioxXWorkspace() {
     );
   }
 
-  const isLimitReached = user.minutesUsedToday > 0 && user.minutesRemainingToday <= 0;
-  const isBlocked = user.trialExpired || isLimitReached;
   const usageShowsUnlimitedCap =
     user.dailyLimitMinutes >= 9000 || workspaceUsageShowsSlashUnlimited(user.planType);
+  const isLimitReached = sonioxXDailyCapExhausted(user);
+  const isBlocked = user.trialExpired || isLimitReached;
+  const displayUsedMinutes = isLimitReached ? user.dailyLimitMinutes : user.minutesUsedToday;
   const elapsedSecs = Math.floor(elapsedMs / 1000);
   const elapsedLabel = `${String(Math.floor(elapsedSecs / 60)).padStart(2, "0")}:${String(elapsedSecs % 60).padStart(2, "0")}`;
   const workspaceTextSizeStyle: CSSProperties = {
@@ -1122,11 +1160,11 @@ export default function TrialSonioxXWorkspace() {
               <Clock className="w-3 h-3 shrink-0" />
               <span className="hidden sm:inline">
                 {usageShowsUnlimitedCap
-                  ? `${formatMinutes(user.minutesUsedToday)} / unlimited today`
-                  : `${formatMinutes(user.minutesUsedToday)} / ${formatMinutes(user.dailyLimitMinutes)} today`}
+                  ? `${formatMinutes(displayUsedMinutes)} / unlimited today`
+                  : `${formatMinutes(displayUsedMinutes)} / ${formatMinutes(user.dailyLimitMinutes)} today`}
               </span>
               <span className="sm:hidden">
-                {formatMinutes(user.minutesUsedToday)} / {usageShowsUnlimitedCap ? "unlimited" : formatMinutes(user.dailyLimitMinutes)}
+                {formatMinutes(displayUsedMinutes)} / {usageShowsUnlimitedCap ? "unlimited" : formatMinutes(user.dailyLimitMinutes)}
               </span>
             </div>
             {isTrialLikePlanType(user.planType) && (

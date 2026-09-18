@@ -209,11 +209,6 @@ export function buildStableDialectContext(langA: string, langB: string): SonioxS
     },
     { key: registerKey(a), value: `TRANSLATION into ${LANG_NAME[a] ?? a} uses: ${pinA}` },
     { key: registerKey(b), value: `TRANSLATION into ${LANG_NAME[b] ?? b} uses: ${pinB}` },
-    {
-      key: "numbers",
-      value:
-        "Keep phone numbers, dates, times, and numeric IDs in the same digit sequence as spoken. Do not reverse digits.",
-    },
   ];
   if (arabicPair) {
     general.push({
