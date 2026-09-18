@@ -41,7 +41,6 @@ import useSonioxClient from "./useSonioxClient";
 import { getLanguage } from "./languages";
 import { sonioxTwoWayLanguageHints, workspaceLangToOfficialSonioxCode } from "./soniox-lang";
 import { dominantBidiDir } from "./bidi-islands";
-import { collapsePhoneParts } from "./collapse-phone-spaces";
 import { applyFaithfulMeaningFixes } from "./meaning-locks";
 import { langDir, attachNonFinalRows, rowsFromSonioxTokens, snapshotLinesFromSonioxXRows, stripeClassesForRows, type SonioxXRow } from "./rows-from-tokens";
 import { BidiText } from "./BidiText";
@@ -130,14 +129,11 @@ const SonioxXTranscriptRow = memo(function SonioxXTranscriptRow({
   pinPairs: readonly GlossaryTerm[];
   marked: boolean;
 }) {
-  const origParts = collapsePhoneParts(row.origFinal, row.origPartial);
-  const orig = `${origParts.final}${origParts.partial}`;
+  const orig = `${row.origFinal}${row.origPartial}`;
   const live = Boolean(row.origPartial || row.transPartial);
   const transRaw = `${row.transFinal}${row.transPartial}`;
   const transPinned = live ? transRaw : applyExactGlossaryPins(orig, transRaw, pinPairs);
-  const transFixed = applyFaithfulMeaningFixes(orig, transPinned);
-  const transParts = collapsePhoneParts(transFixed, "");
-  const trans = `${transParts.final}${transParts.partial}`;
+  const trans = applyFaithfulMeaningFixes(orig, transPinned);
   const origDir = dominantBidiDir(orig, langDir(row.origLang));
   const transDir = dominantBidiDir(trans, langDir(row.transLang));
   return (
@@ -158,9 +154,9 @@ const SonioxXTranscriptRow = memo(function SonioxXTranscriptRow({
             dir={origDir}
             style={{ textAlign: origDir === "rtl" ? "right" : "left", unicodeBidi: "isolate" }}
           >
-            <BidiText text={origParts.final} baseDir={origDir} className="workspace-selectable-text" />
+            <BidiText text={row.origFinal} baseDir={origDir} className="workspace-selectable-text" />
             <BidiText
-              text={origParts.partial}
+              text={row.origPartial}
               baseDir={origDir}
               className="text-muted-foreground/70 italic workspace-selectable-text"
             />
@@ -175,12 +171,7 @@ const SonioxXTranscriptRow = memo(function SonioxXTranscriptRow({
             dir={transDir}
             style={{ textAlign: transDir === "rtl" ? "right" : "left", unicodeBidi: "isolate" }}
           >
-            <BidiText text={transParts.final} baseDir={transDir} className="workspace-selectable-text" />
-            <BidiText
-              text={transParts.partial}
-              baseDir={transDir}
-              className="text-muted-foreground/70 italic workspace-selectable-text"
-            />
+            <BidiText text={trans} baseDir={transDir} className="workspace-selectable-text" />
           </p>
           <CopyBtn text={trans} />
         </div>

@@ -236,23 +236,6 @@ describe("snapshotLinesFromSonioxXRows", () => {
     });
   });
 
-  it("removes spaces only inside phone numbers", () => {
-    expect(
-      snapshotLinesFromSonioxXRows([
-        {
-          id: "sx-1",
-          origFinal: "call 215 431 5307 please",
-          origPartial: "",
-          transFinal: "اتصل على 215 431 5307 من فضلك",
-          transPartial: "",
-        },
-      ]),
-    ).toEqual({
-      transcriptLines: ["call 2154315307 please"],
-      translationLines: ["اتصل على 2154315307 من فضلك"],
-    });
-  });
-
   it("does not snapshot dialect sexual Arabic as eat", () => {
     expect(
       snapshotLinesFromSonioxXRows([
