@@ -2,33 +2,33 @@ import { describe, expect, it } from "vitest";
 import { getWorkspacePlanTestOptions } from "./workspace-plan-test-options";
 
 describe("workspace plan testing options", () => {
-  it("shows admins the six live Soniox / Soniox X SKUs", () => {
+  it("shows admins the six live Soniox X / Soniox (Chuck) SKUs with Soniox X first", () => {
     const opts = getWorkspacePlanTestOptions(true);
     expect(opts.map((o) => o.planType)).toEqual([
-      "trial-openai",
       "trial-soniox-x",
-      "basic-hetzner",
-      "professional-libre",
+      "trial-openai",
       "basic-soniox-x",
       "professional-soniox-x",
+      "basic-hetzner",
+      "professional-libre",
     ]);
     expect(opts.map((o) => o.label)).toEqual([
-      "Trial Soniox",
       "Trial Soniox X",
-      "Basic Soniox",
-      "Professional Soniox",
+      "Trial Soniox",
       "Basic Soniox X",
       "Professional Soniox X",
+      "Basic Soniox",
+      "Professional Soniox",
     ]);
   });
 
-  it("shows non-admins only Trial / Basic / Professional", () => {
+  it("shows non-admins only Trial / Basic / Professional as Soniox X defaults", () => {
     const opts = getWorkspacePlanTestOptions(false);
     expect(opts.map((o) => o.label)).toEqual(["Trial", "Basic", "Professional"]);
     expect(opts.map((o) => o.planType)).toEqual([
-      "trial-openai",
-      "basic-hetzner",
-      "professional-libre",
+      "trial-soniox-x",
+      "basic-soniox-x",
+      "professional-soniox-x",
     ]);
   });
 });

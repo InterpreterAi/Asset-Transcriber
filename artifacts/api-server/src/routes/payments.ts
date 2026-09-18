@@ -638,13 +638,13 @@ router.post("/paypal-webhook", async (req, res) => {
       await db
         .update(usersTable)
         .set({
-          planType: "trial-libre",
+          planType: "trial-soniox-x",
           dailyLimitMinutes: TRIAL_DAILY_LIMIT_MINUTES,
           subscriptionStatus: "inactive",
           subscriptionPeriodEndsAt: null,
         })
         .where(eq(usersTable.id, userId));
-      logger.info({ eventType, userId }, "PayPal subscription deactivated; user downgraded");
+      logger.info({ eventType, userId }, "PayPal subscription deactivated; user downgraded to trial-soniox-x");
     }
 
     res.json({ received: true });
@@ -656,14 +656,14 @@ router.post("/paypal-webhook", async (req, res) => {
 
 const TEST_PLAN_ACTIVATION_EMAIL = "mmorsyy1@gmail.com";
 
-/** Same `plan_type` values as the Admin → Users picker. */
+/** Same `plan_type` values as the Admin → Users picker. Soniox X first (public default). */
 const ADMIN_TEST_PLAN_TYPES = [
-  "trial-openai",
-  "basic-hetzner",
-  "professional-libre",
   "trial-soniox-x",
   "basic-soniox-x",
   "professional-soniox-x",
+  "trial-openai",
+  "basic-hetzner",
+  "professional-libre",
 ] as const;
 
 type AdminTestPlanType = (typeof ADMIN_TEST_PLAN_TYPES)[number];

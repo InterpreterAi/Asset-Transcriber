@@ -186,7 +186,7 @@ export async function reactivateClosedAccountForSignup(
       requiresEmailVerification: false,
       twoFactorEnabled: false,
       twoFactorSecret: null,
-      planType: "trial-openai",
+      planType: "trial-soniox-x",
       trialStartedAt: now,
       trialEndsAt: computeTrialEndsAt(now),
       dailyLimitMinutes: TRIAL_DAILY_LIMIT_MINUTES,

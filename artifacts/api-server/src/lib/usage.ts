@@ -4,7 +4,7 @@ import type { User } from "@workspace/db";
 import { appCalendarDayChanged, startOfAppDay } from "@workspace/app-timezone";
 import { logger } from "./logger.js";
 import { isGoogleOnlyAccount } from "./account-auth.js";
-import { subscriptionPeriodEndFallback } from "./paypal.js";
+import { subscriptionPeriodEndFallback, dbPlanTypeFromPayPalBilling } from "./paypal.js";
 import { effectiveSessionSecondsSql } from "./session-billable-seconds.js";
 import { TRIAL_DAILY_LIMIT_MINUTES } from "./trial-constants.js";
 
@@ -79,7 +79,7 @@ export function planUsesTrialSonioxX(planType: string | null | undefined): boole
 /** DB `plan_type` values treated as trial for expiry, reminders, and admin filters. */
 export const TRIAL_LIKE_PLAN_TYPES = ["trial", "trial-openai", "trial-libre", "trial-hetzner", "trial-soniox-x"] as const;
 
-/** Trial-like plans: default signup `trial-libre` (Final Boss 3), legacy `trial` / `trial-openai`, or `trial-libre`. */
+/** Trial-like plans: default signup `trial-soniox-x`, plus legacy `trial` / `trial-openai` / `trial-libre` / `trial-hetzner`. */
 export function isTrialLikePlanType(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
   return (TRIAL_LIKE_PLAN_TYPES as readonly string[]).includes(p);
@@ -233,10 +233,10 @@ export function isAdminComplimentaryExpired(user: User): boolean {
   return Date.now() >= end.getTime();
 }
 
-/** Same access outcome as an expired trial: default Soniox trial SKU, already ended. PayPal cancel path is unchanged. */
+/** Same access outcome as an expired trial: default Soniox X trial SKU, already ended. PayPal cancel path is unchanged. */
 export function adminComplimentaryExpirePatch(): Partial<User> {
   return {
-    planType: "trial-openai",
+    planType: "trial-soniox-x",
     dailyLimitMinutes: TRIAL_DAILY_LIMIT_MINUTES,
     subscriptionStatus: "inactive",
     subscriptionPlan: null,
@@ -252,7 +252,7 @@ export async function expireAdminComplimentaryIfDue(user: User): Promise<User> {
   try {
     await db.update(usersTable).set(patch).where(eq(usersTable.id, user.id));
     Object.assign(user, patch);
-    logger.info({ userId: user.id }, "admin complimentary grant expired; reverted to trial-openai");
+    logger.info({ userId: user.id }, "admin complimentary grant expired; reverted to trial-soniox-x");
   } catch (err) {
     logger.warn({ err, userId: user.id }, "admin complimentary expire skipped");
   }
@@ -272,10 +272,10 @@ export function isTrialExpired(user: User): boolean {
 /**
  * When PayPal/webhooks lag, `plan_type` can stay trial-like while `subscription_plan` + `subscription_status`
  * already reflect paid Basic/Professional/Platinum. Use the subscription row for translation gating/engine
- * only in that case so paid tiers keep machine or OpenAI translation.
+ * only in that case so paid tiers keep the correct stack (default Soniox X; Chuck preserved when already on it).
  */
 export function effectivePlanTypeForTranslation(user: User): string {
-  const p = (user.planType ?? "trial-libre").trim().toLowerCase();
+  const p = (user.planType ?? "trial-soniox-x").trim().toLowerCase();
   const sub = (user.subscriptionStatus ?? "").trim().toLowerCase();
   const sp = (user.subscriptionPlan ?? "").trim().toLowerCase();
   const originalPlanWasOpenAi = p.includes("openai");
@@ -284,11 +284,11 @@ export function effectivePlanTypeForTranslation(user: User): string {
     (sp === "basic" || sp === "professional" || sp === "platinum" || sp === "unlimited") &&
     isTrialLikePlanType(user.planType)
   ) {
-    // PayPal Basic → Hetzner machine stack for every trial variant (OpenAI, Hetzner, or mixed).
-    if (sp === "basic") return "basic-hetzner";
+    if (sp === "basic" || sp === "professional") {
+      return dbPlanTypeFromPayPalBilling(sp, p);
+    }
     // Trial-like + active PayPal: mirror billing mapping even while plan_type lags.
     if (p === "trial-libre") {
-      if (sp === "professional") return "professional-libre";
       if (sp === "platinum") return "platinum";
       if (sp === "unlimited") return "unlimited";
     }

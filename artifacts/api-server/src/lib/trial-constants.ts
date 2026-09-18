@@ -2,7 +2,7 @@
  * Free trial only: max real-time interpreting minutes per calendar day.
  * Paid plan limits come from Stripe metadata / admin — do not use this for non-trial enforcement beyond DB sync.
  */
-/** New signups and PayPal downgrade trial: max 2 hours interpreting per calendar day (7 days — {@link TRIAL_DAYS_NEW_USERS}). */
+/** New signups and subscription-cancel downgrade trial: max 2 hours interpreting per calendar day (7 days — {@link TRIAL_DAYS_NEW_USERS}). */
 export const TRIAL_DAILY_LIMIT_MINUTES = 120;
 
 /**

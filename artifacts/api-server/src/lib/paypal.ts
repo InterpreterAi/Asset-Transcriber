@@ -266,24 +266,23 @@ export async function fetchPayPalSubscriptionTransactions(input: {
 
 /**
  * PayPal (and Paddle) billing tier → DB `plan_type` for a normal public subscriber.
- * Evidence: `/sync-paypal-subscription` and PayPal webhooks write these SKUs;
- * admin defaults label them “Default (Soniox)”; `planUsesSonioxNativeTranslation`
- * is `trial-openai` | `basic-hetzner` | `professional-libre` (Chunk v2) plus the Soniox X family.
+ * Public default stack is Soniox X (`trial-soniox-x` / `basic-soniox-x` / `professional-soniox-x`).
+ * Legacy Chuck / Chunk v2 (`trial-openai` / `basic-hetzner` / `professional-libre`) is preserved
+ * on renewal so active Chuck subscribers are not migrated mid-cycle.
  * `basic-libre` is leftover Hetzner `/translate`, not the $59 public Basic.
  */
-/** Map billing SKU → DB plan_type. Soniox X users stay on the *-soniox-x family after upgrade. */
+/** Map billing SKU → DB plan_type. Default = Soniox X; Chuck v2 users stay on Chuck after upgrade/renewal. */
 export function dbPlanTypeFromPayPalBilling(
   plan: BillingPlanType,
   currentPlanType?: string | null,
 ): string {
   const cur = (currentPlanType ?? "").trim().toLowerCase();
-  const onSonioxX =
-    cur === "trial-soniox-x" ||
-    cur === "basic-soniox-x" ||
-    cur === "professional-soniox-x" ||
-    cur.endsWith("-soniox-x");
-  if (plan === "basic") return onSonioxX ? "basic-soniox-x" : "basic-hetzner";
-  if (plan === "professional") return onSonioxX ? "professional-soniox-x" : "professional-libre";
+  const onChuckV2 =
+    cur === "trial-openai" ||
+    cur === "basic-hetzner" ||
+    cur === "professional-libre";
+  if (plan === "basic") return onChuckV2 ? "basic-hetzner" : "basic-soniox-x";
+  if (plan === "professional") return onChuckV2 ? "professional-libre" : "professional-soniox-x";
   return "platinum-openai";
 }
 

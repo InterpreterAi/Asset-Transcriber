@@ -368,13 +368,13 @@ export async function deactivatePaddlePaidUser(userId: number): Promise<void> {
   await db
     .update(usersTable)
     .set({
-      planType: "trial-openai",
+      planType: "trial-soniox-x",
       dailyLimitMinutes: TRIAL_DAILY_LIMIT_MINUTES,
       subscriptionStatus: "inactive",
       subscriptionPeriodEndsAt: null,
     })
     .where(eq(usersTable.id, userId));
-  logger.info({ userId }, "Paddle subscription deactivated; user returned to trial-openai");
+  logger.info({ userId }, "Paddle subscription deactivated; user returned to trial-soniox-x");
 }
 
 /** Cancel was requested; paid plan and daily cap stay until `periodEnd`. */
@@ -417,7 +417,7 @@ export async function expireCanceledPaddleAccessIfDue<T extends {
   await deactivatePaddlePaidUser(user.id);
   return {
     ...user,
-    planType: "trial-openai",
+    planType: "trial-soniox-x",
     dailyLimitMinutes: TRIAL_DAILY_LIMIT_MINUTES,
     subscriptionStatus: "inactive",
     subscriptionPeriodEndsAt: null,

@@ -55,14 +55,21 @@ describe("Paddle environment inference", () => {
 });
 
 describe("public PayPal/Paddle plan mapping", () => {
-  it("maps $59 Basic to basic-hetzner (Soniox default, not leftover basic-libre)", () => {
-    assert.equal(dbPlanTypeFromPayPalBilling("basic"), "basic-hetzner");
+  it("maps $59 Basic to basic-soniox-x by default (Soniox X public stack)", () => {
+    assert.equal(dbPlanTypeFromPayPalBilling("basic"), "basic-soniox-x");
     assert.equal(dbPlanTypeFromPayPalBilling("basic", "trial-soniox-x"), "basic-soniox-x");
     assert.equal(dbPlanTypeFromPayPalBilling("professional", "trial-soniox-x"), "professional-soniox-x");
   });
 
-  it("maps $99 Professional to professional-libre (same as PayPal activation)", () => {
-    assert.equal(dbPlanTypeFromPayPalBilling("professional"), "professional-libre");
+  it("maps $99 Professional to professional-soniox-x by default", () => {
+    assert.equal(dbPlanTypeFromPayPalBilling("professional"), "professional-soniox-x");
+  });
+
+  it("preserves Chuck / Chunk v2 SKUs for active Chuck subscribers on renewal", () => {
+    assert.equal(dbPlanTypeFromPayPalBilling("basic", "trial-openai"), "basic-hetzner");
+    assert.equal(dbPlanTypeFromPayPalBilling("basic", "basic-hetzner"), "basic-hetzner");
+    assert.equal(dbPlanTypeFromPayPalBilling("professional", "professional-libre"), "professional-libre");
+    assert.equal(dbPlanTypeFromPayPalBilling("professional", "trial-openai"), "professional-libre");
   });
 });
 
