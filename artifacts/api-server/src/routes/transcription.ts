@@ -1447,7 +1447,7 @@ router.post("/session/heartbeat", async (req, res) => {
   }
 
   const rows = await db
-    .select({ id: sessionsTable.id })
+    .select({ id: sessionsTable.id, startedAt: sessionsTable.startedAt })
     .from(sessionsTable)
     .where(
       and(
@@ -1466,21 +1466,27 @@ router.post("/session/heartbeat", async (req, res) => {
   ensureLiveSnapshot(sessionId);
   applyLiveSnapshotMicLabel(sessionId, rawMicLabel);
 
-  const audioSeconds =
+  // Soniox X sends client wall-clock from startTimeRef; a remount after deploy resets
+  // that ref while sessions.started_at stays correct — floor billable to server wall.
+  const serverWallSec = Math.min(
+    MAX_SESSION_AUDIO_SECONDS,
+    Math.max(0, Math.floor((Date.now() - new Date(rows[0]!.startedAt).getTime()) / 1000)),
+  );
+  const clientAudioSec =
     rawAudio !== undefined && Number.isFinite(Number(rawAudio))
       ? Math.min(Math.max(0, Math.floor(Number(rawAudio))), MAX_SESSION_AUDIO_SECONDS)
-      : undefined;
+      : 0;
+  const audioSeconds = Math.min(
+    MAX_SESSION_AUDIO_SECONDS,
+    Math.max(clientAudioSec, serverWallSec),
+  );
 
   // Never let a heartbeat shrink billable audio (deploys / clock skew / client remounts).
   await db
     .update(sessionsTable)
     .set({
       lastActivityAt: new Date(),
-      ...(audioSeconds !== undefined
-        ? {
-            audioSecondsProcessed: sql`GREATEST(COALESCE(${sessionsTable.audioSecondsProcessed}, 0), ${audioSeconds})`,
-          }
-        : {}),
+      audioSecondsProcessed: sql`GREATEST(COALESCE(${sessionsTable.audioSecondsProcessed}, 0), ${audioSeconds})`,
     })
     .where(eq(sessionsTable.id, sessionId));
 
