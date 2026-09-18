@@ -22,6 +22,7 @@ import { UserFeedbackModal } from "@/components/UserFeedbackModal";
 import { GlossaryPanel } from "@/components/GlossaryPanel";
 import { SupportPanel } from "@/components/SupportPanel";
 import { SessionHistoryPanel } from "@/components/SessionHistoryPanel";
+import { useWorkspaceAccount } from "@/components/workspace-account";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
 import { loginUrlForReturnTo } from "@/lib/auth-redirect";
 import { forgetSessionPresence, presenceFields, rememberSessionPresence } from "@/lib/session-presence";
@@ -252,6 +253,7 @@ function FontSizePxStepper({
 export default function TrialSonioxXWorkspace() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
+
   const { data: meUser, isLoading: userLoading, error: userError, isFetched: userFetched } = useGetMe({
     query: { queryKey: getGetMeQueryKey(), retry: false, staleTime: 15_000 },
   });
@@ -260,6 +262,26 @@ export default function TrialSonioxXWorkspace() {
     if (meUser) setCachedUser(meUser);
   }, [meUser]);
   const user = meUser ?? cachedUser;
+  const account = useWorkspaceAccount(
+    user
+      ? {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          planType: user.planType,
+          isAdmin: user.isAdmin,
+          isGoogleAccount: (user as { isGoogleAccount?: boolean }).isGoogleAccount,
+          twoFactorEnabled: (user as { twoFactorEnabled?: boolean }).twoFactorEnabled,
+          trialExpired: user.trialExpired,
+          trialDaysRemaining: user.trialDaysRemaining,
+          minutesUsedToday: user.minutesUsedToday,
+          minutesRemainingToday: user.minutesRemainingToday,
+          dailyLimitMinutes: user.dailyLimitMinutes,
+          paidCycleDaysRemaining: (user as { paidCycleDaysRemaining?: number | null }).paidCycleDaysRemaining,
+          sessionsToday: (user as { sessionsToday?: number }).sessionsToday,
+        }
+      : undefined,
+  );
   const [meTimedOut, setMeTimedOut] = useState(false);
   useEffect(() => {
     if (!userLoading) {
@@ -281,7 +303,6 @@ export default function TrialSonioxXWorkspace() {
   const [tabStream, setTabStream] = useState<MediaStream | null>(null);
   const tabCaptureStopRef = useRef<(() => void) | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
-  const [testPlanLoading, setTestPlanLoading] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [clearedForPrivacy, setClearedForPrivacy] = useState(false);
   const [markedRowId, setMarkedRowId] = useState<string | null>(null);
@@ -811,26 +832,6 @@ export default function TrialSonioxXWorkspace() {
     }
   };
 
-  const handleTestActivatePlan = async (planType: string) => {
-    setTestPlanLoading(planType);
-    try {
-      const res = await fetch("/api/payments/test-activate-plan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ planType }),
-      });
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(data.error || "Could not switch plan.");
-      }
-      await queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
-    } catch (err) {
-      setSessionError(errMessage(err, "Could not switch plan."));
-    } finally {
-      setTestPlanLoading(null);
-    }
-  };
 
   const jumpTailFollow = () => {
     tailPinnedRef.current = true;
@@ -882,6 +883,7 @@ export default function TrialSonioxXWorkspace() {
         <InviteModal userId={user.id} username={user.username} onClose={() => setShowInviteModal(false)} />
       )}
       <UserFeedbackModal isOpen={showUserFeedback} onClose={() => setShowUserFeedback(false)} />
+      {account.accountOverlays}
 
       {settingsOpen && (
         <div
@@ -996,85 +998,10 @@ export default function TrialSonioxXWorkspace() {
       </aside>
 
       {activeTab === "profile" && (
-        <div className="w-full md:w-72 bg-card border-r border-border dark:border-white/[0.08] flex flex-col overflow-y-auto shrink-0 z-10 shadow-[inset_-1px_0_0_rgba(255,255,255,0.04)]">
-          <div className="min-h-[52px] border-b border-border flex items-center justify-between px-4 py-2 shrink-0">
-            <div className="min-w-0">
-              <span className="font-semibold text-sm block">Account</span>
-              <span className="text-[10px] text-muted-foreground">Security & close account</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setActiveTab("mic")}
-              className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-          <div className="p-4 border-b border-border/60 space-y-2">
-            <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                <User className="w-4.5 h-4.5 text-primary" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-medium truncate">{user.email ?? user.username}</p>
-                <p className="text-[11px] text-muted-foreground truncate">@{user.username}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 mt-1">
-              <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                planTier === "trial" ? "bg-violet-50 text-violet-700 border-violet-200"
-                  : planTier === "basic" ? "bg-blue-50 text-blue-700 border-blue-200"
-                  : planTier === "professional" ? "bg-indigo-50 text-indigo-700 border-indigo-200"
-                  : "bg-emerald-50 text-emerald-700 border-emerald-200"
-              }`}>
-                {workspacePlanDisplayName(user.planType)}
-              </span>
-              {isTrialLikePlanType(user.planType) && (
-                <span className="text-[11px] text-muted-foreground">
-                  {user.trialExpired
-                    ? "Expired"
-                    : `${user.trialDaysRemaining} day${user.trialDaysRemaining === 1 ? "" : "s"} left`}
-                </span>
-              )}
-            </div>
-          </div>
-          {user.isAdmin && (
-            <div className="px-4 pb-4 pt-4 border-b border-border/60">
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Plan testing</p>
-              <p className="text-[11px] text-muted-foreground mb-2">
-                Sets your real DB plan_type (same values as Admin → Users). Trial picks apply a fresh window from now.
-              </p>
-              {(["trial", "paid"] as const).map((group) => (
-                <div key={group} className={group === "paid" ? "mt-2.5" : ""}>
-                  <p className="text-[10px] font-medium text-muted-foreground/90 mb-1.5">
-                    {group === "trial" ? "Trials" : "Paid tiers"}
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {getWorkspacePlanTestOptions(true).filter((o) => o.group === group).map((o) => {
-                      const active = (user.planType ?? "").toLowerCase() === o.planType;
-                      return (
-                        <button
-                          key={o.planType}
-                          type="button"
-                          title={o.planType}
-                          disabled={recording || testPlanLoading != null}
-                          onClick={() => void handleTestActivatePlan(o.planType)}
-                          className={`px-2 py-1 rounded-md text-[9px] font-semibold border transition-colors disabled:opacity-50 leading-tight text-left max-w-[11rem] ${
-                            active
-                              ? "border-primary bg-primary/10 text-primary"
-                              : "border-border dark:border-white/10 bg-card text-foreground hover:bg-muted dark:bg-muted/25 dark:hover:bg-white/[0.08]"
-                          }`}
-                        >
-                          {testPlanLoading === o.planType ? "…" : o.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <account.AccountPanel
+          onClose={() => setActiveTab("mic")}
+          recording={recording}
+        />
       )}
 
       {activeTab === "support" && (
@@ -1253,7 +1180,15 @@ export default function TrialSonioxXWorkspace() {
             {user.trialExpired ? (
               <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3 flex items-center gap-2 text-sm text-destructive">
                 <AlertTriangle className="w-4 h-4 shrink-0" />
-                Your free trial has expired.
+                <span className="flex-1">Your free trial has expired.</span>
+                <button
+                  type="button"
+                  onClick={account.openUpgrade}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-destructive text-white text-xs font-semibold hover:bg-destructive/90 transition-colors whitespace-nowrap shrink-0"
+                >
+                  <Zap className="w-3 h-3" />
+                  Upgrade
+                </button>
               </div>
             ) : (
               <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 flex items-center gap-2 text-sm text-orange-800">

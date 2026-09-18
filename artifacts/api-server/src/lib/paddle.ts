@@ -221,7 +221,7 @@ export async function activatePaddlePaidUser(opts: {
   if (!user || user.isAdmin) return;
 
   const plan = paypalPlanConfig(opts.billingPlan);
-  const resolvedPlanType = dbPlanTypeFromPayPalBilling(opts.billingPlan);
+  const resolvedPlanType = dbPlanTypeFromPayPalBilling(opts.billingPlan, user.planType);
   const previousPayPalSubId = (user.paypalSubscriptionId ?? "").trim();
 
   await db
@@ -357,7 +357,7 @@ export async function applyVerifiedPaddleTransaction(opts: {
 
   return {
     ok: true,
-    planType: dbPlanTypeFromPayPalBilling(billingPlan),
+    planType: dbPlanTypeFromPayPalBilling(billingPlan, user.planType),
     subscriptionPlan: billingPlan,
   };
 }

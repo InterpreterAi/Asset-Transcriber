@@ -314,7 +314,7 @@ router.post("/sync-paypal-subscription", requireAuth, async (req: any, res) => {
       extractPayPalSubscriptionNextBillingTime(subJson) ?? subscriptionPeriodEndFallback(startAt);
 
     const plan = paypalPlanConfig(effectivePlan);
-    const resolvedPlanType = dbPlanTypeFromPayPalBilling(effectivePlan);
+    const resolvedPlanType = dbPlanTypeFromPayPalBilling(effectivePlan, user.planType);
 
     await db
       .update(usersTable)
@@ -479,7 +479,7 @@ router.post("/paypal-webhook", async (req, res) => {
 
       if (effectivePlanType && isBillingPlanType(effectivePlanType)) {
         const plan = paypalPlanConfig(effectivePlanType);
-        const resolvedPlanType = dbPlanTypeFromPayPalBilling(effectivePlanType);
+        const resolvedPlanType = dbPlanTypeFromPayPalBilling(effectivePlanType, targetUser.planType);
         await db
           .update(usersTable)
           .set({
@@ -543,7 +543,8 @@ router.post("/paypal-webhook", async (req, res) => {
       };
       if (effectivePlanType && isBillingPlanType(effectivePlanType)) {
         const plan = paypalPlanConfig(effectivePlanType);
-        sharedPatch.planType = dbPlanTypeFromPayPalBilling(effectivePlanType);
+        const [currentUser] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+        sharedPatch.planType = dbPlanTypeFromPayPalBilling(effectivePlanType, currentUser?.planType);
         sharedPatch.dailyLimitMinutes = plan.dailyLimitMinutes;
         sharedPatch.subscriptionPlan = effectivePlanType;
       }

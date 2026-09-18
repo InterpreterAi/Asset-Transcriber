@@ -271,9 +271,19 @@ export async function fetchPayPalSubscriptionTransactions(input: {
  * is `trial-openai` | `basic-hetzner` | `professional-libre` (Chunk v2) plus the Soniox X family.
  * `basic-libre` is leftover Hetzner `/translate`, not the $59 public Basic.
  */
-export function dbPlanTypeFromPayPalBilling(plan: BillingPlanType): string {
-  if (plan === "basic") return "basic-hetzner";
-  if (plan === "professional") return "professional-libre";
+/** Map billing SKU → DB plan_type. Soniox X users stay on the *-soniox-x family after upgrade. */
+export function dbPlanTypeFromPayPalBilling(
+  plan: BillingPlanType,
+  currentPlanType?: string | null,
+): string {
+  const cur = (currentPlanType ?? "").trim().toLowerCase();
+  const onSonioxX =
+    cur === "trial-soniox-x" ||
+    cur === "basic-soniox-x" ||
+    cur === "professional-soniox-x" ||
+    cur.endsWith("-soniox-x");
+  if (plan === "basic") return onSonioxX ? "basic-soniox-x" : "basic-hetzner";
+  if (plan === "professional") return onSonioxX ? "professional-soniox-x" : "professional-libre";
   return "platinum-openai";
 }
 

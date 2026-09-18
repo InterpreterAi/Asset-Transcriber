@@ -3467,7 +3467,7 @@ router.post("/sync-paypal-subscription-by-email", requireAdmin, async (req, res)
     const startAt = extractPayPalSubscriptionStartTime(subJson) ?? new Date();
     const periodEnd = extractPayPalSubscriptionNextBillingTime(subJson) ?? subscriptionPeriodEndFallback(startAt);
     const plan = paypalPlanConfig(effectivePlan);
-    const resolvedPlanType = dbPlanTypeFromPayPalBilling(effectivePlan);
+    const resolvedPlanType = dbPlanTypeFromPayPalBilling(effectivePlan, u.planType);
 
     await db
       .update(usersTable)

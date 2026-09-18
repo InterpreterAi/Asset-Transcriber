@@ -57,6 +57,8 @@ describe("Paddle environment inference", () => {
 describe("public PayPal/Paddle plan mapping", () => {
   it("maps $59 Basic to basic-hetzner (Soniox default, not leftover basic-libre)", () => {
     assert.equal(dbPlanTypeFromPayPalBilling("basic"), "basic-hetzner");
+    assert.equal(dbPlanTypeFromPayPalBilling("basic", "trial-soniox-x"), "basic-soniox-x");
+    assert.equal(dbPlanTypeFromPayPalBilling("professional", "trial-soniox-x"), "professional-soniox-x");
   });
 
   it("maps $99 Professional to professional-libre (same as PayPal activation)", () => {
