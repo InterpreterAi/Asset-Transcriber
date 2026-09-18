@@ -126,6 +126,39 @@ describe("interpreter glossary", () => {
     expect(ctx.terms?.some((t) => /Arabic interpreter/i.test(t))).toBe(true);
   });
 
+  it("loads the en-de medical pack both directions", () => {
+    const pack = packTermsForPair("en", "de");
+    expect(pack.translationTerms.some((t) => t.source === "CPR" && /Herz-Lungen-Wiederbelebung|Wiederbelebung/.test(t.target))).toBe(
+      true,
+    );
+    expect(pack.translationTerms.some((t) => t.source === "Sonogram")).toBe(true);
+    expect(pack.translationTerms.some((t) => t.source === "MRI")).toBe(true);
+    expect(pack.glossaryLines.length).toBeGreaterThan(400);
+  });
+
+  it("pins high-value German medical terms inside the Soniox budget", () => {
+    const dialect = buildStableDialectContext("en", "de");
+    const pack = packTermsForPair("en", "de");
+    const ctx = mergeSonioxXInterpreterContext({
+      dialect,
+      packTerms: pack.translationTerms,
+      packPins: pack.recognitionPins,
+      packLines: pack.glossaryLines,
+      userTerms: [],
+      langA: "en",
+      langB: "de",
+    });
+    const n = JSON.stringify(ctx).length;
+    expect(n).toBeGreaterThan(7_500);
+    expect(n).toBeLessThanOrEqual(SONIOX_X_CONTEXT_SAFE_CHARS);
+    for (const en of ["CPR", "MRI", "Sonogram"] as const) {
+      const ok =
+        ctx.translation_terms?.some((t) => t.source === en) || (ctx.text ?? "").includes(`${en}=`);
+      expect(ok, `${en} missing; chars=${n}`).toBe(true);
+    }
+    expect(ctx.text).toMatch(/Hochdeutsch/i);
+  });
+
   it("loads the en-pl medical pack both directions", () => {
     const pack = packTermsForPair("en", "pl");
     expect(pack.translationTerms.some((t) => t.source === "CPR" && t.target === "resuscytacja krążeniowo-oddechowa")).toBe(

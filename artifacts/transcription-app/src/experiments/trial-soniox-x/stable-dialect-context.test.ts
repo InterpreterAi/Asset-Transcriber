@@ -48,6 +48,7 @@ describe("stable dialect pins", () => {
     expect(ctx.terms?.includes("بزاف")).toBe(true);
     expect(ctx.text).toMatch(/الفصحى/);
     expect(ctx.text).toMatch(/Yemeni/);
+    expect(ctx.general?.some((row) => row.key === "translation" && /standard international English|الفصحى/.test(row.value))).toBe(true);
     expect(ctx.text).not.toMatch(/Forbidden in Arabic translations/);
     expect(ctx.text).not.toContain("يا عم");
     expect(ctx.text).not.toContain("cy:");
@@ -75,6 +76,15 @@ describe("stable dialect pins", () => {
     expect(pl.general?.some((row) => /ogólnopolski|polszczyzna/i.test(row.value))).toBe(true);
     expect(pl.text).toMatch(/ultrasonografia/i);
     expect(pl.translation_terms?.some((t) => t.source === "next time" && t.target === "następnym razem")).toBe(
+      true,
+    );
+  });
+
+  it("pins German to Hochdeutsch and standard next-time wording", () => {
+    const de = buildStableDialectContext("de", "en");
+    expect(de.general?.some((row) => /Hochdeutsch/i.test(row.value))).toBe(true);
+    expect(de.text).toMatch(/Sonogramm/i);
+    expect(de.translation_terms?.some((t) => t.source === "next time" && t.target === "nächstes Mal")).toBe(
       true,
     );
   });

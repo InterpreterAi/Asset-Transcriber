@@ -11,6 +11,7 @@
  */
 import type { SonioxStartContext } from "./stable-dialect-context";
 import pack from "./interpreter-glossary.json";
+import { meaningLockPinPairs } from "./meaning-locks";
 
 export const SONIOX_X_CONTEXT_SAFE_CHARS = 9_600;
 
@@ -380,9 +381,10 @@ export function displayPinPairs(
 ): GlossaryTerm[] {
   const user = userGlossaryToTerms(userEntries, langA, langB);
   const pack = packTermsForPair(langA, langB).translationTerms;
+  const locks = meaningLockPinPairs(langA, langB);
   const out: GlossaryTerm[] = [];
   const seen = new Set<string>();
-  for (const t of [...user, ...pack]) {
+  for (const t of [...user, ...locks, ...pack]) {
     const k = `${t.source.toLowerCase()}->${t.target}`;
     if (seen.has(k)) continue;
     if (LOW_VALUE.has(t.source.toLowerCase())) continue;

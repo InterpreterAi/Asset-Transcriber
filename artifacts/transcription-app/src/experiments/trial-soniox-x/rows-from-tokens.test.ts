@@ -252,6 +252,20 @@ describe("snapshotLinesFromSonioxXRows", () => {
       translationLines: ["اتصل على 2154315307 من فضلك"],
     });
   });
+
+  it("does not snapshot dialect sexual Arabic as eat", () => {
+    expect(
+      snapshotLinesFromSonioxXRows([
+        {
+          id: "sx-1",
+          origFinal: "بس هي كانت عايزة تتناك.",
+          origPartial: "",
+          transFinal: "but she wanted to eat.",
+          transPartial: "",
+        },
+      ]).translationLines,
+    ).toEqual(["but she wanted to get fucked."]);
+  });
 });
 
 describe("attachNonFinalRows", () => {

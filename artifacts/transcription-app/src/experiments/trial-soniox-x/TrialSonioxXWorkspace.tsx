@@ -42,6 +42,7 @@ import { getLanguage } from "./languages";
 import { sonioxTwoWayLanguageHints, workspaceLangToOfficialSonioxCode } from "./soniox-lang";
 import { dominantBidiDir } from "./bidi-islands";
 import { collapsePhoneParts } from "./collapse-phone-spaces";
+import { applyFaithfulMeaningFixes } from "./meaning-locks";
 import { langDir, attachNonFinalRows, rowsFromSonioxTokens, snapshotLinesFromSonioxXRows, stripeClassesForRows, type SonioxXRow } from "./rows-from-tokens";
 import { BidiText } from "./BidiText";
 import { buildStableDialectContext } from "./stable-dialect-context";
@@ -134,9 +135,8 @@ const SonioxXTranscriptRow = memo(function SonioxXTranscriptRow({
   const live = Boolean(row.origPartial || row.transPartial);
   const transRaw = `${row.transFinal}${row.transPartial}`;
   const transPinned = live ? transRaw : applyExactGlossaryPins(orig, transRaw, pinPairs);
-  const transParts = live
-    ? collapsePhoneParts(row.transFinal, row.transPartial)
-    : collapsePhoneParts(transPinned, "");
+  const transFixed = applyFaithfulMeaningFixes(orig, transPinned);
+  const transParts = collapsePhoneParts(transFixed, "");
   const trans = `${transParts.final}${transParts.partial}`;
   const origDir = dominantBidiDir(orig, langDir(row.origLang));
   const transDir = dominantBidiDir(trans, langDir(row.transLang));

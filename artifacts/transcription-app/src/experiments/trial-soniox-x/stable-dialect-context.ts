@@ -123,6 +123,7 @@ const PAIR_TRANSLATION_TEXT: Record<string, string> = {
   ar:
     "TRANSLATION COLUMN into Arabic: Modern Standard Arabic only (الفصحى), like news/subtitles. " +
     `Do not copy dialect morphology into the translation even if the audio is ${AR_SPOKEN_DIALECTS}; still translate the exact meaning, including vulgar/sexual/slang sense, into فصحى — never euphemize into a different meaning. ` +
+    "Informal English still becomes فصحى, never dialect. " +
     "Never repeat English words or Latin abbreviations in the Arabic translation (Sonogram → تصوير بالموجات فوق الصوتية). " +
     `ORIGINAL COLUMN: write every Arabic dialect as spoken (${AR_SPOKEN_DIALECTS}). ` +
     "Maghrebi, Algerian, Tunisian, and Darija are Arabic, not French. Never skip or silence Arabic speech.",
@@ -136,6 +137,7 @@ const PAIR_TRANSLATION_TEXT: Record<string, string> = {
     "ORIGINAL COLUMN: transcribe spoken French exactly, including dialect.",
   de:
     "TRANSLATION COLUMN into German: Standard High German (Hochdeutsch). Not Swiss German or Bavarian forms in the translation; still translate their exact meaning. " +
+    "Never repeat English words or Latin abbreviations in the German translation (Sonogram → Sonogramm). " +
     "ORIGINAL COLUMN: transcribe spoken German exactly, including dialect.",
   pl:
     "TRANSLATION COLUMN into Polish: standard Polish (język ogólnopolski), like news/subtitles. " +
@@ -154,6 +156,7 @@ const AR_EN_MSA_TERMS: { source: string; target: string }[] = [
   { source: "no one", target: "لا أحد" },
   { source: "nobody", target: "لا أحد" },
   { source: "family bucket", target: "وجبة العائلة" },
+  { source: "What the fuck do you mean", target: "ماذا تقصد بحق الجحيم" },
 ];
 
 const ES_EN_STANDARD_TERMS: { source: string; target: string }[] = [
@@ -165,6 +168,17 @@ const ES_EN_STANDARD_TERMS: { source: string; target: string }[] = [
   { source: "I get you", target: "le entiendo" },
   { source: "no one", target: "nadie" },
   { source: "nobody", target: "nadie" },
+];
+
+const DE_EN_STANDARD_TERMS: { source: string; target: string }[] = [
+  { source: "next time", target: "nächstes Mal" },
+  { source: "that's why", target: "deshalb" },
+  { source: "that is why", target: "deshalb" },
+  { source: "that's all", target: "das ist alles" },
+  { source: "you need to know", target: "Sie müssen das wissen" },
+  { source: "I get you", target: "ich verstehe Sie" },
+  { source: "no one", target: "niemand" },
+  { source: "nobody", target: "niemand" },
 ];
 
 const PL_EN_STANDARD_TERMS: { source: string; target: string }[] = [
@@ -206,13 +220,13 @@ export function buildStableDialectContext(langA: string, langB: string): SonioxS
       value:
         "Translation column: translate the FULL meaning of each original utterance into the stable standard written variety of the TARGET language. Be complete and literal to meaning — including slang, vulgar, sexual, insulting, and dialect wording. Never soften, euphemize, censor, or replace with an unrelated word. Never invent words, topics, or clauses that were not spoken. Never drop part of the utterance. Do not copy the spoken dialect form into the translation; render its meaning in the target standard. For medical/glossary phrases listed in translation_terms, use those exact target wordings; for everything else, translate normally." +
         (arabicPair
-          ? " When the target is Arabic, use الفصحى / Modern Standard Arabic only — but still carry the exact meaning (including vulgar/slang sense) into فصحى, not a polite substitute that changes the meaning."
-          : ""),
+          ? " When the target is Arabic, use الفصحى only — even if the English is slang. Never dialect particles in the translation. Carry vulgar/slang meaning into فصحى, not a polite substitute."
+          : " English target uses standard international English with the same meaning, including vulgar/sexual sense — never food."),
     },
     {
       key: "accuracy",
       value:
-        "Interpreter accuracy first: translation must match what was said. No added stories, no omitted clauses, no polite rewrites. If the speaker says a vulgar or sexual word, translate that meaning; do not substitute food words, cheating, or other unrelated senses.",
+        "Interpreter accuracy first: translation must match what was said. No added stories, no omitted clauses, no polite rewrites. If the speaker says a vulgar or sexual word, translate that meaning; do not substitute food words, cheating, or other unrelated senses. Dialect sexual Arabic is sexual, not eating.",
     },
     { key: registerKey(a), value: `TRANSLATION into ${LANG_NAME[a] ?? a} uses: ${pinA}` },
     { key: registerKey(b), value: `TRANSLATION into ${LANG_NAME[b] ?? b} uses: ${pinB}` },
@@ -238,6 +252,9 @@ export function buildStableDialectContext(langA: string, langB: string): SonioxS
   }
   if (a === "pl" || b === "pl") {
     translation_terms.push(...PL_EN_STANDARD_TERMS);
+  }
+  if (a === "de" || b === "de") {
+    translation_terms.push(...DE_EN_STANDARD_TERMS);
   }
 
   const ctx: SonioxStartContext = { general };
