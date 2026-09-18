@@ -180,7 +180,8 @@ function openaiTranslationCostSessionMultiplier(): number {
 const OPENAI_INPUT_COST_PER_TOKEN  = 0.00000015 * openaiTranslationCostSessionMultiplier();
 const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060 * openaiTranslationCostSessionMultiplier();
 
-const MAX_SESSION_AUDIO_SECONDS = 3 * 60 * 60;
+/** Per-session PCM ceiling — must cover Professional daily cap (12h). Was 3h and froze Basic 5h live meters. */
+const MAX_SESSION_AUDIO_SECONDS = 12 * 60 * 60;
 
 const DAILY_LIMIT_PAID_MESSAGE =
   "You have used all of your allowed minutes for today. Please try again tomorrow.";
@@ -1470,11 +1471,16 @@ router.post("/session/heartbeat", async (req, res) => {
       ? Math.min(Math.max(0, Math.floor(Number(rawAudio))), MAX_SESSION_AUDIO_SECONDS)
       : undefined;
 
+  // Never let a heartbeat shrink billable audio (deploys / clock skew / client remounts).
   await db
     .update(sessionsTable)
     .set({
       lastActivityAt: new Date(),
-      ...(audioSeconds !== undefined ? { audioSecondsProcessed: audioSeconds } : {}),
+      ...(audioSeconds !== undefined
+        ? {
+            audioSecondsProcessed: sql`GREATEST(COALESCE(${sessionsTable.audioSecondsProcessed}, 0), ${audioSeconds})`,
+          }
+        : {}),
     })
     .where(eq(sessionsTable.id, sessionId));
 

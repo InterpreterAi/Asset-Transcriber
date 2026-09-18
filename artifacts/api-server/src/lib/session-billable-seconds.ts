@@ -8,8 +8,13 @@
 import { sql, type SQL } from "drizzle-orm";
 import { sessionsTable } from "@workspace/db";
 
-/** Cap aligned with admin session-history live/fallback windows (3h). */
-export const MAX_SESSION_BILLABLE_SECONDS = 3 * 60 * 60;
+/**
+ * Per-session billable ceiling for open-session / fallback math.
+ * Must cover the highest public daily cap (Professional 12h). A 3h ceiling
+ * falsely froze Basic (5h) live usage on the admin meter while wall-clock
+ * duration kept rising.
+ */
+export const MAX_SESSION_BILLABLE_SECONDS = 12 * 60 * 60;
 
 /**
  * SQL expression: effective seconds for one `sessions` row (open or closed).
