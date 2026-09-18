@@ -71,8 +71,31 @@ export default function useSonioxClient({
   const [finalTokens, setFinalTokens] = useState<Token[]>([]);
   const [nonFinalTokens, setNonFinalTokens] = useState<Token[]>([]);
   const [error, setError] = useState<TranscriptionError | null>(null);
+  const finalAccRef = useRef<Token[]>([]);
+  const nonFinalRef = useRef<Token[]>([]);
+  const flushRafRef = useRef<number | null>(null);
+
+  const cancelTokenFlush = useCallback(() => {
+    if (flushRafRef.current == null) return;
+    cancelAnimationFrame(flushRafRef.current);
+    flushRafRef.current = null;
+  }, []);
+
+  const flushTokensToState = useCallback(() => {
+    flushRafRef.current = null;
+    setFinalTokens(finalAccRef.current);
+    setNonFinalTokens(nonFinalRef.current);
+  }, []);
+
+  const scheduleTokenFlush = useCallback(() => {
+    if (flushRafRef.current != null) return;
+    flushRafRef.current = requestAnimationFrame(flushTokensToState);
+  }, [flushTokensToState]);
 
   const startTranscription = useCallback(async (startOptions?: TrialSonioxXStartOptions) => {
+    cancelTokenFlush();
+    finalAccRef.current = [];
+    nonFinalRef.current = [];
     setFinalTokens([]);
     setNonFinalTokens([]);
     setError(null);
@@ -130,29 +153,36 @@ export default function useSonioxClient({
           }
         }
 
-        setFinalTokens((previousTokens) => [
-          ...previousTokens,
-          ...newFinalTokens,
-        ]);
-        setNonFinalTokens(newNonFinalTokens);
+        if (newFinalTokens.length > 0) {
+          finalAccRef.current = finalAccRef.current.concat(newFinalTokens);
+        }
+        nonFinalRef.current = newNonFinalTokens;
+        scheduleTokenFlush();
       },
     });
-  }, [context, languageHints, languageHintsStrict, onFinished, onStarted, translationConfig]);
+  }, [cancelTokenFlush, context, languageHints, languageHintsStrict, onFinished, onStarted, scheduleTokenFlush, translationConfig]);
 
   const stopTranscription = useCallback(() => {
+    cancelTokenFlush();
+    setFinalTokens(finalAccRef.current);
+    setNonFinalTokens(nonFinalRef.current);
     sonioxClient.current?.stop();
-  }, []);
+  }, [cancelTokenFlush]);
 
   const clearTokens = useCallback(() => {
+    cancelTokenFlush();
+    finalAccRef.current = [];
+    nonFinalRef.current = [];
     setFinalTokens([]);
     setNonFinalTokens([]);
-  }, []);
+  }, [cancelTokenFlush]);
 
   useEffect(() => {
     return () => {
+      cancelTokenFlush();
       sonioxClient.current?.cancel();
     };
-  }, []);
+  }, [cancelTokenFlush]);
 
   return {
     startTranscription,

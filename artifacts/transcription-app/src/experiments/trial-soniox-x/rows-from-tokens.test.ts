@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Token } from "@soniox/speech-to-text-web";
-import { rowsFromSonioxTokens, snapshotLinesFromSonioxXRows, ROW_STRIPE_COLOR_CLASSES, stripeClassesForRows, stripeSlotKey } from "./rows-from-tokens";
+import { attachNonFinalRows, rowsFromSonioxTokens, snapshotLinesFromSonioxXRows, ROW_STRIPE_COLOR_CLASSES, stripeClassesForRows, stripeSlotKey } from "./rows-from-tokens";
 
 function tok(partial: Partial<Token> & Pick<Token, "text">): Token {
   return {
@@ -234,6 +234,39 @@ describe("snapshotLinesFromSonioxXRows", () => {
       transcriptLines: ["Hello there"],
       translationLines: ["مرحبا"],
     });
+  });
+
+  it("removes spaces only inside phone numbers", () => {
+    expect(
+      snapshotLinesFromSonioxXRows([
+        {
+          id: "sx-1",
+          origFinal: "call 215 431 5307 please",
+          origPartial: "",
+          transFinal: "اتصل على 215 431 5307 من فضلك",
+          transPartial: "",
+        },
+      ]),
+    ).toEqual({
+      transcriptLines: ["call 2154315307 please"],
+      translationLines: ["اتصل على 2154315307 من فضلك"],
+    });
+  });
+});
+
+describe("attachNonFinalRows", () => {
+  it("keeps committed rows stable and paints the live tail on the last bubble", () => {
+    const finalized = rowsFromSonioxTokens([
+      tok({ text: "Hello ", speaker: "1", language: "en", translation_status: "original" }),
+      tok({ text: "مرحبا ", speaker: "1", language: "ar", translation_status: "translation" }),
+    ]);
+    const live = attachNonFinalRows(finalized, [
+      tok({ text: "world", speaker: "1", language: "en", translation_status: "original", is_final: false }),
+    ]);
+    expect(live).toHaveLength(1);
+    expect(live[0]?.origFinal).toBe("Hello ");
+    expect(live[0]?.origPartial).toBe("world");
+    expect(live[0]).not.toBe(finalized[0]);
   });
 });
 

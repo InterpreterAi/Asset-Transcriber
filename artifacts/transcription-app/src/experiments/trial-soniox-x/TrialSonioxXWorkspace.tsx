@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useLocation } from "wouter";
 import {
   ApiError,
@@ -41,7 +41,8 @@ import useSonioxClient from "./useSonioxClient";
 import { getLanguage } from "./languages";
 import { sonioxTwoWayLanguageHints, workspaceLangToOfficialSonioxCode } from "./soniox-lang";
 import { dominantBidiDir } from "./bidi-islands";
-import { langDir, rowsFromSonioxTokens, snapshotLinesFromSonioxXRows, stripeClassesForRows } from "./rows-from-tokens";
+import { collapsePhoneParts } from "./collapse-phone-spaces";
+import { langDir, attachNonFinalRows, rowsFromSonioxTokens, snapshotLinesFromSonioxXRows, stripeClassesForRows, type SonioxXRow } from "./rows-from-tokens";
 import { BidiText } from "./BidiText";
 import { buildStableDialectContext } from "./stable-dialect-context";
 import {
@@ -49,10 +50,12 @@ import {
   mergeSonioxXInterpreterContext,
   packTermsForPair,
   userGlossaryToTerms,
+  type GlossaryTerm,
 } from "./interpreter-glossary";
 import { applyExactGlossaryPins } from "./pin-translation";
 import { GLOSSARY_CHANGED_EVENT } from "@/lib/glossary-strict-storage";
-import { AudioMeter } from "@/components/AudioMeter";
+import { LiveAudioMeter } from "./live-audio-meter";
+import { LiveElapsedClock } from "./live-elapsed-clock";
 
 const LANG_OPTIONS = workspaceLanguageOptions();
 const WORKSPACE_THEME_STORAGE_KEY = "interpreterai-theme";
@@ -114,6 +117,88 @@ function CopyBtn({ text }: { text: string }) {
     </button>
   );
 }
+
+const SonioxXTranscriptRow = memo(function SonioxXTranscriptRow({
+  row,
+  stripeClass,
+  pinPairs,
+  marked,
+}: {
+  row: SonioxXRow;
+  stripeClass: string;
+  pinPairs: readonly GlossaryTerm[];
+  marked: boolean;
+}) {
+  const origParts = collapsePhoneParts(row.origFinal, row.origPartial);
+  const orig = `${origParts.final}${origParts.partial}`;
+  const live = Boolean(row.origPartial || row.transPartial);
+  const transRaw = `${row.transFinal}${row.transPartial}`;
+  const transPinned = live ? transRaw : applyExactGlossaryPins(orig, transRaw, pinPairs);
+  const transParts = live
+    ? collapsePhoneParts(row.transFinal, row.transPartial)
+    : collapsePhoneParts(transPinned, "");
+  const trans = `${transParts.final}${transParts.partial}`;
+  const origDir = dominantBidiDir(orig, langDir(row.origLang));
+  const transDir = dominantBidiDir(trans, langDir(row.transLang));
+  return (
+    <div
+      data-caw-segment={row.id}
+      className="group relative grid grid-cols-2 gap-3 sm:gap-6 items-start mb-4"
+      style={
+        marked
+          ? { background: "rgba(245,158,11,0.12)", borderLeft: "3px solid rgb(245,158,11)", borderRadius: 6 }
+          : undefined
+      }
+    >
+      <div className="flex min-w-0 items-start overflow-visible">
+        <div className={cn("w-1 shrink-0 rounded-full self-stretch min-h-[1.25rem] mt-0.5", stripeClass)} />
+        <div className="flex items-start gap-1 min-w-0 flex-1 pl-2">
+          <p
+            className="ts-text ts-original leading-relaxed whitespace-pre-wrap flex-1 min-w-0"
+            dir={origDir}
+            style={{ textAlign: origDir === "rtl" ? "right" : "left", unicodeBidi: "isolate" }}
+          >
+            <BidiText text={origParts.final} baseDir={origDir} className="workspace-selectable-text" />
+            <BidiText
+              text={origParts.partial}
+              baseDir={origDir}
+              className="text-muted-foreground/70 italic workspace-selectable-text"
+            />
+          </p>
+          <CopyBtn text={orig} />
+        </div>
+      </div>
+      <div className="min-w-0 pt-0.5">
+        <div className="flex items-start gap-1 min-w-0">
+          <p
+            className="ts-text ts-translation leading-relaxed whitespace-pre-wrap flex-1 min-w-0"
+            dir={transDir}
+            style={{ textAlign: transDir === "rtl" ? "right" : "left", unicodeBidi: "isolate" }}
+          >
+            <BidiText text={transParts.final} baseDir={transDir} className="workspace-selectable-text" />
+            <BidiText
+              text={transParts.partial}
+              baseDir={transDir}
+              className="text-muted-foreground/70 italic workspace-selectable-text"
+            />
+          </p>
+          <CopyBtn text={trans} />
+        </div>
+      </div>
+    </div>
+  );
+}, (prev, next) => (
+  prev.marked === next.marked &&
+  prev.stripeClass === next.stripeClass &&
+  prev.pinPairs === next.pinPairs &&
+  prev.row.id === next.row.id &&
+  prev.row.origFinal === next.row.origFinal &&
+  prev.row.origPartial === next.row.origPartial &&
+  prev.row.transFinal === next.row.transFinal &&
+  prev.row.transPartial === next.row.transPartial &&
+  prev.row.origLang === next.row.origLang &&
+  prev.row.transLang === next.row.transLang
+));
 
 function FontSizePxStepper({
   value,
@@ -238,22 +323,20 @@ export default function TrialSonioxXWorkspace() {
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showUserFeedback, setShowUserFeedback] = useState(false);
-  const [micLevel, setMicLevel] = useState(0);
+  const [meterStream, setMeterStream] = useState<MediaStream | null>(null);
 
   const sessionIdRef = useRef<number | null>(null);
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
-  const meterCtxRef = useRef<AudioContext | null>(null);
-  const meterRafRef = useRef<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const tailPinnedRef = useRef(true);
   const stopLiveRef = useRef<() => Promise<void>>(async () => {});
   const stoppingForCapRef = useRef(false);
-  const [elapsedMs, setElapsedMs] = useState(0);
   const [liveSessionId, setLiveSessionId] = useState<number | null>(null);
+  const [sessionStartedAt, setSessionStartedAt] = useState<number | null>(null);
   const snapshotSeqRef = useRef(0);
-  const rowsRef = useRef<ReturnType<typeof rowsFromSonioxTokens>>([]);
+  const rowsRef = useRef<SonioxXRow[]>([]);
   const langARef = useRef(langA);
   const langBRef = useRef(langB);
   const micLabelRef = useRef("Microphone");
@@ -417,6 +500,7 @@ export default function TrialSonioxXWorkspace() {
     setLiveSessionId(null);
     clearHeartbeat();
     startTimeRef.current = null;
+    setSessionStartedAt(null);
     if (!sid) return;
     const durationSeconds = startedAt
       ? Math.max(0, Math.floor((Date.now() - startedAt) / 1000))
@@ -435,54 +519,11 @@ export default function TrialSonioxXWorkspace() {
     void queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
   }, [clearHeartbeat, queryClient]);
 
-  const stopMicMeter = useCallback(() => {
-    if (meterRafRef.current != null) {
-      cancelAnimationFrame(meterRafRef.current);
-      meterRafRef.current = null;
-    }
-    const ctx = meterCtxRef.current;
-    meterCtxRef.current = null;
-    if (ctx) void ctx.close().catch(() => { /* already closed */ });
-    setMicLevel(0);
-  }, []);
-
-  const startMicMeter = useCallback((stream: MediaStream) => {
-    stopMicMeter();
-    try {
-      const AudioContextCtor =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      const ctx = new AudioContextCtor();
-      meterCtxRef.current = ctx;
-      const source = ctx.createMediaStreamSource(stream);
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 256;
-      source.connect(analyser);
-      const samples = new Uint8Array(analyser.fftSize);
-      const tick = () => {
-        analyser.getByteTimeDomainData(samples);
-        let sum = 0;
-        for (let i = 0; i < samples.length; i++) {
-          const v = ((samples[i] ?? 128) - 128) / 128;
-          sum += v * v;
-        }
-        setMicLevel(Math.min(100, Math.sqrt(sum / (samples.length || 1)) * 350));
-        meterRafRef.current = requestAnimationFrame(tick);
-      };
-      void ctx.resume().then(() => {
-        if (meterCtxRef.current !== ctx) return;
-        meterRafRef.current = requestAnimationFrame(tick);
-      });
-    } catch {
-      setMicLevel(0);
-    }
-  }, [stopMicMeter]);
-
   const stopOwnedMic = useCallback(() => {
-    stopMicMeter();
+    setMeterStream(null);
     micStreamRef.current?.getTracks().forEach((t) => t.stop());
     micStreamRef.current = null;
-  }, [stopMicMeter]);
+  }, []);
 
   const stopLive = useCallback(async () => {
     stopTranscription();
@@ -512,24 +553,13 @@ export default function TrialSonioxXWorkspace() {
   useEffect(() => {
     return () => {
       stopTranscription();
-      stopMicMeter();
+      setMeterStream(null);
       micStreamRef.current?.getTracks().forEach((t) => t.stop());
       micStreamRef.current = null;
       void closeBillingSession();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useEffect(() => {
-    if (!recording) return;
-    const tick = () => {
-      if (startTimeRef.current == null) return;
-      setElapsedMs(Date.now() - startTimeRef.current);
-    };
-    tick();
-    const id = setInterval(tick, 500);
-    return () => clearInterval(id);
-  }, [recording]);
 
   useEffect(() => {
     if (recording) return;
@@ -568,11 +598,11 @@ export default function TrialSonioxXWorkspace() {
 
   useSessionHeartbeat(!!user);
 
-  const allTokens = useMemo(
-    () => [...finalTokens, ...nonFinalTokens],
-    [finalTokens, nonFinalTokens],
+  const finalRows = useMemo(() => rowsFromSonioxTokens(finalTokens), [finalTokens]);
+  const rows = useMemo(
+    () => attachNonFinalRows(finalRows, nonFinalTokens),
+    [finalRows, nonFinalTokens],
   );
-  const rows = useMemo(() => rowsFromSonioxTokens(allTokens), [allTokens]);
   const rowStripeClasses = useMemo(() => stripeClassesForRows(rows), [rows]);
   rowsRef.current = rows;
   langARef.current = langA;
@@ -597,7 +627,7 @@ export default function TrialSonioxXWorkspace() {
   useLayoutEffect(() => {
     if (!hasTranscript) return;
     stickToLatest();
-  }, [allTokens, hasTranscript, stickToLatest]);
+  }, [rows, hasTranscript, stickToLatest]);
 
   const startHeartbeat = useCallback((sessionId: number) => {
     clearHeartbeat();
@@ -702,8 +732,9 @@ export default function TrialSonioxXWorkspace() {
       sessionIdHolder.current = sessionRes.sessionId;
       snapshotSeqRef.current = 0;
       setLiveSessionId(sessionRes.sessionId);
-      startTimeRef.current = Date.now();
-      setElapsedMs(0);
+      const startedAt = Date.now();
+      startTimeRef.current = startedAt;
+      setSessionStartedAt(startedAt);
       startHeartbeat(sessionRes.sessionId);
 
       const tokenPromise = getTokenMut.mutateAsync({ data: { sessionId: sessionRes.sessionId } });
@@ -713,7 +744,7 @@ export default function TrialSonioxXWorkspace() {
       if (openedMic) micStreamRef.current = stream;
 
       await startTranscription({ stream, apiKey });
-      startMicMeter(stream);
+      setMeterStream(stream);
     } catch (err) {
       if (openedMic) {
         void micPromise.then((stream) => {
@@ -721,7 +752,7 @@ export default function TrialSonioxXWorkspace() {
         }).catch(() => { /* permission denied or already stopped */ });
         stopOwnedMic();
       } else {
-        stopMicMeter();
+        setMeterStream(null);
         tabCaptureStopRef.current?.();
         tabCaptureStopRef.current = null;
         setTabStream(null);
@@ -742,11 +773,9 @@ export default function TrialSonioxXWorkspace() {
     sonioxA,
     sonioxB,
     startHeartbeat,
-    startMicMeter,
     startSessionMut,
     startTranscription,
     starting,
-    stopMicMeter,
     stopOwnedMic,
     user,
   ]);
@@ -840,8 +869,6 @@ export default function TrialSonioxXWorkspace() {
   const isLimitReached = sonioxXDailyCapExhausted(user);
   const isBlocked = user.trialExpired || isLimitReached;
   const displayUsedMinutes = isLimitReached ? user.dailyLimitMinutes : user.minutesUsedToday;
-  const elapsedSecs = Math.floor(elapsedMs / 1000);
-  const elapsedLabel = `${String(Math.floor(elapsedSecs / 60)).padStart(2, "0")}:${String(elapsedSecs % 60).padStart(2, "0")}`;
   const workspaceTextSizeStyle: CSSProperties = {
     "--ts-font-size": `${workspaceFontPx}px`,
     "--ts-line-height": "1.625",
@@ -1125,12 +1152,7 @@ export default function TrialSonioxXWorkspace() {
               </span>
             </span>
             {recording && (
-              <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-50 text-rose-600 border border-rose-200 shrink-0 font-mono">
-                <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse sm:hidden" />
-                <Clock className="w-3 h-3 hidden sm:block" />
-                <span className="sm:hidden">Live</span>
-                {elapsedLabel}
-              </span>
+              <LiveElapsedClock active={recording} startedAt={sessionStartedAt} />
             )}
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
@@ -1336,61 +1358,15 @@ export default function TrialSonioxXWorkspace() {
             >
               {hasTranscript && (
                 <div className="[overflow-anchor:none] workspace-selectable-root">
-                  {rows.map((row, index) => {
-                    const origRaw = row.origFinal + row.origPartial;
-                    const transRaw = row.transFinal + row.transPartial;
-                    const transPinned = applyExactGlossaryPins(origRaw, transRaw, pinPairs);
-                    const orig = origRaw;
-                    const origFinal = row.origFinal;
-                    const origPartial = row.origPartial;
-                    const trans = transPinned;
-                    const origDir = dominantBidiDir(orig, langDir(row.origLang));
-                    const transDir = dominantBidiDir(trans, langDir(row.transLang));
-                    const stripeClass = rowStripeClasses[index] ?? rowStripeClasses[0];
-                    return (
-                      <div
-                        key={row.id}
-                        data-caw-segment={row.id}
-                        className="group relative grid grid-cols-2 gap-3 sm:gap-6 items-start mb-4"
-                        style={
-                          markedRowId === row.id
-                            ? { background: "rgba(245,158,11,0.12)", borderLeft: "3px solid rgb(245,158,11)", borderRadius: 6 }
-                            : undefined
-                        }
-                      >
-                        <div className="flex min-w-0 items-start overflow-visible">
-                          <div className={cn("w-1 shrink-0 rounded-full self-stretch min-h-[1.25rem] mt-0.5", stripeClass)} />
-                          <div className="flex items-start gap-1 min-w-0 flex-1 pl-2">
-                            <p
-                              className="ts-text ts-original leading-relaxed whitespace-pre-wrap flex-1 min-w-0"
-                              dir={origDir}
-                              style={{ textAlign: origDir === "rtl" ? "right" : "left", unicodeBidi: "isolate" }}
-                            >
-                              <BidiText text={origFinal} baseDir={origDir} className="workspace-selectable-text" />
-                              <BidiText
-                                text={origPartial}
-                                baseDir={origDir}
-                                className="text-muted-foreground/70 italic workspace-selectable-text"
-                              />
-                            </p>
-                            <CopyBtn text={orig} />
-                          </div>
-                        </div>
-                        <div className="min-w-0 pt-0.5">
-                          <div className="flex items-start gap-1 min-w-0">
-                            <p
-                              className="ts-text ts-translation leading-relaxed whitespace-pre-wrap flex-1 min-w-0"
-                              dir={transDir}
-                              style={{ textAlign: transDir === "rtl" ? "right" : "left", unicodeBidi: "isolate" }}
-                            >
-                              <BidiText text={trans} baseDir={transDir} className="workspace-selectable-text" />
-                            </p>
-                            <CopyBtn text={trans} />
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {rows.map((row, index) => (
+                    <SonioxXTranscriptRow
+                      key={row.id}
+                      row={row}
+                      stripeClass={rowStripeClasses[index] ?? rowStripeClasses[0] ?? ""}
+                      pinPairs={pinPairs}
+                      marked={markedRowId === row.id}
+                    />
+                  ))}
                 </div>
               )}
 
@@ -1571,7 +1547,7 @@ export default function TrialSonioxXWorkspace() {
               </button>
             </div>
             <div className="w-16 sm:w-24 shrink-0 order-2 sm:order-3 sm:ml-auto">
-              <AudioMeter level={micLevel} label="" />
+              <LiveAudioMeter stream={meterStream} />
             </div>
             {inputMode === "mic" && (
               <div className="w-full min-w-[220px] sm:flex-1 sm:min-w-[240px] sm:max-w-sm order-3 sm:order-2">

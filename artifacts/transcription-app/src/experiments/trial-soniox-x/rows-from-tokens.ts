@@ -1,4 +1,5 @@
 import type { Token } from "@soniox/speech-to-text-web";
+import { collapsePhoneNumberSpaces } from "./collapse-phone-spaces";
 
 /** Same speaker, 10s audio gap → new bubble. */
 const SAME_SPEAKER_PAUSE_MS = 10000;
@@ -143,6 +144,52 @@ function effectiveSpokenSpeakers(tokens: Token[]): (string | undefined)[] {
  * - a spoken-language change (EN vs AR, EN vs ES, any pair)
  * - the same speaker after a 10s pause
  */
+function rowHasVisibleText(row: SonioxXRow): boolean {
+  return Boolean(row.origFinal || row.origPartial || row.transFinal || row.transPartial);
+}
+
+function shouldOpenNewRow(current: SonioxXRow, next: SonioxXRow, nextOrigMs?: number): boolean {
+  const speakerChanged = Boolean(current.speaker && next.speaker && current.speaker !== next.speaker);
+  const languageChanged = Boolean(
+    current.origLang && next.origLang && langBase(current.origLang) !== langBase(next.origLang),
+  );
+  const longPause = Boolean(
+    typeof nextOrigMs === "number" &&
+      typeof current.lastOrigMs === "number" &&
+      nextOrigMs - current.lastOrigMs >= SAME_SPEAKER_PAUSE_MS,
+  );
+  return speakerChanged || languageChanged || longPause;
+}
+
+function mergeLiveRow(base: SonioxXRow, live: SonioxXRow): SonioxXRow {
+  return {
+    ...base,
+    origPartial: `${base.origPartial}${live.origFinal}${live.origPartial}`,
+    transPartial: `${base.transPartial}${live.transFinal}${live.transPartial}`,
+    origLang: base.origLang || live.origLang,
+    transLang: base.transLang || live.transLang,
+    speaker: base.speaker || live.speaker,
+    lastOrigMs: live.lastOrigMs ?? base.lastOrigMs,
+  };
+}
+
+/**
+ * Attach the current non-final hypothesis onto already-built final rows so
+ * dense tab-audio partials do not rebuild the committed transcript.
+ */
+export function attachNonFinalRows(finalized: SonioxXRow[], nonFinalTokens: Token[]): SonioxXRow[] {
+  if (nonFinalTokens.length === 0) return finalized;
+  const live = rowsFromSonioxTokens(nonFinalTokens).filter(rowHasVisibleText);
+  if (live.length === 0) return finalized;
+  if (finalized.length === 0) return live;
+  const last = finalized[finalized.length - 1]!;
+  const firstLive = live[0]!;
+  if (shouldOpenNewRow(last, firstLive, firstLive.lastOrigMs)) {
+    return [...finalized, ...live];
+  }
+  return [...finalized.slice(0, -1), mergeLiveRow(last, firstLive), ...live.slice(1)];
+}
+
 export function rowsFromSonioxTokens(tokens: Token[]): SonioxXRow[] {
   const rows: SonioxXRow[] = [];
   let current: SonioxXRow | null = null;
@@ -226,8 +273,8 @@ export function snapshotLinesFromSonioxXRows(rows: SonioxXRow[]): {
   transcriptLines: string[];
   translationLines: string[];
 } {
-  const transcriptLines = rows.map((r) => `${r.origFinal}${r.origPartial}`);
-  const translationLines = rows.map((r) => `${r.transFinal}${r.transPartial}`);
+  const transcriptLines = rows.map((r) => collapsePhoneNumberSpaces(`${r.origFinal}${r.origPartial}`));
+  const translationLines = rows.map((r) => collapsePhoneNumberSpaces(`${r.transFinal}${r.transPartial}`));
   while (translationLines.length < transcriptLines.length) translationLines.push("");
   while (transcriptLines.length < translationLines.length) transcriptLines.push("");
   return { transcriptLines, translationLines };
