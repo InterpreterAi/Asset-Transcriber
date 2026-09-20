@@ -1159,11 +1159,13 @@ export default function TrialSonioxXWorkspace() {
                 {formatMinutes(displayUsedMinutes)} / {usageShowsUnlimitedCap ? "unlimited" : formatMinutes(user.dailyLimitMinutes)}
               </span>
             </div>
-            {isTrialLikePlanType(user.planType) && (
+            {isTrialLikePlanType(user.planType) ? (
               <div className={`hidden sm:flex px-2.5 py-1 rounded-full text-xs font-medium border items-center gap-1.5 ${
                 user.trialExpired
                   ? "bg-destructive/10 text-destructive border-destructive/20"
-                  : "bg-muted text-muted-foreground border-border/50"
+                  : wsDark
+                    ? "bg-muted/40 text-muted-foreground border-white/[0.08]"
+                    : "bg-muted text-muted-foreground border-border/50"
               }`}>
                 <AlertTriangle className="w-3 h-3" />
                 <span>{user.trialExpired
@@ -1171,7 +1173,21 @@ export default function TrialSonioxXWorkspace() {
                   : `${user.trialDaysRemaining} day${user.trialDaysRemaining === 1 ? "" : "s"} left`
                 }</span>
               </div>
-            )}
+            ) : typeof user.paidCycleDaysRemaining === "number" ? (
+              <div
+                className={cn(
+                  "hidden sm:flex px-2.5 py-1 rounded-full text-xs font-medium border items-center gap-1.5",
+                  wsDark
+                    ? "bg-muted/40 text-muted-foreground border-white/[0.08]"
+                    : "bg-muted text-muted-foreground border-border/50",
+                )}
+              >
+                <AlertTriangle className="w-3 h-3" />
+                <span>
+                  {user.paidCycleDaysRemaining} day{user.paidCycleDaysRemaining === 1 ? "" : "s"} left
+                </span>
+              </div>
+            ) : null}
           </div>
         </header>
 

@@ -1359,13 +1359,17 @@ export default function WorkspaceDefault() {
               }`}>
                 {workspacePlanDisplayName(user.planType)}
               </span>
-              {isTrialLikePlanType(user.planType) && (
+              {isTrialLikePlanType(user.planType) ? (
                 <span className="text-[11px] text-muted-foreground">
                   {user.trialExpired
                     ? "Expired"
                     : `${user.trialDaysRemaining} day${user.trialDaysRemaining === 1 ? "" : "s"} left`}
                 </span>
-              )}
+              ) : typeof user.paidCycleDaysRemaining === "number" ? (
+                <span className="text-[11px] text-muted-foreground">
+                  {user.paidCycleDaysRemaining} day{user.paidCycleDaysRemaining === 1 ? "" : "s"} left
+                </span>
+              ) : null}
             </div>
 
             {/* Upgrade / Manage billing — SaaS-style for paid subscribers */}
@@ -2029,52 +2033,30 @@ export default function WorkspaceDefault() {
                   <>
                     <span className="hidden sm:inline">
                       {formatMinutes(user.minutesUsedToday)} / unlimited today
-                      {isPaidUser && typeof user.paidCycleDaysRemaining === "number" && (
-                        <>
-                          {" "}
-                          <span className={cn(wsDark ? "text-emerald-300/95" : "text-emerald-800", "font-semibold")}>
-                            · {user.paidCycleDaysRemaining.toLocaleString()}d left
-                          </span>
-                        </>
-                      )}
                     </span>
                     <span className="sm:hidden">
                       {formatMinutes(user.minutesUsedToday)} / unlimited
-                      {isPaidUser && typeof user.paidCycleDaysRemaining === "number" && (
-                        <span className={cn(wsDark ? "text-emerald-300/95" : "text-emerald-800", "font-semibold")}>
-                          {" "}· {user.paidCycleDaysRemaining}d
-                        </span>
-                      )}
                     </span>
                   </>
                 ) : (
                   <>
                     <span className="sm:hidden">
                       {formatMinutes(user.minutesUsedToday)} / {formatMinutes(user.dailyLimitMinutes)}
-                      {isPaidUser && typeof user.paidCycleDaysRemaining === "number" && (
-                        <span className={cn(wsDark ? "text-emerald-300/95" : "text-emerald-800", "font-semibold")}>
-                          {" "}· {user.paidCycleDaysRemaining}d
-                        </span>
-                      )}
                     </span>
                     <span className="hidden sm:inline">
                       {formatMinutes(user.minutesUsedToday)} / {formatMinutes(user.dailyLimitMinutes)} today
-                      {isPaidUser && typeof user.paidCycleDaysRemaining === "number" && (
-                        <span className={cn(wsDark ? "text-emerald-300/95" : "text-emerald-800", "font-semibold")}>
-                          {" "}· {user.paidCycleDaysRemaining.toLocaleString()} day
-                          {user.paidCycleDaysRemaining === 1 ? "" : "s"} left
-                        </span>
-                      )}
                     </span>
                   </>
                 )}
               </span>
             </div>
-            {isTrialLikePlanType(user.planType) && (
+            {isTrialLikePlanType(user.planType) ? (
               <div className={`hidden sm:flex px-2.5 py-1 rounded-full text-xs font-medium border items-center gap-1.5 ${
                 user.trialExpired
                   ? "bg-destructive/10 text-destructive border-destructive/20"
-                  : "bg-muted text-muted-foreground border-border/50"
+                  : wsDark
+                    ? "bg-muted/40 text-muted-foreground border-white/[0.08]"
+                    : "bg-muted text-muted-foreground border-border/50"
               }`}>
                 <AlertTriangle className="w-3 h-3" />
                 <span>{user.trialExpired
@@ -2082,7 +2064,21 @@ export default function WorkspaceDefault() {
                   : `${user.trialDaysRemaining} day${user.trialDaysRemaining === 1 ? "" : "s"} left`
                 }</span>
               </div>
-            )}
+            ) : typeof user.paidCycleDaysRemaining === "number" ? (
+              <div
+                className={cn(
+                  "hidden sm:flex px-2.5 py-1 rounded-full text-xs font-medium border items-center gap-1.5",
+                  wsDark
+                    ? "bg-muted/40 text-muted-foreground border-white/[0.08]"
+                    : "bg-muted text-muted-foreground border-border/50",
+                )}
+              >
+                <AlertTriangle className="w-3 h-3" />
+                <span>
+                  {user.paidCycleDaysRemaining} day{user.paidCycleDaysRemaining === 1 ? "" : "s"} left
+                </span>
+              </div>
+            ) : null}
           </div>
         </header>
 

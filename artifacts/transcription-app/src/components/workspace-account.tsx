@@ -547,13 +547,17 @@ export function useWorkspaceAccount(user: WorkspaceAccountUser | null | undefine
                     }`}>
                       {workspacePlanDisplayName(user.planType)}
                     </span>
-                    {isTrialLikePlanType(user.planType) && (
+                    {isTrialLikePlanType(user.planType) ? (
                       <span className="text-[11px] text-muted-foreground">
                         {user.trialExpired
                           ? "Expired"
                           : `${user.trialDaysRemaining} day${user.trialDaysRemaining === 1 ? "" : "s"} left`}
                       </span>
-                    )}
+                    ) : typeof user.paidCycleDaysRemaining === "number" ? (
+                      <span className="text-[11px] text-muted-foreground">
+                        {user.paidCycleDaysRemaining} day{user.paidCycleDaysRemaining === 1 ? "" : "s"} left
+                      </span>
+                    ) : null}
                   </div>
 
                   {/* Upgrade / Manage billing — SaaS-style for paid subscribers */}
