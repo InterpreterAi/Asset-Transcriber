@@ -9799,9 +9799,20 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               return;
             }
             if (!payload || typeof payload !== "object") return;
-            const o = payload as { dailyLimitReached?: unknown; sessionEnded?: unknown };
+            const o = payload as {
+              dailyLimitReached?: unknown;
+              sessionEnded?: unknown;
+              forcedEnd?: unknown;
+            };
             if (o.dailyLimitReached === true && o.sessionEnded === true) {
               dailyLimitShutdownRef.current(DAILY_LIMIT_STOP_MESSAGE);
+              return;
+            }
+            // Admin Terminate: server ended the row; stop locally so Start works again.
+            if (o.sessionEnded === true || o.forcedEnd === true) {
+              dailyLimitShutdownRef.current(
+                "Your session was ended by an administrator. You can start a new session.",
+              );
             }
           })
           .catch(() => { /* best-effort — ignore network errors */ });

@@ -24,7 +24,12 @@ import {
   planUsesTrialSonioxX,
   TRIAL_LIKE_PLAN_TYPES,
 } from "../lib/usage.js";
-import { closeOpenSessionsForUser, planSwitchRemountsWorkspace } from "../lib/close-open-sessions.js";
+import {
+  closeOpenSessionById,
+  closeOpenSessionsForUser,
+  planSwitchRemountsWorkspace,
+  reconcileUserMinutesUsedToday,
+} from "../lib/close-open-sessions.js";
 import {
   effectiveSessionSecondsSql,
   effectiveSessionSecondsSqlAliasS,
@@ -2177,33 +2182,24 @@ router.get("/session/:sessionId", requireAdmin, async (req, res) => {
 });
 
 // ── Terminate a live session ─────────────────────────────────────────────────
+// Bills usage like a normal stop, then clients learn via heartbeat `sessionEnded`
+// and force-close locally so the user can start a fresh session immediately.
 router.post("/session/:sessionId/terminate", requireAdmin, async (req, res) => {
   const sessionId = parseInt(String(req.params.sessionId));
   if (isNaN(sessionId)) { res.status(400).json({ error: "Invalid session ID" }); return; }
 
-  const rows = await db
-    .select({ id: sessionsTable.id, startedAt: sessionsTable.startedAt })
-    .from(sessionsTable)
-    .where(and(eq(sessionsTable.id, sessionId), isNull(sessionsTable.endedAt)))
-    .limit(1);
+  const result = await closeOpenSessionById(sessionId);
+  if (!result.closed) {
+    res.status(404).json({ error: "Session not found or already ended" });
+    return;
+  }
 
-  if (!rows.length) { res.status(404).json({ error: "Session not found or already ended" }); return; }
-
-  const session = rows[0]!;
-  const durationSeconds = Math.round((Date.now() - session.startedAt.getTime()) / 1000);
-
-  await db.update(sessionsTable)
-    .set({
-      endedAt: new Date(),
-      durationSeconds,
-      hetznerMtManualLane: null,
-      hetznerMtAssignedLane: null,
-    })
-    .where(eq(sessionsTable.id, sessionId));
-
-  sessionStore.delete(sessionId);
-
-  res.json({ ok: true, message: "Session terminated" });
+  res.json({
+    ok: true,
+    message: "Session terminated",
+    userId: result.userId,
+    minutesUsed: result.minutesUsed,
+  });
 });
 
 // ── Manual Hetzner core pin (Postgres `sessions.hetzner_mt_manual_lane`; live MT only) ──
@@ -2733,6 +2729,52 @@ router.post("/users/:userId/reset-usage", requireAdmin, async (req, res) => {
     .where(eq(usersTable.id, userId));
 
   res.json({ message: "Usage reset" });
+});
+
+// ── Reconcile minutes_used_today from session history (source of truth) ───────
+router.post("/users/:userId/reconcile-usage", requireAdmin, async (req, res) => {
+  const userId = parseInt(String(req.params.userId));
+  if (isNaN(userId)) {
+    res.status(400).json({ error: "Invalid user ID" });
+    return;
+  }
+  try {
+    const result = await reconcileUserMinutesUsedToday(userId);
+    res.json({
+      message: "Usage reconciled from session history",
+      userId,
+      previousMinutes: result.previousMinutes,
+      reconciledMinutes: result.reconciledMinutes,
+    });
+  } catch (err) {
+    res.status(404).json({ error: err instanceof Error ? err.message : "User not found" });
+  }
+});
+
+// Lookup by username then reconcile (for ops fixes like undercounted Terminate).
+router.post("/users/reconcile-usage-by-username", requireAdmin, async (req, res) => {
+  const username = String((req.body as { username?: unknown })?.username ?? "").trim();
+  if (!username) {
+    res.status(400).json({ error: "username required" });
+    return;
+  }
+  const [user] = await db
+    .select({ id: usersTable.id, username: usersTable.username, minutesUsedToday: usersTable.minutesUsedToday })
+    .from(usersTable)
+    .where(eq(usersTable.username, username))
+    .limit(1);
+  if (!user) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+  const result = await reconcileUserMinutesUsedToday(user.id);
+  res.json({
+    message: "Usage reconciled from session history",
+    userId: user.id,
+    username: user.username,
+    previousMinutes: result.previousMinutes,
+    reconciledMinutes: result.reconciledMinutes,
+  });
 });
 
 // ── Feedback ─────────────────────────────────────────────────────────────────

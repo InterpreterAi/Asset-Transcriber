@@ -665,12 +665,21 @@ export default function TrialSonioxXWorkspace() {
           const data = (await res.json().catch(() => ({}))) as {
             dailyLimitReached?: unknown;
             sessionEnded?: unknown;
+            forcedEnd?: unknown;
           };
-          if (data.dailyLimitReached !== true || data.sessionEnded !== true) return;
+          // Cap OR admin Terminate (sessionEnded/forcedEnd without dailyLimitReached).
+          const forceStop =
+            data.sessionEnded === true ||
+            data.forcedEnd === true ||
+            (data.dailyLimitReached === true && data.sessionEnded === true);
+          if (!forceStop) return;
           if (stoppingForCapRef.current) return;
           stoppingForCapRef.current = true;
           try {
             await stopLiveRef.current();
+            if (data.forcedEnd === true || (data.sessionEnded === true && data.dailyLimitReached !== true)) {
+              setSessionError("Your session was ended by an administrator. You can start a new session.");
+            }
           } finally {
             stoppingForCapRef.current = false;
           }

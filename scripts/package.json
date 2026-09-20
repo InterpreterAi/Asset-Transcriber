@@ -8,13 +8,15 @@
     "grant-platinum": "tsx ./src/grant-platinum-by-email.ts",
     "seed-admin": "tsx ./src/seed-admin.ts",
     "seed-products": "tsx ./src/seed-products.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "reconcile-user-usage": "tsx ./src/reconcile-user-usage.ts"
   },
   "dependencies": {
     "@workspace/db": "workspace:*",
     "dotenv": "^16.6.1",
     "drizzle-orm": "catalog:",
-    "stripe": "^21.0.1"
+    "stripe": "^21.0.1",
+    "@workspace/app-timezone": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:",

@@ -55,6 +55,7 @@ import {
   presenceKeyFromBody,
   sessionPresenceKey,
   userIdForOpenSession,
+  userIdForOwnedSession,
 } from "../lib/session-presence.js";
 import { lockTranslationToOfficialRegister } from "../lib/official-translation-register.js";
 import { sessionContinuityPromptBlock } from "../lib/session-translation-continuity.js";
@@ -1440,11 +1441,20 @@ router.post("/session/heartbeat", async (req, res) => {
   };
   if (!sessionId) { res.status(400).json({ error: "sessionId required" }); return; }
 
-  const userId = await userIdForOpenSession(req, sessionId, presenceKeyFromBody(req.body));
-  if (!userId) {
+  const presenceKey = presenceKeyFromBody(req.body);
+  const openUserId = await userIdForOpenSession(req, sessionId, presenceKey);
+  if (!openUserId) {
+    // Admin Terminate ends the row first; open-session auth then fails. Still
+    // acknowledge ownership so the client can force-stop and start a new session.
+    const ownedUserId = await userIdForOwnedSession(req, sessionId, presenceKey);
+    if (ownedUserId) {
+      res.json({ ok: true, sessionEnded: true, forcedEnd: true });
+      return;
+    }
     res.status(401).json({ error: "Not authenticated" });
     return;
   }
+  const userId = openUserId;
 
   const rows = await db
     .select({ id: sessionsTable.id, startedAt: sessionsTable.startedAt })
@@ -1459,7 +1469,7 @@ router.post("/session/heartbeat", async (req, res) => {
     .limit(1);
 
   if (!rows.length) {
-    res.status(404).json({ error: "Session not found or already ended" });
+    res.json({ ok: true, sessionEnded: true, forcedEnd: true });
     return;
   }
 

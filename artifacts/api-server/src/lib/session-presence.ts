@@ -71,3 +71,39 @@ export async function userIdForOpenSession(
   if (typeof userId !== "number" || userId <= 0) return null;
   return verifySessionPresenceKey(userId, sessionId, presenceKey) ? userId : null;
 }
+
+/**
+ * Owner of a session even after admin Terminate ended it.
+ * Heartbeat uses this so the client can receive `sessionEnded` and stop locally
+ * (open-session auth alone returns null once `ended_at` is set).
+ */
+export async function userIdForOwnedSession(
+  req: { session?: { userId?: number } },
+  sessionId: number,
+  presenceKey?: string,
+): Promise<number | null> {
+  if (!Number.isFinite(sessionId) || sessionId <= 0) return null;
+
+  const { and, eq } = await import("drizzle-orm");
+  const { db, sessionsTable } = await import("@workspace/db");
+
+  const cookieUserId = req.session?.userId;
+  if (typeof cookieUserId === "number" && cookieUserId > 0) {
+    const owned = await db
+      .select({ id: sessionsTable.id })
+      .from(sessionsTable)
+      .where(and(eq(sessionsTable.id, sessionId), eq(sessionsTable.userId, cookieUserId)))
+      .limit(1);
+    if (owned.length) return cookieUserId;
+  }
+
+  if (!presenceKey) return null;
+  const rows = await db
+    .select({ userId: sessionsTable.userId })
+    .from(sessionsTable)
+    .where(eq(sessionsTable.id, sessionId))
+    .limit(1);
+  const userId = rows[0]?.userId;
+  if (typeof userId !== "number" || userId <= 0) return null;
+  return verifySessionPresenceKey(userId, sessionId, presenceKey) ? userId : null;
+}
