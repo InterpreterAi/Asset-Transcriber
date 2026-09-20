@@ -678,7 +678,7 @@ export default function TrialSonioxXWorkspace() {
           try {
             await stopLiveRef.current();
             if (data.forcedEnd === true || (data.sessionEnded === true && data.dailyLimitReached !== true)) {
-              setSessionError("Your session was ended by an administrator. You can start a new session.");
+              setSessionError("Something went wrong with your session. Please try starting again.");
             }
           } finally {
             stoppingForCapRef.current = false;

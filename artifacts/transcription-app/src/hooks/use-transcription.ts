@@ -9811,7 +9811,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             // Admin Terminate: server ended the row; stop locally so Start works again.
             if (o.sessionEnded === true || o.forcedEnd === true) {
               dailyLimitShutdownRef.current(
-                "Your session was ended by an administrator. You can start a new session.",
+                "Something went wrong with your session. Please try starting again.",
               );
             }
           })
