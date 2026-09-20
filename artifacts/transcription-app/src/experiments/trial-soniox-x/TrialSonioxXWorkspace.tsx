@@ -538,7 +538,15 @@ export default function TrialSonioxXWorkspace() {
   }, []);
 
   const stopLive = useCallback(async () => {
+    // Wipe transcript immediately on Stop (Chuck v2). Do this before awaiting
+    // billing so a slow network close cannot leave text on screen until next Start.
     stopTranscription();
+    clearTokens();
+    setMarkedRowId(null);
+    setNotes("");
+    setClearedForPrivacy(true);
+    setTimeout(() => setClearedForPrivacy(false), 4000);
+
     stopOwnedMic();
     if (tabCaptureStopRef.current) {
       tabCaptureStopRef.current();
@@ -549,12 +557,6 @@ export default function TrialSonioxXWorkspace() {
     setTabStream(null);
     await closeBillingSession();
     setHistoryRefreshKey((k) => k + 1);
-    setNotes("");
-    // Match Chuck v2: wipe on-screen transcript when the user stops (no Clear button).
-    clearTokens();
-    setMarkedRowId(null);
-    setClearedForPrivacy(true);
-    setTimeout(() => setClearedForPrivacy(false), 4000);
   }, [clearTokens, closeBillingSession, stopOwnedMic, stopTranscription, tabStream]);
   stopLiveRef.current = stopLive;
 

@@ -74,6 +74,8 @@ export default function useSonioxClient({
   const finalAccRef = useRef<Token[]>([]);
   const nonFinalRef = useRef<Token[]>([]);
   const flushRafRef = useRef<number | null>(null);
+  /** When false, ignore trailing SDK partials after Stop so the UI stays wiped. */
+  const acceptResultsRef = useRef(false);
 
   const cancelTokenFlush = useCallback(() => {
     if (flushRafRef.current == null) return;
@@ -83,21 +85,28 @@ export default function useSonioxClient({
 
   const flushTokensToState = useCallback(() => {
     flushRafRef.current = null;
+    if (!acceptResultsRef.current) return;
     setFinalTokens(finalAccRef.current);
     setNonFinalTokens(nonFinalRef.current);
   }, []);
 
   const scheduleTokenFlush = useCallback(() => {
+    if (!acceptResultsRef.current) return;
     if (flushRafRef.current != null) return;
     flushRafRef.current = requestAnimationFrame(flushTokensToState);
   }, [flushTokensToState]);
 
-  const startTranscription = useCallback(async (startOptions?: TrialSonioxXStartOptions) => {
+  const wipeTokens = useCallback(() => {
     cancelTokenFlush();
     finalAccRef.current = [];
     nonFinalRef.current = [];
     setFinalTokens([]);
     setNonFinalTokens([]);
+  }, [cancelTokenFlush]);
+
+  const startTranscription = useCallback(async (startOptions?: TrialSonioxXStartOptions) => {
+    acceptResultsRef.current = true;
+    wipeTokens();
     setError(null);
     pendingStartKeyRef.current = startOptions?.apiKey?.trim() || null;
 
@@ -142,6 +151,9 @@ export default function useSonioxClient({
       // When we receive some tokens back, sort them based on their status --
       // is it final or non-final token.
       onPartialResult(result) {
+        // Stop already wiped the UI; ignore trailing finals from client.stop().
+        if (!acceptResultsRef.current) return;
+
         const newFinalTokens: Token[] = [];
         const newNonFinalTokens: Token[] = [];
 
@@ -160,22 +172,20 @@ export default function useSonioxClient({
         scheduleTokenFlush();
       },
     });
-  }, [cancelTokenFlush, context, languageHints, languageHintsStrict, onFinished, onStarted, scheduleTokenFlush, translationConfig]);
+  }, [context, languageHints, languageHintsStrict, onFinished, onStarted, scheduleTokenFlush, translationConfig, wipeTokens]);
 
   const stopTranscription = useCallback(() => {
-    cancelTokenFlush();
-    setFinalTokens(finalAccRef.current);
-    setNonFinalTokens(nonFinalRef.current);
+    // Match Chuck v2: wipe the transcript as soon as Stop is pressed — not on the
+    // next Start. Reject any late SDK partials that arrive while stop() drains.
+    acceptResultsRef.current = false;
+    wipeTokens();
     sonioxClient.current?.stop();
-  }, [cancelTokenFlush]);
+  }, [wipeTokens]);
 
   const clearTokens = useCallback(() => {
-    cancelTokenFlush();
-    finalAccRef.current = [];
-    nonFinalRef.current = [];
-    setFinalTokens([]);
-    setNonFinalTokens([]);
-  }, [cancelTokenFlush]);
+    acceptResultsRef.current = false;
+    wipeTokens();
+  }, [wipeTokens]);
 
   useEffect(() => {
     return () => {
