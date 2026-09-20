@@ -6,7 +6,7 @@ import { getGetMeQueryKey } from "@workspace/api-client-react";
 import { InviteModal } from "@/components/InviteModal";
 import {
   Menu, Mic, Mic2, LogOut, Settings, AlertTriangle, Clock, User,
-  Languages, Trash2, Copy, Check, Monitor, PanelRightClose, PanelRightOpen,
+  Languages, Copy, Check, Monitor, PanelRightClose, PanelRightOpen,
   Lock, Eye, EyeOff, X, CheckCircle, Zap, ExternalLink, ShieldCheck,
   LifeBuoy, BookOpen, StickyNote, Flag, Share2, MessageCircle, AlertCircle, Gift,
   Sparkles, Sun, Moon, ArrowDownToLine, Columns2, Rows3, BarChart3,
@@ -2007,19 +2007,6 @@ export default function WorkspaceDefault() {
             >
               <Flag className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Mark</span>
-            </button>
-            <button
-              onClick={() => transcription.clear()}
-              disabled={transcription.isRecording || !transcription.hasTranscript}
-              className={cn(
-                "flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-xs font-medium transition-all disabled:opacity-30 disabled:pointer-events-none",
-                wsDark
-                  ? "text-muted-foreground/55 hover:text-destructive hover:bg-destructive/15"
-                  : "text-muted-foreground hover:text-destructive hover:bg-destructive/10",
-              )}
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Clear</span>
             </button>
             <div
               className={cn(

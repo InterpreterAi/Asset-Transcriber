@@ -13,7 +13,7 @@ import {
   AlertTriangle, ArrowDownToLine, BarChart3, BookOpen, Clock, Copy, Check, Flag, Gift,
   Languages, LifeBuoy, LogOut, Menu, MessageCircle, Mic, Mic2, Monitor, Moon,
   PanelRightClose, PanelRightOpen, Settings, Share2, ShieldCheck, StickyNote, Sun,
-  Trash2, User, X, Zap,
+  User, X, Zap,
 } from "lucide-react";
 import { isActiveState } from "@soniox/speech-to-text-web";
 import { Select } from "@/components/ui-components";
@@ -550,9 +550,12 @@ export default function TrialSonioxXWorkspace() {
     await closeBillingSession();
     setHistoryRefreshKey((k) => k + 1);
     setNotes("");
+    // Match Chuck v2: wipe on-screen transcript when the user stops (no Clear button).
+    clearTokens();
+    setMarkedRowId(null);
     setClearedForPrivacy(true);
     setTimeout(() => setClearedForPrivacy(false), 4000);
-  }, [closeBillingSession, stopOwnedMic, stopTranscription, tabStream]);
+  }, [clearTokens, closeBillingSession, stopOwnedMic, stopTranscription, tabStream]);
   stopLiveRef.current = stopLive;
 
   useEffect(() => {
@@ -1122,26 +1125,6 @@ export default function TrialSonioxXWorkspace() {
             >
               <Flag className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Mark</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (recording) return;
-                clearTokens();
-                setMarkedRowId(null);
-                setClearedForPrivacy(true);
-                setTimeout(() => setClearedForPrivacy(false), 4000);
-              }}
-              disabled={recording || !hasTranscript}
-              className={cn(
-                "flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-xs font-medium transition-all disabled:opacity-30 disabled:pointer-events-none",
-                wsDark
-                  ? "text-muted-foreground/55 hover:text-destructive hover:bg-destructive/15"
-                  : "text-muted-foreground hover:text-destructive hover:bg-destructive/10",
-              )}
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Clear</span>
             </button>
             <div
               className={cn(
