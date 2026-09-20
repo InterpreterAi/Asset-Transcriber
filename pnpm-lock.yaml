@@ -685,6 +685,9 @@ importers:
 
   scripts:
     dependencies:
+      '@workspace/app-timezone':
+        specifier: workspace:*
+        version: link:../lib/app-timezone
       '@workspace/db':
         specifier: workspace:*
         version: link:../lib/db
