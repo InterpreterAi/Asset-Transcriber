@@ -81,11 +81,14 @@
     "zod": "catalog:"
   },
   "dependencies": {
+    "@pcampus/thai-romanization": "^1.0.0",
     "@soniox/speech-to-text-web": "^1.2.0",
     "@workspace/app-timezone": "workspace:*",
+    "es-hangul": "^2.4.0",
     "html-to-image": "^1.11.13",
     "kuromoji": "^0.1.2",
     "mp4-muxer": "^5.2.2",
+    "pinyin-pro": "^3.29.4",
     "wanakana": "^5.3.1",
     "zustand": "^5.0.12"
   }

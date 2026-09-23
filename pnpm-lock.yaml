@@ -409,12 +409,18 @@ importers:
 
   artifacts/transcription-app:
     dependencies:
+      '@pcampus/thai-romanization':
+        specifier: ^1.0.0
+        version: 1.0.0
       '@soniox/speech-to-text-web':
         specifier: ^1.2.0
         version: 1.4.0
       '@workspace/app-timezone':
         specifier: workspace:*
         version: link:../../lib/app-timezone
+      es-hangul:
+        specifier: ^2.4.0
+        version: 2.4.0
       html-to-image:
         specifier: ^1.11.13
         version: 1.11.13
@@ -424,6 +430,9 @@ importers:
       mp4-muxer:
         specifier: ^5.2.2
         version: 5.2.2
+      pinyin-pro:
+        specifier: ^3.29.4
+        version: 3.29.4
       wanakana:
         specifier: ^5.3.1
         version: 5.3.1
@@ -1460,6 +1469,11 @@ packages:
 
   '@orval/zod@8.5.3':
     resolution: {integrity: sha512-qcbnpGE0VrgCDm0hNWQSOmzbfgdnr1xo+PYQ3PJjxfLuk3kGdJmFANTr53/1lI3sZUvWZwX5nKJCLWVxvwJEgg==}
+
+  '@pcampus/thai-romanization@1.0.0':
+    resolution: {integrity: sha512-xVefqyWB/xnf6iBJM4KuQ4qAB7Ty0O/fe2fYL7sJVUndMbvETXRElDE6jW7PMluTeDCwJrzx6aV4NNwFCfAiSg==}
+    engines: {node: '>=18'}
+    hasBin: true
 
   '@pinojs/redact@0.4.0':
     resolution: {integrity: sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg==}
@@ -3106,6 +3120,9 @@ packages:
     resolution: {integrity: sha512-Zf5H2Kxt2xjTvbJvP2ZWLEICxA6j+hAmMzIlypy4xcBg1vKVnx89Wy0GbS+kf5cwCVFFzdCFh2XSCFNULS6csw==}
     engines: {node: '>= 0.4'}
 
+  es-hangul@2.4.0:
+    resolution: {integrity: sha512-9ouVct+rsUw7d5+JeyEV+Lf4PAytSK4cWnLGHM4FJDyG9BS5d3iSPnEmH/rVgmSyxyps5cWZ+NeDAlJyq8eKaw==}
+
   es-module-lexer@1.7.0:
     resolution: {integrity: sha512-jEQoCwk8hyb2AZziIOLhDqpm5+2ww5uIE6lkO/6jcOCusfk6LhMHpXXfBLXTZ7Ydyt0j4VoUQv6uGNYbdW+kBA==}
 
@@ -3935,6 +3952,9 @@ packages:
   pino@9.14.0:
     resolution: {integrity: sha512-8OEwKp5juEvb/MjpIc4hjqfgCNysrS94RIOMXYvpYCdm/jglrKEiAYmiumbmGhCvs+IcInsphYDFwqrjr7398w==}
     hasBin: true
+
+  pinyin-pro@3.29.4:
+    resolution: {integrity: sha512-SPXpDT2cHEy+d26V1RXYMlVzXN42hotFAak1fzyWPi4o2dKXb61UqD4pzxDJHwk6gbv8vQ6EfErd+hYX0Qhzug==}
 
   pngjs@5.0.0:
     resolution: {integrity: sha512-40QW5YalBNfQo5yRYmiw7Yz6TKKVr3h6970B2YE+3fQpsWcrbj1PzJgxeJ19DRQjhMbKPIuMY8rFaXc8moolVw==}
@@ -5342,6 +5362,8 @@ snapshots:
       - '@faker-js/faker'
       - supports-color
       - typescript
+
+  '@pcampus/thai-romanization@1.0.0': {}
 
   '@pinojs/redact@0.4.0': {}
 
@@ -6871,6 +6893,8 @@ snapshots:
 
   es-errors@1.3.0: {}
 
+  es-hangul@2.4.0: {}
+
   es-module-lexer@1.7.0: {}
 
   es-object-atoms@1.1.1:
@@ -7749,6 +7773,8 @@ snapshots:
       safe-stable-stringify: 2.5.0
       sonic-boom: 4.2.1
       thread-stream: 3.1.0
+
+  pinyin-pro@3.29.4: {}
 
   pngjs@5.0.0: {}
 

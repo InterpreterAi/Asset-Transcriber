@@ -10,9 +10,9 @@ import {
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  AlertTriangle, ArrowDownToLine, BarChart3, BookOpen, Clock, Copy, Check, Flag, Gift,
+  AlertTriangle, ArrowDownToLine, BarChart3, BookOpen, Clock, Columns2, Copy, Check, Flag, Gift,
   Languages, LifeBuoy, LogOut, Menu, MessageCircle, Mic, Mic2, Monitor, Moon,
-  PanelRightClose, PanelRightOpen, Settings, Share2, ShieldCheck, StickyNote, Sun,
+  PanelRightClose, PanelRightOpen, Rows3, Settings, Share2, ShieldCheck, StickyNote, Sun,
   User, X, Zap,
 } from "lucide-react";
 import { isActiveState } from "@soniox/speech-to-text-web";
@@ -48,10 +48,20 @@ import { getLanguage } from "./languages";
 import { sonioxTwoWayLanguageHints, workspaceLangToOfficialSonioxCode } from "./soniox-lang";
 import { dominantBidiDir } from "./bidi-islands";
 import {
-  ensureJapaneseRomaji,
-  japaneseTextToRomaji,
-  shouldShowJapaneseReading,
-} from "./japanese-romaji";
+  cycleScriptReadingMode,
+  ensureScriptReadingReady,
+  pairSupportsScriptReading,
+  readLayoutStackedPreferred,
+  readScriptReadingMode,
+  readingButtonCopy,
+  readingFamilyForPair,
+  shouldShowScriptReading,
+  textToLatinReading,
+  writeLayoutStackedPreferred,
+  writeScriptReadingMode,
+  type ScriptReadingFamily,
+  type ScriptReadingMode,
+} from "./script-reading";
 import { applyFaithfulMeaningFixes } from "./meaning-locks";
 import { langDir, attachNonFinalRows, rowsFromSonioxTokens, snapshotLinesFromSonioxXRows, stripeClassesForRows, type SonioxXRow } from "./rows-from-tokens";
 import { BidiText } from "./BidiText";
@@ -71,7 +81,6 @@ import { LiveElapsedClock } from "./live-elapsed-clock";
 const LANG_OPTIONS = workspaceLanguageOptions();
 const WORKSPACE_THEME_STORAGE_KEY = "interpreterai-theme";
 const WIDE_WORKSPACE_STORAGE_KEY = "interpreterai-wide-workspace";
-const JA_ROMAJI_STORAGE_KEY = "soniox-x-ja-romaji";
 const MORSY_FONT_PX_OPTIONS = [12, 14, 16, 18, 20, 22, 24] as const;
 type FontPx = (typeof MORSY_FONT_PX_OPTIONS)[number];
 const MORSY_WS_FONT_LS = "interpreterai_morsy_ws_font_px";
@@ -136,25 +145,39 @@ function CopyBtn({ text }: { text: string }) {
   );
 }
 
-function JapaneseReading({
+function ScriptReadingLine({
   text,
-  enabled,
+  mode,
+  pairFamily,
   ready,
+  latinOnly,
 }: {
   text: string;
-  enabled: boolean;
+  mode: ScriptReadingMode;
+  pairFamily: ScriptReadingFamily | null;
   ready: boolean;
+  latinOnly?: boolean;
 }) {
-  if (!shouldShowJapaneseReading(text, enabled)) return null;
-  const reading = japaneseTextToRomaji(text);
+  if (!shouldShowScriptReading(text, mode, pairFamily)) return null;
+  const reading = textToLatinReading(text, pairFamily);
   void ready;
   return (
     <span
       dir="ltr"
-      lang="ja-Latn"
-      className="block mt-1 text-[13px] leading-snug tracking-wide font-medium not-italic text-sky-700 dark:text-sky-300"
-      style={{ unicodeBidi: "isolate", textAlign: "left", fontStyle: "normal" }}
+      lang="und-Latn"
+      className={cn(
+        "block leading-relaxed tracking-wide font-medium not-italic text-sky-700 dark:text-sky-300 whitespace-pre-wrap",
+        latinOnly ? "" : "mt-1",
+      )}
+      style={{
+        unicodeBidi: "isolate",
+        textAlign: "left",
+        fontStyle: "normal",
+        fontSize: "var(--ts-font-size, 14px)",
+        lineHeight: "var(--ts-line-height, 1.625)",
+      }}
       data-romaji-ready={ready ? "1" : "0"}
+      data-reading-mode={mode}
     >
       {reading || "…"}
     </span>
@@ -166,18 +189,23 @@ const SonioxXTranscriptRow = memo(function SonioxXTranscriptRow({
   stripeClass,
   pinPairs,
   marked,
-  showJaRomaji,
-  romajiReady,
-  romajiFailed,
+  layoutStacked,
+  readingMode,
+  readingFamily,
+  readingReady,
+  readingFailed: _readingFailed,
 }: {
   row: SonioxXRow;
   stripeClass: string;
   pinPairs: readonly GlossaryTerm[];
   marked: boolean;
-  showJaRomaji: boolean;
-  romajiReady: boolean;
-  romajiFailed: boolean;
+  layoutStacked: boolean;
+  readingMode: ScriptReadingMode;
+  readingFamily: ScriptReadingFamily | null;
+  readingReady: boolean;
+  readingFailed: boolean;
 }) {
+  void _readingFailed;
   const orig = `${row.origFinal}${row.origPartial}`;
   const live = Boolean(row.origPartial || row.transPartial);
   const transRaw = `${row.transFinal}${row.transPartial}`;
@@ -185,10 +213,17 @@ const SonioxXTranscriptRow = memo(function SonioxXTranscriptRow({
   const trans = applyFaithfulMeaningFixes(orig, transPinned);
   const origDir = dominantBidiDir(orig, langDir(row.origLang));
   const transDir = dominantBidiDir(trans, langDir(row.transLang));
+  const showReading = readingMode !== "off";
+  const latinOnly = readingMode === "latin-only";
+  const showOrigScript = !latinOnly || !shouldShowScriptReading(orig, readingMode, readingFamily);
+  const showTransScript = !latinOnly || !shouldShowScriptReading(trans, readingMode, readingFamily);
   return (
     <div
       data-caw-segment={row.id}
-      className="group relative grid grid-cols-2 gap-3 sm:gap-6 items-start mb-4"
+      className={cn(
+        "group relative items-start mb-4",
+        layoutStacked ? "" : "grid grid-cols-2 gap-3 sm:gap-6",
+      )}
       style={
         marked
           ? { background: "rgba(245,158,11,0.12)", borderLeft: "3px solid rgb(245,158,11)", borderRadius: 6 }
@@ -199,36 +234,60 @@ const SonioxXTranscriptRow = memo(function SonioxXTranscriptRow({
         <div className={cn("w-1 shrink-0 rounded-full self-stretch min-h-[1.25rem] mt-0.5", stripeClass)} />
         <div className="flex items-start gap-1 min-w-0 flex-1 pl-2">
           <div className="flex-1 min-w-0">
-            <p
-              className="ts-text ts-original leading-relaxed whitespace-pre-wrap"
-              dir={origDir}
-              style={{ textAlign: origDir === "rtl" ? "right" : "left", unicodeBidi: "isolate" }}
-            >
-              <BidiText text={row.origFinal} baseDir={origDir} className="workspace-selectable-text" />
-              <BidiText
-                text={row.origPartial}
-                baseDir={origDir}
-                className="text-muted-foreground/70 italic workspace-selectable-text"
+            {showOrigScript ? (
+              <p
+                className="ts-text ts-original leading-relaxed whitespace-pre-wrap"
+                dir={origDir}
+                style={{ textAlign: origDir === "rtl" ? "right" : "left", unicodeBidi: "isolate" }}
+              >
+                <BidiText text={row.origFinal} baseDir={origDir} className="workspace-selectable-text" />
+                <BidiText
+                  text={row.origPartial}
+                  baseDir={origDir}
+                  className="text-muted-foreground/70 italic workspace-selectable-text"
+                />
+              </p>
+            ) : null}
+            {showReading ? (
+              <ScriptReadingLine
+                text={orig}
+                mode={readingMode}
+                pairFamily={readingFamily}
+                ready={readingReady}
+                latinOnly={latinOnly && !showOrigScript}
               />
-            </p>
-            {showJaRomaji ? <JapaneseReading text={orig} enabled ready={romajiReady} /> : null}
+            ) : null}
           </div>
-          <CopyBtn text={orig} />
+          <CopyBtn text={latinOnly && shouldShowScriptReading(orig, readingMode, readingFamily)
+            ? (textToLatinReading(orig, readingFamily) || orig)
+            : orig} />
         </div>
       </div>
-      <div className="min-w-0 pt-0.5">
+      <div className={cn("min-w-0", layoutStacked ? "pl-4 border-l border-border/30 ml-3 mt-1.5" : "pt-0.5")}>
         <div className="flex items-start gap-1 min-w-0">
           <div className="flex-1 min-w-0">
-            <p
-              className="ts-text ts-translation leading-relaxed whitespace-pre-wrap"
-              dir={transDir}
-              style={{ textAlign: transDir === "rtl" ? "right" : "left", unicodeBidi: "isolate" }}
-            >
-              <BidiText text={trans} baseDir={transDir} className="workspace-selectable-text" />
-            </p>
-            {showJaRomaji ? <JapaneseReading text={trans} enabled ready={romajiReady} /> : null}
+            {showTransScript ? (
+              <p
+                className="ts-text ts-translation leading-relaxed whitespace-pre-wrap"
+                dir={transDir}
+                style={{ textAlign: transDir === "rtl" ? "right" : "left", unicodeBidi: "isolate" }}
+              >
+                <BidiText text={trans} baseDir={transDir} className="workspace-selectable-text" />
+              </p>
+            ) : null}
+            {showReading ? (
+              <ScriptReadingLine
+                text={trans}
+                mode={readingMode}
+                pairFamily={readingFamily}
+                ready={readingReady}
+                latinOnly={latinOnly && !showTransScript}
+              />
+            ) : null}
           </div>
-          <CopyBtn text={trans} />
+          <CopyBtn text={latinOnly && shouldShowScriptReading(trans, readingMode, readingFamily)
+            ? (textToLatinReading(trans, readingFamily) || trans)
+            : trans} />
         </div>
       </div>
     </div>
@@ -237,6 +296,7 @@ const SonioxXTranscriptRow = memo(function SonioxXTranscriptRow({
   prev.marked === next.marked &&
   prev.stripeClass === next.stripeClass &&
   prev.pinPairs === next.pinPairs &&
+  prev.layoutStacked === next.layoutStacked &&
   prev.row.id === next.row.id &&
   prev.row.origFinal === next.row.origFinal &&
   prev.row.origPartial === next.row.origPartial &&
@@ -244,9 +304,10 @@ const SonioxXTranscriptRow = memo(function SonioxXTranscriptRow({
   prev.row.transPartial === next.row.transPartial &&
   prev.row.origLang === next.row.origLang &&
   prev.row.transLang === next.row.transLang &&
-  prev.showJaRomaji === next.showJaRomaji &&
-  prev.romajiReady === next.romajiReady &&
-  prev.romajiFailed === next.romajiFailed
+  prev.readingMode === next.readingMode &&
+  prev.readingFamily === next.readingFamily &&
+  prev.readingReady === next.readingReady &&
+  prev.readingFailed === next.readingFailed
 ));
 
 function FontSizePxStepper({
@@ -384,16 +445,10 @@ export default function TrialSonioxXWorkspace() {
       return false;
     }
   });
-  const [jaRomaji, setJaRomaji] = useState(() => {
-    if (typeof window === "undefined") return false;
-    try {
-      return localStorage.getItem(JA_ROMAJI_STORAGE_KEY) === "1";
-    } catch {
-      return false;
-    }
-  });
-  const [romajiReady, setRomajiReady] = useState(false);
-  const [romajiError, setRomajiError] = useState(false);
+  const [scriptReadingMode, setScriptReadingMode] = useState<ScriptReadingMode>(() => readScriptReadingMode());
+  const [readingReady, setReadingReady] = useState(false);
+  const [readingError, setReadingError] = useState(false);
+  const [layoutStacked, setLayoutStacked] = useState(() => readLayoutStackedPreferred());
   const [activeTab, setActiveTab] = useState<WorkspacePanel>("mic");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showLeftPanel, setShowLeftPanel] = useState(false);
@@ -421,14 +476,19 @@ export default function TrialSonioxXWorkspace() {
   const micLabelRef = useRef("Microphone");
   const workspaceThemeRef = useRef(workspaceTheme);
   const workspaceFontPxRef = useRef(workspaceFontPx);
+  const layoutStackedRef = useRef(layoutStacked);
 
   const sonioxA = workspaceLangToOfficialSonioxCode(langA);
   const sonioxB = workspaceLangToOfficialSonioxCode(langB);
   const languageA = getLanguage(sonioxA ?? "en");
   const languageB = getLanguage(sonioxB ?? "es");
   const pairReady = Boolean(sonioxA && sonioxB && sonioxA !== sonioxB);
-  const jaPair = languageA.code === "ja" || languageB.code === "ja";
-  const showJaRomaji = jaPair && jaRomaji;
+  const readingFamily = readingFamilyForPair(languageA.code, languageB.code);
+  const scriptReadingSupported = pairSupportsScriptReading(languageA.code, languageB.code);
+  const readingActive = scriptReadingSupported && scriptReadingMode !== "off";
+  const readingButton = readingFamily
+    ? readingButtonCopy(readingFamily, scriptReadingMode, readingActive && !readingReady && !readingError)
+    : null;
 
   const sessionIdHolder = useRef<number | null>(null);
 
@@ -559,28 +619,32 @@ export default function TrialSonioxXWorkspace() {
   }, [wideWorkspace]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(JA_ROMAJI_STORAGE_KEY, jaRomaji ? "1" : "0");
-    } catch {
-      /* ignore */
-    }
-  }, [jaRomaji]);
+    writeScriptReadingMode(scriptReadingMode);
+  }, [scriptReadingMode]);
 
   useEffect(() => {
-    if (!showJaRomaji) return;
+    writeLayoutStackedPreferred(layoutStacked);
+  }, [layoutStacked]);
+
+  useEffect(() => {
+    if (!readingActive) {
+      setReadingReady(false);
+      setReadingError(false);
+      return;
+    }
     let cancelled = false;
-    setRomajiError(false);
-    void ensureJapaneseRomaji()
+    setReadingError(false);
+    void ensureScriptReadingReady(readingFamily)
       .then(() => {
-        if (!cancelled) setRomajiReady(true);
+        if (!cancelled) setReadingReady(true);
       })
       .catch(() => {
-        if (!cancelled) setRomajiError(true);
+        if (!cancelled) setReadingError(true);
       });
     return () => {
       cancelled = true;
     };
-  }, [showJaRomaji]);
+  }, [readingActive, readingFamily]);
 
   useEffect(() => {
     try {
@@ -719,6 +783,7 @@ export default function TrialSonioxXWorkspace() {
   langBRef.current = langB;
   workspaceThemeRef.current = workspaceTheme;
   workspaceFontPxRef.current = workspaceFontPx;
+  layoutStackedRef.current = layoutStacked;
   const hasTranscript = rows.length > 0;
 
   useEffect(() => {
@@ -806,7 +871,7 @@ export default function TrialSonioxXWorkspace() {
           snapshotSeq: snapshotSeqRef.current,
           viewerTheme: workspaceThemeRef.current,
           workspaceFontPx: workspaceFontPxRef.current,
-          layoutMode: "stacked",
+          layoutMode: layoutStackedRef.current ? "stacked" : "side-by-side",
         }),
       }).catch(() => { /* best-effort */ });
     };
@@ -1365,13 +1430,14 @@ export default function TrialSonioxXWorkspace() {
             {hasTranscript && (
               <div
                 className={cn(
-                  "grid grid-cols-2 gap-3 sm:gap-6 px-3 sm:px-4 py-1.5 border-b shrink-0 bg-muted/10",
+                  "grid gap-3 sm:gap-6 px-3 sm:px-4 py-1.5 border-b shrink-0 bg-muted/10",
+                  layoutStacked ? "grid-cols-1" : "grid-cols-2",
                   wsDark ? "border-white/[0.05]" : "border-border/40",
                 )}
               >
                 <div className="flex items-center justify-between gap-2 min-w-0">
                   <div className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider">
-                    Original
+                    {layoutStacked ? "Transcript" : "Original"}
                   </div>
                   {!tailPinned && (
                     <button
@@ -1389,11 +1455,13 @@ export default function TrialSonioxXWorkspace() {
                     </button>
                   )}
                 </div>
-                <div className="flex items-center justify-between gap-2 min-w-0">
-                  <span className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider shrink-0">
-                    Translation
-                  </span>
-                </div>
+                {!layoutStacked && (
+                  <div className="flex items-center justify-between gap-2 min-w-0">
+                    <span className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider shrink-0">
+                      Translation
+                    </span>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1419,9 +1487,11 @@ export default function TrialSonioxXWorkspace() {
                       stripeClass={rowStripeClasses[index] ?? rowStripeClasses[0] ?? ""}
                       pinPairs={pinPairs}
                       marked={markedRowId === row.id}
-                      showJaRomaji={showJaRomaji}
-                      romajiReady={romajiReady}
-                      romajiFailed={romajiError}
+                      layoutStacked={layoutStacked}
+                      readingMode={scriptReadingMode}
+                      readingFamily={readingFamily}
+                      readingReady={readingReady}
+                      readingFailed={readingError}
                     />
                   ))}
                 </div>
@@ -1706,21 +1776,19 @@ export default function TrialSonioxXWorkspace() {
               >
                 {LANG_OPTIONS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
               </Select>
-              {jaPair && (
+              {scriptReadingSupported && readingButton && (
                 <button
                   type="button"
-                  aria-pressed={jaRomaji}
-                  onClick={() => setJaRomaji((on) => !on)}
+                  aria-pressed={readingButton.pressed}
+                  onClick={() => setScriptReadingMode((mode) => cycleScriptReadingMode(mode))}
                   title={
-                    romajiError
-                      ? "Romaji dictionary could not load. Japanese characters stay as they are."
-                      : jaRomaji
-                        ? "Romaji is on, under the Japanese. Japanese characters stay. Click to hide the reading."
-                        : "Japanese stays as it is. Click to add a Latin-letter reading under it."
+                    readingError
+                      ? "Latin reading dictionary could not load. Original script stays as it is."
+                      : readingButton.title
                   }
                   className={cn(
                     "h-9 px-2.5 rounded-lg border text-xs font-semibold shrink-0 transition-colors",
-                    jaRomaji
+                    readingButton.pressed
                       ? wsDark
                         ? "border-sky-400/40 bg-sky-500/15 text-sky-200"
                         : "border-primary/40 bg-primary/10 text-primary"
@@ -1729,9 +1797,33 @@ export default function TrialSonioxXWorkspace() {
                         : "border-border text-muted-foreground hover:bg-muted",
                   )}
                 >
-                  {jaRomaji && !romajiReady && !romajiError ? "Romaji…" : "Romaji"}
+                  {readingButton.label}
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() => setLayoutStacked((stacked) => !stacked)}
+                className={cn(
+                  "flex items-center gap-1.5 h-9 px-2.5 rounded-lg border text-[11px] font-semibold shrink-0 transition-colors",
+                  wsDark
+                    ? "border-white/10 bg-card/90 text-muted-foreground hover:bg-white/10 hover:text-foreground"
+                    : "border-border bg-white text-muted-foreground hover:bg-muted hover:text-foreground",
+                )}
+                title={layoutStacked ? "Switch to side by side" : "Switch to stacked"}
+                aria-label={layoutStacked ? "Switch to side by side" : "Switch to stacked"}
+              >
+                {layoutStacked ? (
+                  <>
+                    <Columns2 className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Side by side</span>
+                  </>
+                ) : (
+                  <>
+                    <Rows3 className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Stacked</span>
+                  </>
+                )}
+              </button>
             </div>
             <div className="w-full sm:flex-1 flex justify-center items-center">
               {isBlocked ? (
