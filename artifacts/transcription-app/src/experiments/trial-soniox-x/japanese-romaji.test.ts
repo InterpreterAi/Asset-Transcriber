@@ -46,6 +46,15 @@ describe("japanese romaji reading", () => {
     expect(isGzipBuffer(new Uint8Array([0x00, 0x00]))).toBe(false);
   });
 
+  it("does not import kuromoji's Node fs dictionary loader", async () => {
+    const src = await import("node:fs/promises").then((fs) =>
+      fs.readFile(new URL("./japanese-romaji.ts", import.meta.url), "utf8"),
+    );
+    expect(src).not.toMatch(/NodeDictionaryLoader/);
+    expect(src).not.toMatch(/from ["']fs["']/);
+    expect(src).not.toMatch(/zlibjs/);
+  });
+
   it("inflates gzip dict bytes and leaves already-plain bytes alone", async () => {
     const raw = new TextEncoder().encode("romaji-dict");
     const gz = gzipSync(raw);

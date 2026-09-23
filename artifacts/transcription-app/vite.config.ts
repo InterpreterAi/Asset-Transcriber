@@ -2,12 +2,24 @@ import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import fs from "fs";
+import { createRequire } from "module";
 import path from "path";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 
+function kuromojiDictDir(): string {
+  const local = path.resolve(import.meta.dirname, "node_modules/kuromoji/dict");
+  if (fs.existsSync(local)) return local;
+  try {
+    const require = createRequire(import.meta.url);
+    return path.join(path.dirname(require.resolve("kuromoji/package.json")), "dict");
+  } catch {
+    return local;
+  }
+}
+
 /** Serve kuromoji's gzip dictionary only when Romaji is turned on. Do not mark Content-Encoding: gzip — the browser loader inflates the bytes itself. */
 function kuromojiDictPlugin(): Plugin {
-  const src = path.resolve(import.meta.dirname, "node_modules/kuromoji/dict");
+  const src = kuromojiDictDir();
   const mount = (url: string | undefined): string | null => {
     if (!url) return null;
     const pathOnly = url.split("?")[0] ?? "";
@@ -95,6 +107,11 @@ export default defineConfig({
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),
       "@assets": path.resolve(import.meta.dirname, "..", "..", "attached_assets"),
+      "kuromoji/src/loader/NodeDictionaryLoader.js": path.resolve(
+        kuromojiDictDir(),
+        "..",
+        "src/loader/BrowserDictionaryLoader.js",
+      ),
     },
     dedupe: ["react", "react-dom"],
   },

@@ -2,9 +2,8 @@
  * Trial · Soniox X only.
  *
  * Extra Latin-letter reading under Japanese script. The Japanese characters stay.
- * Dictionary files are fetched by name (not path.join + XHR). Gzip is inflated
- * only when the bytes are still gzip — a proxy that already unzipped .gz must
- * not be gunzipped a second time.
+ * Prefetch the dict as gzip bytes and hand those to kuromoji's own XHR loader.
+ * Do not import kuromoji's Node `fs` loader — that breaks the Railway Vite build.
  */
 import { toRomaji } from "wanakana";
 
@@ -48,10 +47,6 @@ type KuromojiModule = {
   builder: (opts: { dicPath: string }) => {
     build: (cb: (err: Error | null, tokenizer: KuromojiTokenizer) => void) => void;
   };
-};
-
-type DictLoaderCtor = new (dicPath: string) => {
-  loadArrayBuffer: (url: string, cb: (err: Error | null, buffer: ArrayBuffer | null) => void) => void;
 };
 
 let tokenizer: KuromojiTokenizer | null = null;
@@ -146,34 +141,40 @@ export function isGzipBuffer(bytes: Uint8Array): boolean {
 export async function inflateDictBytes(buf: ArrayBuffer): Promise<ArrayBuffer> {
   const bytes = new Uint8Array(buf);
   if (!isGzipBuffer(bytes)) return buf;
-  if (typeof DecompressionStream !== "undefined") {
-    const stream = new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"));
-    return await new Response(stream).arrayBuffer();
-  }
-  const zlibMod = await import("zlibjs/bin/gunzip.min.js");
-  const zlib = ((zlibMod as { default?: { Zlib: { Gunzip: new (data: Uint8Array) => { decompress: () => Uint8Array } } } }).default ??
-    zlibMod) as { Zlib: { Gunzip: new (data: Uint8Array) => { decompress: () => Uint8Array } } };
-  return new zlib.Zlib.Gunzip(bytes).decompress().buffer;
+  const stream = new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return await new Response(stream).arrayBuffer();
 }
 
-async function fetchDictBuffer(filename: string): Promise<ArrayBuffer> {
+async function fetchDictGzip(filename: string): Promise<Uint8Array> {
   const res = await fetch(dictFileUrl(filename), { credentials: "same-origin" });
   if (!res.ok) throw new Error(`Romaji dictionary ${filename} ${res.status}`);
-  return inflateDictBytes(await res.arrayBuffer());
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  if (isGzipBuffer(bytes)) return bytes;
+  const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream("gzip"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
-function patchDictLoader(Loader: DictLoaderCtor, buffers: Map<string, ArrayBuffer>): void {
-  Loader.prototype.loadArrayBuffer = function (
-    url: string,
-    cb: (err: Error | null, buffer: ArrayBuffer | null) => void,
-  ) {
-    const name = String(url).replace(/\\/g, "/").split("/").pop() ?? "";
-    const buf = buffers.get(name);
-    if (!buf) {
-      cb(new Error(`Romaji dictionary missing ${name}`), null);
-      return;
-    }
-    cb(null, buf);
+function installRomajiXhr(files: Map<string, Uint8Array>): () => void {
+  const open = XMLHttpRequest.prototype.open;
+  const send = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.open = function (method: string, url: string | URL, async?: boolean, user?: string | null, password?: string | null) {
+    (this as XMLHttpRequest & { __romajiUrl?: string }).__romajiUrl = String(url);
+    return open.call(this, method, url, async ?? true, user, password);
+  };
+  XMLHttpRequest.prototype.send = function (body?: Document | XMLHttpRequestBodyInit | null) {
+    const url = (this as XMLHttpRequest & { __romajiUrl?: string }).__romajiUrl ?? "";
+    const name = url.replace(/\\/g, "/").split("/").pop()?.split("?")[0] ?? "";
+    const data = files.get(name);
+    if (!data) return send.call(this, body);
+    const xhr = this;
+    Object.defineProperty(xhr, "status", { configurable: true, get: () => 200 });
+    const copy = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+    Object.defineProperty(xhr, "response", { configurable: true, get: () => copy });
+    queueMicrotask(() => xhr.onload?.(new ProgressEvent("load")));
+  };
+  return () => {
+    XMLHttpRequest.prototype.open = open;
+    XMLHttpRequest.prototype.send = send;
   };
 }
 
@@ -181,35 +182,30 @@ export function ensureJapaneseRomaji(): Promise<void> {
   if (tokenizer) return Promise.resolve();
   if (!loading) {
     loading = (async () => {
-      const [kuromojiMod, browserLoaderMod, nodeLoaderMod] = await Promise.all([
-        import("kuromoji"),
-        import("kuromoji/src/loader/BrowserDictionaryLoader.js").catch(() => null),
-        import("kuromoji/src/loader/NodeDictionaryLoader.js").catch(() => null),
-      ]);
-      const kuromoji = ((kuromojiMod as { default?: KuromojiModule }).default ??
-        kuromojiMod) as KuromojiModule;
-      const buffers = new Map<string, ArrayBuffer>();
+      const files = new Map<string, Uint8Array>();
       await Promise.all(
         DICT_FILES.map(async (name) => {
-          buffers.set(name, await fetchDictBuffer(name));
+          files.set(name, await fetchDictGzip(name));
         }),
       );
-      for (const loaderMod of [browserLoaderMod, nodeLoaderMod]) {
-        if (!loaderMod) continue;
-        const Loader = ((loaderMod as { default?: DictLoaderCtor }).default ??
-          loaderMod) as DictLoaderCtor;
-        if (typeof Loader === "function") patchDictLoader(Loader, buffers);
-      }
-      await new Promise<void>((resolve, reject) => {
-        kuromoji.builder({ dicPath: "/kuromoji-dict/" }).build((err, built) => {
-          if (err || !built) {
-            reject(err ?? new Error("Japanese romaji dictionary failed to load"));
-            return;
-          }
-          tokenizer = built;
-          resolve();
+      const kuromojiMod = await import("kuromoji");
+      const kuromoji = ((kuromojiMod as { default?: KuromojiModule }).default ??
+        kuromojiMod) as KuromojiModule;
+      const undo = typeof XMLHttpRequest === "undefined" ? () => {} : installRomajiXhr(files);
+      try {
+        await new Promise<void>((resolve, reject) => {
+          kuromoji.builder({ dicPath: "/kuromoji-dict/" }).build((err, built) => {
+            if (err || !built) {
+              reject(err ?? new Error("Japanese romaji dictionary failed to load"));
+              return;
+            }
+            tokenizer = built;
+            resolve();
+          });
         });
-      });
+      } finally {
+        undo();
+      }
     })().catch((err: unknown) => {
       loading = null;
       throw err;
