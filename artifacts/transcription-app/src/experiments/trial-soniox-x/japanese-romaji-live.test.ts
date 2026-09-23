@@ -35,14 +35,17 @@ describe("live kuromoji romaji", () => {
       tokenizer.tokenize(text).map((token) => ({
         surface: token.surface_form,
         reading: token.reading,
+        pronunciation: token.pronunciation,
         pos: token.pos,
       })),
     );
-    expect(romaji).toMatch(/odenwa|o denwa/i);
+    expect(romaji).toMatch(/odenwa/i);
     expect(romaji).toMatch(/arigat/i);
-    expect(romaji).toMatch(/arabia/i);
+    expect(romaji).toMatch(/gozaimasu/i);
+    expect(romaji).toMatch(/arabiago/i);
     expect(romaji).toMatch(/tsuyaku|tsuuyaku/i);
-    expect(romaji).toMatch(/mado/i);
+    expect(romaji).toMatch(/madoguchi/i);
     expect(romaji).not.toMatch(/[ぁ-んァ-ン一-龯]/);
+    expect(romaji).not.toMatch(/\biki masu\b/i);
   }, 20_000);
 });

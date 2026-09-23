@@ -160,7 +160,9 @@ function ScriptReadingLine({
 }) {
   if (!shouldShowScriptReading(text, mode, pairFamily)) return null;
   const reading = textToLatinReading(text, pairFamily);
-  void ready;
+  // While the Japanese dict loads, never show a truncated kana-only guess under kanji.
+  const display = reading || (ready ? "" : "…");
+  if (!display) return null;
   return (
     <span
       dir="ltr"
@@ -179,7 +181,7 @@ function ScriptReadingLine({
       data-romaji-ready={ready ? "1" : "0"}
       data-reading-mode={mode}
     >
-      {reading || "…"}
+      {display}
     </span>
   );
 }

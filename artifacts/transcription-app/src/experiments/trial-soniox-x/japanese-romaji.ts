@@ -4,12 +4,19 @@
  * Extra Latin-letter reading under Japanese script. The Japanese characters stay.
  * Prefetch the dict as gzip bytes and hand those to kuromoji's own XHR loader.
  * Do not import kuromoji's Node `fs` loader — that breaks the Railway Vite build.
+ *
+ * Accuracy rules for interpreters:
+ * - Never show a kana-only fallback when the line still has kanji (that drops words).
+ * - Prefer IPAdic pronunciation for particles (は→ワ) and reading for content words.
+ * - Glue 接頭詞 + noun and verb/adj + 助動詞 so "行きます" → "ikimasu", not "iki masu".
+ * - Never emit raw kanji into the Latin line.
  */
 import { toRomaji } from "wanakana";
 
 const JA_SCRIPT_RE =
   /[\u3040-\u30FF\u31F0-\u31FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\uFF66-\uFF9D]/;
 const KANA_RE = /[\u3040-\u30FF\u31F0-\u31FF\uFF66-\uFF9D]/;
+const KANJI_RE = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/;
 const PUNCT_RE = /^[\s、。．，.!?！？・…「」『』（）()[\]【】:：;；，\-—〜~]+$/u;
 
 const DICT_FILES = [
@@ -30,12 +37,14 @@ const DICT_FILES = [
 export type ReadingToken = {
   surface: string;
   reading?: string;
+  pronunciation?: string;
   pos?: string;
 };
 
 type KuromojiToken = {
   surface_form: string;
   reading?: string;
+  pronunciation?: string;
   pos?: string;
 };
 
@@ -54,8 +63,29 @@ let loading: Promise<void> | null = null;
 const cache = new Map<string, string>();
 const CACHE_MAX = 400;
 
+/** Surface-form overrides when IPAdic picks a rare/wrong reading for interpreter text. */
+const SURFACE_READING_OVERRIDES: Record<string, string> = {
+  日本: "ニホン",
+  日本語: "ニホンゴ",
+  今日: "キョウ",
+  明日: "アシタ",
+  昨日: "キノウ",
+  一人: "ヒトリ",
+  二人: "フタリ",
+  一日: "イチニチ",
+  大人: "オトナ",
+  下手: "ヘタ",
+  上手: "ジョウズ",
+  役割: "ヤクワリ",
+  風邪: "カゼ",
+};
+
 export function containsJapaneseScript(text: string): boolean {
   return JA_SCRIPT_RE.test(text ?? "");
+}
+
+export function containsKanji(text: string): boolean {
+  return KANJI_RE.test(text ?? "");
 }
 
 /** Show the extra reading only under text that is actually Japanese. */
@@ -63,22 +93,100 @@ export function shouldShowJapaneseReading(text: string, enabled: boolean): boole
   return enabled && containsJapaneseScript(text);
 }
 
+function katakanaOnly(value: string | undefined | null): string {
+  const raw = (value ?? "").trim();
+  if (!raw || raw === "*") return "";
+  return KANA_RE.test(raw) ? raw : "";
+}
+
+function posBase(pos: string | undefined): string {
+  return (pos ?? "").split(",")[0] ?? "";
+}
+
+function isParticle(pos: string | undefined): boolean {
+  return posBase(pos) === "助詞";
+}
+
+function isAuxiliary(pos: string | undefined): boolean {
+  return posBase(pos) === "助動詞";
+}
+
+function isVerbOrAdj(pos: string | undefined): boolean {
+  const base = posBase(pos);
+  return base === "動詞" || base === "形容詞" || base === "形容動詞";
+}
+
+function isPrefix(pos: string | undefined): boolean {
+  return posBase(pos) === "接頭詞";
+}
+
+function isNoun(pos: string | undefined): boolean {
+  return posBase(pos) === "名詞";
+}
+
+function isInterjection(pos: string | undefined): boolean {
+  return posBase(pos) === "感動詞";
+}
+
+function tokenKana(token: ReadingToken): string {
+  const surface = token.surface ?? "";
+  if (!surface) return "";
+  const override = SURFACE_READING_OVERRIDES[surface];
+  if (override) return override;
+
+  // Particles: IPAdic pronunciation already has ワ/エ for は/へ.
+  if (surface === "は" && isParticle(token.pos)) {
+    return katakanaOnly(token.pronunciation) || "ワ";
+  }
+  if (surface === "へ" && isParticle(token.pos)) {
+    return katakanaOnly(token.pronunciation) || "エ";
+  }
+  if (surface === "を" && isParticle(token.pos)) {
+    return "ヲ";
+  }
+
+  // Content words: dictionary reading is more stable Hepburn than elongated pronunciation
+  // (アリガトウ → arigatou, not アリガトー → arigatoo).
+  const reading = katakanaOnly(token.reading);
+  if (reading) return reading;
+
+  const pronunciation = katakanaOnly(token.pronunciation);
+  if (pronunciation) return pronunciation;
+
+  // Pure kana surface — romanize the characters themselves.
+  if (KANA_RE.test(surface) && !KANJI_RE.test(surface)) return surface;
+
+  // Unknown kanji with no reading: never dump kanji into the Latin line.
+  return "";
+}
+
 function tokenReading(token: ReadingToken): string {
   const surface = token.surface ?? "";
-  const pos = token.pos ?? "";
-  if (!surface) return "";
-  if (surface === "は" && pos.startsWith("助詞")) return "wa";
-  if (surface === "へ" && pos.startsWith("助詞")) return "e";
-  if (surface === "を" && (pos.startsWith("助詞") || !token.reading || token.reading === "ヲ")) return "o";
-  const reading = token.reading && token.reading !== "*" ? token.reading : "";
-  if (reading && KANA_RE.test(reading)) return toRomaji(reading);
-  if (KANA_RE.test(surface) && !JA_SCRIPT_RE.test(surface.replace(KANA_RE, ""))) return toRomaji(surface);
-  return surface;
+  // Keep Latin / digit tokens as-is so "MRI" still appears under the Japanese line.
+  if (/^[A-Za-z0-9][A-Za-z0-9+./%-]*$/.test(surface) && !JA_SCRIPT_RE.test(surface)) {
+    return surface;
+  }
+  const kana = tokenKana(token);
+  if (!kana) return "";
+  return toRomaji(kana).replace(/\s+/g, " ").trim();
+}
+
+function shouldGlueToPrevious(prev: ReadingToken, next: ReadingToken): boolean {
+  if (!prev.surface || !next.surface) return false;
+  if (PUNCT_RE.test(prev.surface) || PUNCT_RE.test(next.surface)) return false;
+  if (isPrefix(prev.pos)) return true;
+  if ((isVerbOrAdj(prev.pos) || isAuxiliary(prev.pos) || isInterjection(prev.pos)) && isAuxiliary(next.pos)) {
+    return true;
+  }
+  // Compound noun suffixes: アラビア + 語 → arabigo
+  if (isNoun(prev.pos) && isNoun(next.pos) && next.surface.length <= 2) return true;
+  return false;
 }
 
 /** Spaced Hepburn from tokenizer tokens. Japanese script is not replaced here. */
 export function readingsToRomaji(tokens: readonly ReadingToken[]): string {
   const parts: string[] = [];
+  let prevToken: ReadingToken | null = null;
   for (const token of tokens) {
     const surface = token.surface ?? "";
     if (!surface) continue;
@@ -87,11 +195,20 @@ export function readingsToRomaji(tokens: readonly ReadingToken[]): string {
       if (!mark) continue;
       if (parts.length === 0) parts.push(mark);
       else parts[parts.length - 1] = `${parts[parts.length - 1]}${mark}`;
+      prevToken = token;
       continue;
     }
-    const piece = tokenReading(token).replace(/\s+/g, " ").trim();
-    if (!piece) continue;
-    parts.push(piece);
+    const piece = tokenReading(token);
+    if (!piece) {
+      prevToken = token;
+      continue;
+    }
+    if (parts.length > 0 && prevToken && shouldGlueToPrevious(prevToken, token)) {
+      parts[parts.length - 1] = `${parts[parts.length - 1]}${piece}`;
+    } else {
+      parts.push(piece);
+    }
+    prevToken = token;
   }
   return polishRomaji(parts.join(" "));
 }
@@ -110,10 +227,15 @@ function polishRomaji(text: string): string {
     .trim();
 }
 
-/** Kana-only reading so something Latin is visible while the dictionary loads. */
+/**
+ * Kana-only text while the dictionary loads.
+ * Do NOT use this when the line still has kanji — kanji would be dropped and the
+ * Latin line would no longer match the Japanese above it.
+ */
 export function kanaFallbackRomaji(text: string): string {
   const clean = (text ?? "").replace(/\s+/g, " ").trim();
   if (!clean) return "";
+  if (containsKanji(clean)) return "";
   const parts: string[] = [];
   const re = /[\u3040-\u30FF\u31F0-\u31FF\uFF66-\uFF9D]+|[A-Za-z0-9]+|[、。．，.!?！？]/g;
   let match: RegExpExecArray | null;
@@ -200,6 +322,7 @@ export function ensureJapaneseRomaji(): Promise<void> {
               return;
             }
             tokenizer = built;
+            cache.clear();
             resolve();
           });
         });
@@ -214,15 +337,29 @@ export function ensureJapaneseRomaji(): Promise<void> {
   return loading;
 }
 
+export function japaneseRomajiReady(): boolean {
+  return tokenizer != null;
+}
+
+/**
+ * Latin reading for the exact Japanese string shown above.
+ * Returns "" when the dictionary is still loading and the line has kanji —
+ * callers should show "…" rather than a truncated kana-only guess.
+ */
 export function japaneseTextToRomaji(text: string): string {
   const clean = (text ?? "").replace(/\s+/g, " ").trim();
   if (!clean || !containsJapaneseScript(clean)) return "";
   const hit = cache.get(clean);
   if (hit != null) return hit;
-  if (!tokenizer) return kanaFallbackRomaji(clean);
+  if (!tokenizer) {
+    // Incomplete kana-only guesses made interpreters think the wording was wrong.
+    if (containsKanji(clean)) return "";
+    return kanaFallbackRomaji(clean);
+  }
   const tokens = tokenizer.tokenize(clean).map((token) => ({
     surface: token.surface_form,
     reading: token.reading,
+    pronunciation: token.pronunciation,
     pos: token.pos,
   }));
   const romaji = readingsToRomaji(tokens);
