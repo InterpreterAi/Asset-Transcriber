@@ -14133,6 +14133,3304 @@
         "en": "DMV",
         "it": "motorizzazione"
       }
+    ],
+    "en-ja": [
+      {
+        "en": "Immigration status",
+        "ja": "在留資格"
+      },
+      {
+        "en": "Felony",
+        "ja": "重罪"
+      },
+      {
+        "en": "Misdemeanor",
+        "ja": "軽罪"
+      },
+      {
+        "en": "Pro bono",
+        "ja": "プロボノ"
+      },
+      {
+        "en": "Attorney",
+        "ja": "弁護士"
+      },
+      {
+        "en": "Lawyer",
+        "ja": "弁護士"
+      },
+      {
+        "en": "Public defender",
+        "ja": "国選弁護人"
+      },
+      {
+        "en": "Legal aid",
+        "ja": "法律扶助"
+      },
+      {
+        "en": "Asylum",
+        "ja": "亡命"
+      },
+      {
+        "en": "Asylum seeker",
+        "ja": "亡命申請者"
+      },
+      {
+        "en": "Refugee",
+        "ja": "難民"
+      },
+      {
+        "en": "Deportation",
+        "ja": "退去強制"
+      },
+      {
+        "en": "Detention",
+        "ja": "収容"
+      },
+      {
+        "en": "Green card",
+        "ja": "永住権"
+      },
+      {
+        "en": "Permanent resident",
+        "ja": "永住者"
+      },
+      {
+        "en": "Work permit",
+        "ja": "労働許可"
+      },
+      {
+        "en": "Visa",
+        "ja": "査証"
+      },
+      {
+        "en": "Citizenship",
+        "ja": "市民権"
+      },
+      {
+        "en": "Naturalization",
+        "ja": "帰化"
+      },
+      {
+        "en": "Immigration court",
+        "ja": "移民裁判所"
+      },
+      {
+        "en": "Court",
+        "ja": "裁判所"
+      },
+      {
+        "en": "Judge",
+        "ja": "裁判官"
+      },
+      {
+        "en": "Hearing",
+        "ja": "審問"
+      },
+      {
+        "en": "Trial",
+        "ja": "裁判"
+      },
+      {
+        "en": "Bail",
+        "ja": "保釈"
+      },
+      {
+        "en": "Warrant",
+        "ja": "令状"
+      },
+      {
+        "en": "Subpoena",
+        "ja": "召喚状"
+      },
+      {
+        "en": "Affidavit",
+        "ja": "宣誓供述書"
+      },
+      {
+        "en": "Guilty",
+        "ja": "有罪"
+      },
+      {
+        "en": "Not guilty",
+        "ja": "無罪"
+      },
+      {
+        "en": "Sentence",
+        "ja": "判決"
+      },
+      {
+        "en": "Probation",
+        "ja": "保護観察"
+      },
+      {
+        "en": "Parole",
+        "ja": "仮釈放"
+      },
+      {
+        "en": "Plaintiff",
+        "ja": "原告"
+      },
+      {
+        "en": "Defendant",
+        "ja": "被告"
+      },
+      {
+        "en": "Witness",
+        "ja": "証人"
+      },
+      {
+        "en": "Testimony",
+        "ja": "証言"
+      },
+      {
+        "en": "Evidence",
+        "ja": "証拠"
+      },
+      {
+        "en": "Charges",
+        "ja": "起訴事実"
+      },
+      {
+        "en": "Indictment",
+        "ja": "起訴"
+      },
+      {
+        "en": "Conviction",
+        "ja": "有罪判決"
+      },
+      {
+        "en": "Appeal",
+        "ja": "上訴"
+      },
+      {
+        "en": "Lawsuit",
+        "ja": "訴訟"
+      },
+      {
+        "en": "Settlement",
+        "ja": "和解"
+      },
+      {
+        "en": "Restraining order",
+        "ja": "接近禁止命令"
+      },
+      {
+        "en": "Protective order",
+        "ja": "保護命令"
+      },
+      {
+        "en": "Child support",
+        "ja": "養育費"
+      },
+      {
+        "en": "Custody",
+        "ja": "親権"
+      },
+      {
+        "en": "Divorce",
+        "ja": "離婚"
+      },
+      {
+        "en": "Power of attorney",
+        "ja": "委任状"
+      },
+      {
+        "en": "Notary",
+        "ja": "公証人"
+      },
+      {
+        "en": "Client",
+        "ja": "依頼人"
+      },
+      {
+        "en": "Confidentiality",
+        "ja": "守秘義務"
+      },
+      {
+        "en": "Arrest",
+        "ja": "逮捕"
+      },
+      {
+        "en": "Prosecutor",
+        "ja": "検察官"
+      },
+      {
+        "en": "Legal office",
+        "ja": "法律事務所"
+      },
+      {
+        "en": "Consulate",
+        "ja": "領事館"
+      },
+      {
+        "en": "Passport",
+        "ja": "旅券"
+      },
+      {
+        "en": "Undocumented",
+        "ja": "非正規滞在"
+      },
+      {
+        "en": "Car insurance",
+        "ja": "自動車保険"
+      },
+      {
+        "en": "Auto insurance",
+        "ja": "自動車保険"
+      },
+      {
+        "en": "Insurance claim",
+        "ja": "保険金請求"
+      },
+      {
+        "en": "Claim number",
+        "ja": "請求番号"
+      },
+      {
+        "en": "Policy number",
+        "ja": "証券番号"
+      },
+      {
+        "en": "Deductible",
+        "ja": "免責金額"
+      },
+      {
+        "en": "Premium",
+        "ja": "保険料"
+      },
+      {
+        "en": "Liability",
+        "ja": "賠償責任"
+      },
+      {
+        "en": "Liability insurance",
+        "ja": "賠償責任保険"
+      },
+      {
+        "en": "Collision",
+        "ja": "衝突"
+      },
+      {
+        "en": "Collision coverage",
+        "ja": "車両保険（衝突）"
+      },
+      {
+        "en": "Comprehensive coverage",
+        "ja": "車両保険（一般）"
+      },
+      {
+        "en": "Car accident",
+        "ja": "自動車事故"
+      },
+      {
+        "en": "Traffic accident",
+        "ja": "交通事故"
+      },
+      {
+        "en": "Hit and run",
+        "ja": "ひき逃げ"
+      },
+      {
+        "en": "Rear-end collision",
+        "ja": "追突"
+      },
+      {
+        "en": "Fender bender",
+        "ja": "軽い接触事故"
+      },
+      {
+        "en": "At fault",
+        "ja": "過失あり"
+      },
+      {
+        "en": "Not at fault",
+        "ja": "過失なし"
+      },
+      {
+        "en": "Police report",
+        "ja": "警察の事故証明"
+      },
+      {
+        "en": "Accident report",
+        "ja": "事故報告書"
+      },
+      {
+        "en": "Tow truck",
+        "ja": "レッカー車"
+      },
+      {
+        "en": "Roadside assistance",
+        "ja": "ロードサービス"
+      },
+      {
+        "en": "Rental car",
+        "ja": "レンタカー"
+      },
+      {
+        "en": "Body shop",
+        "ja": "板金工場"
+      },
+      {
+        "en": "Repair shop",
+        "ja": "修理工場"
+      },
+      {
+        "en": "Totaled",
+        "ja": "全損"
+      },
+      {
+        "en": "Total loss",
+        "ja": "全損"
+      },
+      {
+        "en": "Estimate",
+        "ja": "見積もり"
+      },
+      {
+        "en": "Adjuster",
+        "ja": "損害査定人"
+      },
+      {
+        "en": "Insurance adjuster",
+        "ja": "保険査定人"
+      },
+      {
+        "en": "License plate",
+        "ja": "ナンバープレート"
+      },
+      {
+        "en": "Driver's license",
+        "ja": "運転免許証"
+      },
+      {
+        "en": "Registration",
+        "ja": "自動車登録"
+      },
+      {
+        "en": "VIN",
+        "ja": "車両識別番号"
+      },
+      {
+        "en": "Airbag",
+        "ja": "エアバッグ"
+      },
+      {
+        "en": "Seat belt",
+        "ja": "シートベルト"
+      },
+      {
+        "en": "Whiplash",
+        "ja": "むち打ち"
+      },
+      {
+        "en": "Bodily injury",
+        "ja": "身体傷害"
+      },
+      {
+        "en": "Property damage",
+        "ja": "物的損害"
+      },
+      {
+        "en": "Uninsured motorist",
+        "ja": "無保険の運転者"
+      },
+      {
+        "en": "Underinsured motorist",
+        "ja": "保険金額が不足する相手"
+      },
+      {
+        "en": "No-fault insurance",
+        "ja": "ノーフォルト保険"
+      },
+      {
+        "en": "Glass coverage",
+        "ja": "ガラス補償"
+      },
+      {
+        "en": "Windshield",
+        "ja": "フロントガラス"
+      },
+      {
+        "en": "Bumper",
+        "ja": "バンパー"
+      },
+      {
+        "en": "Tire",
+        "ja": "タイヤ"
+      },
+      {
+        "en": "Engine",
+        "ja": "エンジン"
+      },
+      {
+        "en": "Transmission",
+        "ja": "トランスミッション"
+      },
+      {
+        "en": "Brake",
+        "ja": "ブレーキ"
+      },
+      {
+        "en": "Speed limit",
+        "ja": "制限速度"
+      },
+      {
+        "en": "Traffic ticket",
+        "ja": "交通違反切符"
+      },
+      {
+        "en": "DUI",
+        "ja": "飲酒運転"
+      },
+      {
+        "en": "DMV",
+        "ja": "車両管理局"
+      },
+      {
+        "en": "CPR",
+        "ja": "心肺蘇生"
+      },
+      {
+        "en": "Cardio-pulmonary Resuscitation",
+        "ja": "心肺蘇生"
+      },
+      {
+        "en": "Defibrillator",
+        "ja": "除細動器"
+      },
+      {
+        "en": "Epilepsy",
+        "ja": "てんかん"
+      },
+      {
+        "en": "Fit",
+        "ja": "発作"
+      },
+      {
+        "en": "Lie on the left side",
+        "ja": "左側を下にして横になる"
+      },
+      {
+        "en": "Lie flat on back",
+        "ja": "仰向けに寝る"
+      },
+      {
+        "en": "Admissions desk",
+        "ja": "受付"
+      },
+      {
+        "en": "Seizure",
+        "ja": "けいれん発作"
+      },
+      {
+        "en": "Turning blue",
+        "ja": "顔色が青くなる"
+      },
+      {
+        "en": "Tilt the head back",
+        "ja": "頭を後ろに傾ける"
+      },
+      {
+        "en": "Abdominal discomfort",
+        "ja": "腹部不快感"
+      },
+      {
+        "en": "Abscess",
+        "ja": "膿瘍"
+      },
+      {
+        "en": "Acute pain",
+        "ja": "急性疼痛"
+      },
+      {
+        "en": "Admissions",
+        "ja": "入院受付"
+      },
+      {
+        "en": "Adrenaline",
+        "ja": "アドレナリン"
+      },
+      {
+        "en": "Adverse reaction",
+        "ja": "有害反応"
+      },
+      {
+        "en": "Advice nurse",
+        "ja": "相談看護師"
+      },
+      {
+        "en": "Allergen",
+        "ja": "アレルゲン"
+      },
+      {
+        "en": "Allergic reaction",
+        "ja": "アレルギー反応"
+      },
+      {
+        "en": "Allergy",
+        "ja": "アレルギー"
+      },
+      {
+        "en": "Anaesthesia",
+        "ja": "麻酔"
+      },
+      {
+        "en": "Anaesthesiologist",
+        "ja": "麻酔科医"
+      },
+      {
+        "en": "Anaesthesiology",
+        "ja": "麻酔科学"
+      },
+      {
+        "en": "Antibacterial",
+        "ja": "抗菌の"
+      },
+      {
+        "en": "Antibiotic",
+        "ja": "抗生物質"
+      },
+      {
+        "en": "Antibodies",
+        "ja": "抗体"
+      },
+      {
+        "en": "Anticoagulant",
+        "ja": "抗凝固薬"
+      },
+      {
+        "en": "Antidote",
+        "ja": "解毒剤"
+      },
+      {
+        "en": "Anti-fungal",
+        "ja": "抗真菌薬"
+      },
+      {
+        "en": "Antihistamine",
+        "ja": "抗ヒスタミン薬"
+      },
+      {
+        "en": "Anti-inflammatory",
+        "ja": "抗炎症薬"
+      },
+      {
+        "en": "Antiseptic",
+        "ja": "消毒薬"
+      },
+      {
+        "en": "Appendectomy",
+        "ja": "虫垂切除術"
+      },
+      {
+        "en": "Appendicitis",
+        "ja": "虫垂炎"
+      },
+      {
+        "en": "Asphyxia",
+        "ja": "窒息"
+      },
+      {
+        "en": "Aspirin",
+        "ja": "アスピリン"
+      },
+      {
+        "en": "Asthma",
+        "ja": "喘息"
+      },
+      {
+        "en": "Asthmatic",
+        "ja": "喘息の人"
+      },
+      {
+        "en": "Athlete's foot",
+        "ja": "水虫"
+      },
+      {
+        "en": "Attending physician",
+        "ja": "主治医"
+      },
+      {
+        "en": "Bacteria",
+        "ja": "細菌"
+      },
+      {
+        "en": "Bacterial infection",
+        "ja": "細菌感染"
+      },
+      {
+        "en": "Bandage",
+        "ja": "包帯"
+      },
+      {
+        "en": "Band-aid",
+        "ja": "絆創膏"
+      },
+      {
+        "en": "Bee venom",
+        "ja": "ハチ毒"
+      },
+      {
+        "en": "Billing's method",
+        "ja": "ビリングス法"
+      },
+      {
+        "en": "Birthday",
+        "ja": "誕生日"
+      },
+      {
+        "en": "Blister",
+        "ja": "水ぶくれ"
+      },
+      {
+        "en": "Blood",
+        "ja": "血"
+      },
+      {
+        "en": "Blood bank",
+        "ja": "血液バンク"
+      },
+      {
+        "en": "Blood clot",
+        "ja": "血栓"
+      },
+      {
+        "en": "Blood pressure",
+        "ja": "血圧"
+      },
+      {
+        "en": "Body ache",
+        "ja": "体の痛み"
+      },
+      {
+        "en": "Bone splint",
+        "ja": "副木"
+      },
+      {
+        "en": "Breath",
+        "ja": "呼吸"
+      },
+      {
+        "en": "Breathe deeply",
+        "ja": "深く息をする"
+      },
+      {
+        "en": "Breathing problems",
+        "ja": "呼吸の異常"
+      },
+      {
+        "en": "Bruise",
+        "ja": "あざ"
+      },
+      {
+        "en": "Burning sensation",
+        "ja": "灼熱感"
+      },
+      {
+        "en": "Cast",
+        "ja": "ギプス"
+      },
+      {
+        "en": "Chest discomfort/tightness",
+        "ja": "胸部不快感・締めつけ"
+      },
+      {
+        "en": "Chest discomfort",
+        "ja": "胸部不快感"
+      },
+      {
+        "en": "tightness",
+        "ja": "締めつけ感"
+      },
+      {
+        "en": "Choke",
+        "ja": "窒息する"
+      },
+      {
+        "en": "Chronic",
+        "ja": "慢性の"
+      },
+      {
+        "en": "Circulatory",
+        "ja": "循環の"
+      },
+      {
+        "en": "Cold",
+        "ja": "風邪"
+      },
+      {
+        "en": "Colonoscopy",
+        "ja": "大腸内視鏡"
+      },
+      {
+        "en": "Compress",
+        "ja": "湿布"
+      },
+      {
+        "en": "Congested",
+        "ja": "詰まった"
+      },
+      {
+        "en": "Consent",
+        "ja": "同意"
+      },
+      {
+        "en": "Constipated",
+        "ja": "便秘の"
+      },
+      {
+        "en": "Cotton balls/pads",
+        "ja": "コットンとパッド"
+      },
+      {
+        "en": "Cotton balls",
+        "ja": "コットン"
+      },
+      {
+        "en": "pads",
+        "ja": "パッド"
+      },
+      {
+        "en": "Cough",
+        "ja": "咳"
+      },
+      {
+        "en": "Cough medicine / cough syrup",
+        "ja": "咳止め薬・咳止めシロップ"
+      },
+      {
+        "en": "Cough medicine",
+        "ja": "咳止め薬"
+      },
+      {
+        "en": "cough syrup",
+        "ja": "咳止めシロップ"
+      },
+      {
+        "en": "Coughing",
+        "ja": "咳き込み"
+      },
+      {
+        "en": "Crutch",
+        "ja": "松葉杖"
+      },
+      {
+        "en": "D&C",
+        "ja": "子宮内容除去術"
+      },
+      {
+        "en": "Dilatation & Curettage",
+        "ja": "頸管拡張および子宮内容除去"
+      },
+      {
+        "en": "Decongestant",
+        "ja": "充血除去薬"
+      },
+      {
+        "en": "Diabetes",
+        "ja": "糖尿病"
+      },
+      {
+        "en": "Diagnose",
+        "ja": "診断する"
+      },
+      {
+        "en": "Diagnosis",
+        "ja": "診断"
+      },
+      {
+        "en": "Disable",
+        "ja": "機能を失わせる"
+      },
+      {
+        "en": "Discomfort",
+        "ja": "不快感"
+      },
+      {
+        "en": "Dislocated",
+        "ja": "脱臼した"
+      },
+      {
+        "en": "Dizziness",
+        "ja": "めまい"
+      },
+      {
+        "en": "Doctor's office",
+        "ja": "医院"
+      },
+      {
+        "en": "Dressing",
+        "ja": "被覆材"
+      },
+      {
+        "en": "Drop",
+        "ja": "点薬"
+      },
+      {
+        "en": "Drowsiness",
+        "ja": "眠気"
+      },
+      {
+        "en": "Drugstore",
+        "ja": "薬局"
+      },
+      {
+        "en": "Dull pain",
+        "ja": "鈍痛"
+      },
+      {
+        "en": "Ear ache",
+        "ja": "耳の痛み"
+      },
+      {
+        "en": "Ear lobe",
+        "ja": "耳たぶ"
+      },
+      {
+        "en": "Ear tube",
+        "ja": "鼓膜チューブ"
+      },
+      {
+        "en": "Ear wax",
+        "ja": "耳垢"
+      },
+      {
+        "en": "Emergency room",
+        "ja": "救急室"
+      },
+      {
+        "en": "ER",
+        "ja": "救急室"
+      },
+      {
+        "en": "Emphysema",
+        "ja": "肺気腫"
+      },
+      {
+        "en": "Endoscopy",
+        "ja": "内視鏡検査"
+      },
+      {
+        "en": "Enema",
+        "ja": "浣腸"
+      },
+      {
+        "en": "Epidural",
+        "ja": "硬膜外麻酔"
+      },
+      {
+        "en": "Eye drops",
+        "ja": "点眼薬"
+      },
+      {
+        "en": "Family history",
+        "ja": "家族歴"
+      },
+      {
+        "en": "Fasting",
+        "ja": "絶食"
+      },
+      {
+        "en": "Faeces",
+        "ja": "便"
+      },
+      {
+        "en": "Fever",
+        "ja": "熱"
+      },
+      {
+        "en": "Fever blister",
+        "ja": "口唇ヘルペス"
+      },
+      {
+        "en": "Flu",
+        "ja": "インフルエンザ"
+      },
+      {
+        "en": "Food allergy",
+        "ja": "食物アレルギー"
+      },
+      {
+        "en": "Fractured",
+        "ja": "骨折した"
+      },
+      {
+        "en": "Front desk",
+        "ja": "受付"
+      },
+      {
+        "en": "Gauze",
+        "ja": "ガーゼ"
+      },
+      {
+        "en": "General practitioner",
+        "ja": "一般医"
+      },
+      {
+        "en": "Glucose tests",
+        "ja": "血糖検査"
+      },
+      {
+        "en": "Gnawing pain",
+        "ja": "うずく痛み"
+      },
+      {
+        "en": "Gown / hospital gown",
+        "ja": "ガウン・病衣"
+      },
+      {
+        "en": "Gown",
+        "ja": "ガウン"
+      },
+      {
+        "en": "hospital gown",
+        "ja": "病衣"
+      },
+      {
+        "en": "Gynaecologist",
+        "ja": "婦人科医"
+      },
+      {
+        "en": "Hacking cough",
+        "ja": "激しい咳"
+      },
+      {
+        "en": "Hay fever",
+        "ja": "花粉症"
+      },
+      {
+        "en": "Headache",
+        "ja": "頭痛"
+      },
+      {
+        "en": "Health",
+        "ja": "健康"
+      },
+      {
+        "en": "Heart attack",
+        "ja": "心臓発作"
+      },
+      {
+        "en": "Heart murmur",
+        "ja": "心雑音"
+      },
+      {
+        "en": "Heavy lifting",
+        "ja": "重い物を持ち上げること"
+      },
+      {
+        "en": "Height",
+        "ja": "身長"
+      },
+      {
+        "en": "Hernia",
+        "ja": "ヘルニア"
+      },
+      {
+        "en": "High blood pressure",
+        "ja": "高血圧"
+      },
+      {
+        "en": "Hives",
+        "ja": "じんましん"
+      },
+      {
+        "en": "Hoarse",
+        "ja": "かすれ声"
+      },
+      {
+        "en": "Household chemicals",
+        "ja": "家庭用化学薬品"
+      },
+      {
+        "en": "Hurt",
+        "ja": "痛い"
+      },
+      {
+        "en": "Hypersensitivity",
+        "ja": "過敏症"
+      },
+      {
+        "en": "Immunoglobulin E",
+        "ja": "免疫グロブリンE"
+      },
+      {
+        "en": "IGE",
+        "ja": "免疫グロブリンE"
+      },
+      {
+        "en": "Infection",
+        "ja": "感染"
+      },
+      {
+        "en": "Inflammation",
+        "ja": "炎症"
+      },
+      {
+        "en": "Inhaler",
+        "ja": "吸入器"
+      },
+      {
+        "en": "Inpatient",
+        "ja": "入院患者"
+      },
+      {
+        "en": "Insulin",
+        "ja": "インスリン"
+      },
+      {
+        "en": "Intensive care unit",
+        "ja": "集中治療室"
+      },
+      {
+        "en": "Irregular pulse",
+        "ja": "脈の乱れ"
+      },
+      {
+        "en": "Itch",
+        "ja": "かゆみ"
+      },
+      {
+        "en": "Itching",
+        "ja": "かゆみ"
+      },
+      {
+        "en": "Joint",
+        "ja": "関節"
+      },
+      {
+        "en": "Laparoscopy",
+        "ja": "腹腔鏡検査"
+      },
+      {
+        "en": "Laser surgery",
+        "ja": "レーザー手術"
+      },
+      {
+        "en": "Ligament",
+        "ja": "靱帯"
+      },
+      {
+        "en": "Lower back pain",
+        "ja": "腰痛"
+      },
+      {
+        "en": "Lump",
+        "ja": "しこり"
+      },
+      {
+        "en": "Maternity ward",
+        "ja": "産科病棟"
+      },
+      {
+        "en": "Medical excuse",
+        "ja": "診断書"
+      },
+      {
+        "en": "Medical history",
+        "ja": "既往歴"
+      },
+      {
+        "en": "Medicated compress",
+        "ja": "薬用湿布"
+      },
+      {
+        "en": "Medication",
+        "ja": "薬"
+      },
+      {
+        "en": "Middle ear infection",
+        "ja": "中耳炎"
+      },
+      {
+        "en": "Mold",
+        "ja": "カビ"
+      },
+      {
+        "en": "Nasal spray",
+        "ja": "点鼻薬"
+      },
+      {
+        "en": "Nauseating pain",
+        "ja": "吐き気を伴う痛み"
+      },
+      {
+        "en": "Nostril",
+        "ja": "鼻の穴"
+      },
+      {
+        "en": "Numbing pain",
+        "ja": "しびれる痛み"
+      },
+      {
+        "en": "Nurse",
+        "ja": "看護師"
+      },
+      {
+        "en": "Nursery",
+        "ja": "新生児室"
+      },
+      {
+        "en": "Nurses' station",
+        "ja": "ナースステーション"
+      },
+      {
+        "en": "to Operate",
+        "ja": "手術する"
+      },
+      {
+        "en": "Operating room",
+        "ja": "手術室"
+      },
+      {
+        "en": "OR",
+        "ja": "手術室"
+      },
+      {
+        "en": "Operation",
+        "ja": "手術"
+      },
+      {
+        "en": "Outpatient",
+        "ja": "外来患者"
+      },
+      {
+        "en": "Over-the-counter medication",
+        "ja": "市販薬"
+      },
+      {
+        "en": "Oxygen",
+        "ja": "酸素"
+      },
+      {
+        "en": "Pain",
+        "ja": "痛み"
+      },
+      {
+        "en": "Pass out",
+        "ja": "気を失う"
+      },
+      {
+        "en": "Penicillin",
+        "ja": "ペニシリン"
+      },
+      {
+        "en": "Physical exam",
+        "ja": "身体診察"
+      },
+      {
+        "en": "Pills",
+        "ja": "錠剤"
+      },
+      {
+        "en": "Plugged ear",
+        "ja": "耳が詰まる"
+      },
+      {
+        "en": "Pollen allergy",
+        "ja": "花粉アレルギー"
+      },
+      {
+        "en": "Prescription",
+        "ja": "処方箋"
+      },
+      {
+        "en": "Pressure",
+        "ja": "圧"
+      },
+      {
+        "en": "Private room",
+        "ja": "個室"
+      },
+      {
+        "en": "Pulse",
+        "ja": "脈拍"
+      },
+      {
+        "en": "Radiology",
+        "ja": "放射線科"
+      },
+      {
+        "en": "Rash",
+        "ja": "発疹"
+      },
+      {
+        "en": "Recovery room",
+        "ja": "回復室"
+      },
+      {
+        "en": "Redness",
+        "ja": "赤み"
+      },
+      {
+        "en": "Rest",
+        "ja": "安静"
+      },
+      {
+        "en": "Rheumatic fever",
+        "ja": "リウマチ熱"
+      },
+      {
+        "en": "Scab",
+        "ja": "かさぶた"
+      },
+      {
+        "en": "Scar",
+        "ja": "傷跡"
+      },
+      {
+        "en": "Scratch",
+        "ja": "引っかき傷"
+      },
+      {
+        "en": "to Scrub",
+        "ja": "手指を消毒する"
+      },
+      {
+        "en": "surgically",
+        "ja": "外科的に"
+      },
+      {
+        "en": "Sexually transmitted disease",
+        "ja": "性感染症"
+      },
+      {
+        "en": "Sharp pain",
+        "ja": "鋭い痛み"
+      },
+      {
+        "en": "Shiver",
+        "ja": "寒気"
+      },
+      {
+        "en": "Shortness of breath",
+        "ja": "息切れ"
+      },
+      {
+        "en": "Sinus infection",
+        "ja": "副鼻腔炎"
+      },
+      {
+        "en": "Sleepy",
+        "ja": "眠い"
+      },
+      {
+        "en": "Sling",
+        "ja": "腕つり"
+      },
+      {
+        "en": "Sore, cold",
+        "ja": "のどの痛み、風邪"
+      },
+      {
+        "en": "Sprain",
+        "ja": "捻挫"
+      },
+      {
+        "en": "Stethoscope",
+        "ja": "聴診器"
+      },
+      {
+        "en": "Stitches",
+        "ja": "縫合"
+      },
+      {
+        "en": "Stomach flu",
+        "ja": "胃腸炎"
+      },
+      {
+        "en": "Strain",
+        "ja": "筋違い"
+      },
+      {
+        "en": "Strenuous activity",
+        "ja": "激しい運動"
+      },
+      {
+        "en": "Strep throat",
+        "ja": "溶連菌性咽頭炎"
+      },
+      {
+        "en": "Stroke",
+        "ja": "脳卒中"
+      },
+      {
+        "en": "Stuffed-up",
+        "ja": "鼻づまり"
+      },
+      {
+        "en": "Stutter",
+        "ja": "吃音"
+      },
+      {
+        "en": "Surgeon",
+        "ja": "外科医"
+      },
+      {
+        "en": "Surgery",
+        "ja": "手術"
+      },
+      {
+        "en": "Surgical procedure",
+        "ja": "外科手術"
+      },
+      {
+        "en": "Suture",
+        "ja": "縫合糸"
+      },
+      {
+        "en": "Sweat",
+        "ja": "汗"
+      },
+      {
+        "en": "Symptoms",
+        "ja": "症状"
+      },
+      {
+        "en": "Syringe",
+        "ja": "注射器"
+      },
+      {
+        "en": "Tablets",
+        "ja": "錠剤"
+      },
+      {
+        "en": "Temperatures",
+        "ja": "体温"
+      },
+      {
+        "en": "Thyroid",
+        "ja": "甲状腺"
+      },
+      {
+        "en": "Triage nurse",
+        "ja": "トリアージ看護師"
+      },
+      {
+        "en": "Tubal ligation",
+        "ja": "卵管結紮"
+      },
+      {
+        "en": "Tube",
+        "ja": "管"
+      },
+      {
+        "en": "Tuberculosis",
+        "ja": "結核"
+      },
+      {
+        "en": "Ulcer",
+        "ja": "潰瘍"
+      },
+      {
+        "en": "to Undergo surgery",
+        "ja": "手術を受ける"
+      },
+      {
+        "en": "Urinalysis",
+        "ja": "尿検査"
+      },
+      {
+        "en": "Urinary bladder",
+        "ja": "膀胱"
+      },
+      {
+        "en": "Urinary problem",
+        "ja": "排尿の問題"
+      },
+      {
+        "en": "Urinary tract",
+        "ja": "尿路"
+      },
+      {
+        "en": "Urinating",
+        "ja": "排尿"
+      },
+      {
+        "en": "Urine",
+        "ja": "尿"
+      },
+      {
+        "en": "urine test",
+        "ja": "尿検査"
+      },
+      {
+        "en": "vital signs",
+        "ja": "バイタルサイン"
+      },
+      {
+        "en": "Vitamins",
+        "ja": "ビタミン"
+      },
+      {
+        "en": "Waiting room",
+        "ja": "待合室"
+      },
+      {
+        "en": "Watery eyes",
+        "ja": "涙目"
+      },
+      {
+        "en": "Weight",
+        "ja": "体重"
+      },
+      {
+        "en": "Wheezing",
+        "ja": "喘鳴"
+      },
+      {
+        "en": "x-ray unit",
+        "ja": "レントゲン室"
+      },
+      {
+        "en": "Abdomen",
+        "ja": "腹部"
+      },
+      {
+        "en": "Adam's apple",
+        "ja": "喉仏"
+      },
+      {
+        "en": "Adrenal glands",
+        "ja": "副腎"
+      },
+      {
+        "en": "Amniotic fluid",
+        "ja": "羊水"
+      },
+      {
+        "en": "Ankle",
+        "ja": "足首"
+      },
+      {
+        "en": "Anus",
+        "ja": "肛門"
+      },
+      {
+        "en": "Appendix",
+        "ja": "虫垂"
+      },
+      {
+        "en": "Armpit",
+        "ja": "脇の下"
+      },
+      {
+        "en": "Arms",
+        "ja": "腕"
+      },
+      {
+        "en": "Artery",
+        "ja": "動脈"
+      },
+      {
+        "en": "Back",
+        "ja": "背中"
+      },
+      {
+        "en": "Backbone",
+        "ja": "背骨"
+      },
+      {
+        "en": "Belly button",
+        "ja": "へそ"
+      },
+      {
+        "en": "Big toe",
+        "ja": "足の親指"
+      },
+      {
+        "en": "Bile",
+        "ja": "胆汁"
+      },
+      {
+        "en": "Bladder",
+        "ja": "膀胱"
+      },
+      {
+        "en": "Bodily fluids",
+        "ja": "体液"
+      },
+      {
+        "en": "Bone marrow",
+        "ja": "骨髄"
+      },
+      {
+        "en": "Bowel movement",
+        "ja": "排便"
+      },
+      {
+        "en": "Brain",
+        "ja": "脳"
+      },
+      {
+        "en": "Brain stem",
+        "ja": "脳幹"
+      },
+      {
+        "en": "Breast",
+        "ja": "乳房"
+      },
+      {
+        "en": "Buttock",
+        "ja": "臀部"
+      },
+      {
+        "en": "Calf",
+        "ja": "ふくらはぎ"
+      },
+      {
+        "en": "Canal",
+        "ja": "管"
+      },
+      {
+        "en": "Cartilage",
+        "ja": "軟骨"
+      },
+      {
+        "en": "Cheek",
+        "ja": "頬"
+      },
+      {
+        "en": "Cheekbone",
+        "ja": "頬骨"
+      },
+      {
+        "en": "Chest",
+        "ja": "胸"
+      },
+      {
+        "en": "Chin",
+        "ja": "顎"
+      },
+      {
+        "en": "Collar bone",
+        "ja": "鎖骨"
+      },
+      {
+        "en": "Colon",
+        "ja": "結腸"
+      },
+      {
+        "en": "Diaphragm",
+        "ja": "横隔膜"
+      },
+      {
+        "en": "Dimple",
+        "ja": "えくぼ"
+      },
+      {
+        "en": "Duct",
+        "ja": "導管"
+      },
+      {
+        "en": "Ear",
+        "ja": "耳"
+      },
+      {
+        "en": "Elbow",
+        "ja": "肘"
+      },
+      {
+        "en": "Esophagus",
+        "ja": "食道"
+      },
+      {
+        "en": "Eye",
+        "ja": "目"
+      },
+      {
+        "en": "Eye ball",
+        "ja": "眼球"
+      },
+      {
+        "en": "Eye lid",
+        "ja": "まぶた"
+      },
+      {
+        "en": "Eye socket",
+        "ja": "眼窩"
+      },
+      {
+        "en": "Eyelashes",
+        "ja": "まつ毛"
+      },
+      {
+        "en": "Femur",
+        "ja": "大腿骨"
+      },
+      {
+        "en": "Finger",
+        "ja": "指"
+      },
+      {
+        "en": "Fingertip",
+        "ja": "指先"
+      },
+      {
+        "en": "Forearm",
+        "ja": "前腕"
+      },
+      {
+        "en": "Forehead",
+        "ja": "額"
+      },
+      {
+        "en": "Gall bladder",
+        "ja": "胆嚢"
+      },
+      {
+        "en": "Genitals",
+        "ja": "性器"
+      },
+      {
+        "en": "Groin",
+        "ja": "鼠径部"
+      },
+      {
+        "en": "Hair",
+        "ja": "髪"
+      },
+      {
+        "en": "Hands",
+        "ja": "手"
+      },
+      {
+        "en": "Heart",
+        "ja": "心臓"
+      },
+      {
+        "en": "Heel",
+        "ja": "かかと"
+      },
+      {
+        "en": "Hip",
+        "ja": "股関節"
+      },
+      {
+        "en": "Index finger",
+        "ja": "人差し指"
+      },
+      {
+        "en": "Jaw",
+        "ja": "あご"
+      },
+      {
+        "en": "Kidney",
+        "ja": "腎臓"
+      },
+      {
+        "en": "Knee",
+        "ja": "膝"
+      },
+      {
+        "en": "Knuckle",
+        "ja": "指の関節"
+      },
+      {
+        "en": "Large intestine",
+        "ja": "大腸"
+      },
+      {
+        "en": "Larynx",
+        "ja": "喉頭"
+      },
+      {
+        "en": "Legs",
+        "ja": "脚"
+      },
+      {
+        "en": "Limb",
+        "ja": "四肢"
+      },
+      {
+        "en": "Lips",
+        "ja": "唇"
+      },
+      {
+        "en": "Liver",
+        "ja": "肝臓"
+      },
+      {
+        "en": "Lungs",
+        "ja": "肺"
+      },
+      {
+        "en": "Lymph gland",
+        "ja": "リンパ腺"
+      },
+      {
+        "en": "Lymph node",
+        "ja": "リンパ節"
+      },
+      {
+        "en": "Mammary glands",
+        "ja": "乳腺"
+      },
+      {
+        "en": "Middle finger",
+        "ja": "中指"
+      },
+      {
+        "en": "Mouth",
+        "ja": "口"
+      },
+      {
+        "en": "Muscle",
+        "ja": "筋肉"
+      },
+      {
+        "en": "Nails",
+        "ja": "爪"
+      },
+      {
+        "en": "Nape",
+        "ja": "うなじ"
+      },
+      {
+        "en": "Neck",
+        "ja": "首"
+      },
+      {
+        "en": "Nipple",
+        "ja": "乳首"
+      },
+      {
+        "en": "Ovaries",
+        "ja": "卵巣"
+      },
+      {
+        "en": "Palm",
+        "ja": "手のひら"
+      },
+      {
+        "en": "Pancreas",
+        "ja": "膵臓"
+      },
+      {
+        "en": "Phlegm",
+        "ja": "痰"
+      },
+      {
+        "en": "Plasma",
+        "ja": "血漿"
+      },
+      {
+        "en": "Rectum",
+        "ja": "直腸"
+      },
+      {
+        "en": "Rib",
+        "ja": "肋骨"
+      },
+      {
+        "en": "Ribcage",
+        "ja": "胸郭"
+      },
+      {
+        "en": "Saliva",
+        "ja": "唾液"
+      },
+      {
+        "en": "Scalp",
+        "ja": "頭皮"
+      },
+      {
+        "en": "Scapula",
+        "ja": "肩甲骨"
+      },
+      {
+        "en": "Shin",
+        "ja": "すね"
+      },
+      {
+        "en": "Shoulder",
+        "ja": "肩"
+      },
+      {
+        "en": "Shoulder blade",
+        "ja": "肩甲骨"
+      },
+      {
+        "en": "Skull",
+        "ja": "頭蓋骨"
+      },
+      {
+        "en": "Small intestine",
+        "ja": "小腸"
+      },
+      {
+        "en": "Spinal column",
+        "ja": "脊柱"
+      },
+      {
+        "en": "Spine",
+        "ja": "脊柱"
+      },
+      {
+        "en": "Spleen",
+        "ja": "脾臓"
+      },
+      {
+        "en": "Sputum",
+        "ja": "喀痰"
+      },
+      {
+        "en": "Stomach",
+        "ja": "胃"
+      },
+      {
+        "en": "Stomach lining",
+        "ja": "胃の粘膜"
+      },
+      {
+        "en": "Teeth",
+        "ja": "歯"
+      },
+      {
+        "en": "Temple",
+        "ja": "こめかみ"
+      },
+      {
+        "en": "Toes",
+        "ja": "足の指"
+      },
+      {
+        "en": "Tonsils",
+        "ja": "扁桃"
+      },
+      {
+        "en": "Thorax",
+        "ja": "胸郭"
+      },
+      {
+        "en": "Throat",
+        "ja": "喉"
+      },
+      {
+        "en": "Thumb",
+        "ja": "親指"
+      },
+      {
+        "en": "Thyroid gland",
+        "ja": "甲状腺"
+      },
+      {
+        "en": "Trachea",
+        "ja": "気管"
+      },
+      {
+        "en": "Tract",
+        "ja": "路"
+      },
+      {
+        "en": "Uterine lining",
+        "ja": "子宮内膜"
+      },
+      {
+        "en": "Uterus",
+        "ja": "子宮"
+      },
+      {
+        "en": "Vein",
+        "ja": "静脈"
+      },
+      {
+        "en": "Waist",
+        "ja": "腰"
+      },
+      {
+        "en": "Windpipe",
+        "ja": "気管"
+      },
+      {
+        "en": "Womb",
+        "ja": "子宮"
+      },
+      {
+        "en": "Wrist",
+        "ja": "手首"
+      },
+      {
+        "en": "Abdominal delivery",
+        "ja": "腹式分娩"
+      },
+      {
+        "en": "Abdominal pregnancy",
+        "ja": "腹腔妊娠"
+      },
+      {
+        "en": "Abortion",
+        "ja": "中絶"
+      },
+      {
+        "en": "Afterbirth",
+        "ja": "後産"
+      },
+      {
+        "en": "Amniocentesis",
+        "ja": "羊水穿刺"
+      },
+      {
+        "en": "Anguish",
+        "ja": "苦痛"
+      },
+      {
+        "en": "At term birth",
+        "ja": "正期産"
+      },
+      {
+        "en": "to Bear down",
+        "ja": "いきむ"
+      },
+      {
+        "en": "Bed pan",
+        "ja": "差し込み便器"
+      },
+      {
+        "en": "Bed rest",
+        "ja": "安静臥床"
+      },
+      {
+        "en": "Birth",
+        "ja": "出産"
+      },
+      {
+        "en": "Birth canal",
+        "ja": "産道"
+      },
+      {
+        "en": "Birth control",
+        "ja": "避妊"
+      },
+      {
+        "en": "Birth injury",
+        "ja": "分娩時損傷"
+      },
+      {
+        "en": "Bleeding",
+        "ja": "出血"
+      },
+      {
+        "en": "Bloated",
+        "ja": "張った"
+      },
+      {
+        "en": "Block",
+        "ja": "閉塞"
+      },
+      {
+        "en": "Bodily changes",
+        "ja": "身体の変化"
+      },
+      {
+        "en": "Bottle-feed",
+        "ja": "ミルクで育てる"
+      },
+      {
+        "en": "Bowel movement, stools",
+        "ja": "排便、便"
+      },
+      {
+        "en": "stools",
+        "ja": "便"
+      },
+      {
+        "en": "Breast mass",
+        "ja": "乳房のしこり"
+      },
+      {
+        "en": "Breast milk",
+        "ja": "母乳"
+      },
+      {
+        "en": "Breast pump",
+        "ja": "搾乳器"
+      },
+      {
+        "en": "Breast self-examination",
+        "ja": "乳房の自己検診"
+      },
+      {
+        "en": "Breast tenderness",
+        "ja": "乳房の張り"
+      },
+      {
+        "en": "Breast-care",
+        "ja": "乳房のケア"
+      },
+      {
+        "en": "Breastfeed",
+        "ja": "授乳する"
+      },
+      {
+        "en": "Breech delivery",
+        "ja": "骨盤位分娩"
+      },
+      {
+        "en": "Cervical pregnancy",
+        "ja": "子宮頸管妊娠"
+      },
+      {
+        "en": "Cervix",
+        "ja": "子宮頸部"
+      },
+      {
+        "en": "Cesarean delivery",
+        "ja": "帝王切開"
+      },
+      {
+        "en": "Charley horse",
+        "ja": "こむら返り"
+      },
+      {
+        "en": "Chills",
+        "ja": "悪寒"
+      },
+      {
+        "en": "Colic",
+        "ja": "疝痛"
+      },
+      {
+        "en": "Colostrum",
+        "ja": "初乳"
+      },
+      {
+        "en": "Complicated labor",
+        "ja": "難産"
+      },
+      {
+        "en": "Condom",
+        "ja": "コンドーム"
+      },
+      {
+        "en": "to Congested be",
+        "ja": "詰まっている"
+      },
+      {
+        "en": "Cracked nipples",
+        "ja": "乳首のひび割れ"
+      },
+      {
+        "en": "Cradle",
+        "ja": "ゆりかご"
+      },
+      {
+        "en": "Cramps, stomach",
+        "ja": "腹痛、けいれん"
+      },
+      {
+        "en": "Cramps",
+        "ja": "けいれん"
+      },
+      {
+        "en": "Crankiness",
+        "ja": "不機嫌"
+      },
+      {
+        "en": "Crib",
+        "ja": "ベビーベッド"
+      },
+      {
+        "en": "C-section / Caesarian section",
+        "ja": "帝王切開"
+      },
+      {
+        "en": "C-section",
+        "ja": "帝王切開"
+      },
+      {
+        "en": "Caesarian section",
+        "ja": "帝王切開"
+      },
+      {
+        "en": "D&C dilation and curettage",
+        "ja": "子宮内容除去術"
+      },
+      {
+        "en": "dilation and curettage",
+        "ja": "頸管拡張および子宮内容除去"
+      },
+      {
+        "en": "Dead birth",
+        "ja": "死産"
+      },
+      {
+        "en": "Deliver",
+        "ja": "分娩する"
+      },
+      {
+        "en": "Delivery",
+        "ja": "分娩"
+      },
+      {
+        "en": "Delivery room",
+        "ja": "分娩室"
+      },
+      {
+        "en": "Delivery table",
+        "ja": "分娩台"
+      },
+      {
+        "en": "Depo-Provera shot",
+        "ja": "デポプロベラ注射"
+      },
+      {
+        "en": "Dermo Plast spray",
+        "ja": "ダーモプラストスプレー"
+      },
+      {
+        "en": "Diaper rash",
+        "ja": "おむつかぶれ"
+      },
+      {
+        "en": "Diarrhea",
+        "ja": "下痢"
+      },
+      {
+        "en": "Discharge instructions",
+        "ja": "退院時の説明"
+      },
+      {
+        "en": "Douche",
+        "ja": "膣洗浄"
+      },
+      {
+        "en": "Drainage",
+        "ja": "排液"
+      },
+      {
+        "en": "Dry labor",
+        "ja": "破水前の陣痛"
+      },
+      {
+        "en": "Dryness",
+        "ja": "乾燥"
+      },
+      {
+        "en": "Due date",
+        "ja": "出産予定日"
+      },
+      {
+        "en": "Dysmenorrhea",
+        "ja": "月経困難症"
+      },
+      {
+        "en": "Dysuria",
+        "ja": "排尿痛"
+      },
+      {
+        "en": "Ear infection",
+        "ja": "耳の感染症"
+      },
+      {
+        "en": "Ectopic pregnancy",
+        "ja": "子宮外妊娠"
+      },
+      {
+        "en": "Egg",
+        "ja": "卵子"
+      },
+      {
+        "en": "Endometriosis",
+        "ja": "子宮内膜症"
+      },
+      {
+        "en": "Endometrium",
+        "ja": "子宮内膜"
+      },
+      {
+        "en": "to Engorged be",
+        "ja": "張っている"
+      },
+      {
+        "en": "Epidural anesthesia",
+        "ja": "硬膜外麻酔"
+      },
+      {
+        "en": "Episiotomy",
+        "ja": "会陰切開"
+      },
+      {
+        "en": "Estrogen replacement treatment",
+        "ja": "エストロゲン補充療法"
+      },
+      {
+        "en": "to Express out the milk",
+        "ja": "搾乳する"
+      },
+      {
+        "en": "Fallopian tube",
+        "ja": "卵管"
+      },
+      {
+        "en": "False labor",
+        "ja": "偽陣痛"
+      },
+      {
+        "en": "Family planning",
+        "ja": "家族計画"
+      },
+      {
+        "en": "Female sterility",
+        "ja": "女性の不妊"
+      },
+      {
+        "en": "Fertility counseling",
+        "ja": "不妊カウンセリング"
+      },
+      {
+        "en": "Fertilization treatment",
+        "ja": "受精の治療"
+      },
+      {
+        "en": "Fibroid",
+        "ja": "子宮筋腫"
+      },
+      {
+        "en": "Fibrous tumor",
+        "ja": "線維性腫瘍"
+      },
+      {
+        "en": "Forceps delivery",
+        "ja": "鉗子分娩"
+      },
+      {
+        "en": "Foul smell of vaginal discharge",
+        "ja": "おりものの悪臭"
+      },
+      {
+        "en": "Frigidity",
+        "ja": "不感症"
+      },
+      {
+        "en": "FSH follicle stimulating hormone",
+        "ja": "卵胞刺激ホルモン"
+      },
+      {
+        "en": "FSH",
+        "ja": "卵胞刺激ホルモン"
+      },
+      {
+        "en": "follicle stimulating hormone",
+        "ja": "卵胞刺激ホルモン"
+      },
+      {
+        "en": "Genetic counseling",
+        "ja": "遺伝カウンセリング"
+      },
+      {
+        "en": "Genetic trend",
+        "ja": "遺伝的傾向"
+      },
+      {
+        "en": "Genitalia",
+        "ja": "性器"
+      },
+      {
+        "en": "Gestational diabetes",
+        "ja": "妊娠糖尿病"
+      },
+      {
+        "en": "to Give birth",
+        "ja": "出産する"
+      },
+      {
+        "en": "Grip",
+        "ja": "握力"
+      },
+      {
+        "en": "Growth and development",
+        "ja": "成長と発達"
+      },
+      {
+        "en": "Hemorrhage",
+        "ja": "大量出血"
+      },
+      {
+        "en": "Hemorrhoids",
+        "ja": "痔"
+      },
+      {
+        "en": "to Hind milk",
+        "ja": "後乳"
+      },
+      {
+        "en": "Hormonal treatment",
+        "ja": "ホルモン療法"
+      },
+      {
+        "en": "Hot and cold spells",
+        "ja": "ほてりと寒気"
+      },
+      {
+        "en": "Hot flashes",
+        "ja": "ほてり"
+      },
+      {
+        "en": "Hysterectomy",
+        "ja": "子宮摘出"
+      },
+      {
+        "en": "Ibuprofen",
+        "ja": "イブプロフェン"
+      },
+      {
+        "en": "Ice pack",
+        "ja": "氷嚢"
+      },
+      {
+        "en": "Increased pain of episiotomy",
+        "ja": "会陰切開部の痛みの増強"
+      },
+      {
+        "en": "Induced abortion",
+        "ja": "人工妊娠中絶"
+      },
+      {
+        "en": "Induced labor",
+        "ja": "誘発分娩"
+      },
+      {
+        "en": "Infertile",
+        "ja": "不妊の"
+      },
+      {
+        "en": "Inhalers, puffers",
+        "ja": "吸入器"
+      },
+      {
+        "en": "Inhalers",
+        "ja": "吸入器"
+      },
+      {
+        "en": "puffers",
+        "ja": "吸入器"
+      },
+      {
+        "en": "Intrauterine device",
+        "ja": "子宮内避妊具"
+      },
+      {
+        "en": "IUD",
+        "ja": "子宮内避妊具"
+      },
+      {
+        "en": "In-vitro fertilization",
+        "ja": "体外受精"
+      },
+      {
+        "en": "Itchiness",
+        "ja": "かゆみ"
+      },
+      {
+        "en": "Labia",
+        "ja": "陰唇"
+      },
+      {
+        "en": "Labor",
+        "ja": "陣痛"
+      },
+      {
+        "en": "Labor pains",
+        "ja": "陣痛"
+      },
+      {
+        "en": "Labor room",
+        "ja": "陣痛室"
+      },
+      {
+        "en": "to Labor be in",
+        "ja": "陣痛中である"
+      },
+      {
+        "en": "Lactation",
+        "ja": "泌乳"
+      },
+      {
+        "en": "Lamaze method",
+        "ja": "ラマーズ法"
+      },
+      {
+        "en": "Latched on",
+        "ja": "吸い付いている"
+      },
+      {
+        "en": "Lethargic",
+        "ja": "傾眠"
+      },
+      {
+        "en": "Lice",
+        "ja": "シラミ"
+      },
+      {
+        "en": "Lip of the pudendum",
+        "ja": "陰唇"
+      },
+      {
+        "en": "Listlessness",
+        "ja": "無気力"
+      },
+      {
+        "en": "Live-birth",
+        "ja": "生産"
+      },
+      {
+        "en": "LOP Length of pregnancy",
+        "ja": "妊娠期間"
+      },
+      {
+        "en": "LOP",
+        "ja": "妊娠期間"
+      },
+      {
+        "en": "Length of pregnancy",
+        "ja": "妊娠期間"
+      },
+      {
+        "en": "Lukewarm",
+        "ja": "ぬるい"
+      },
+      {
+        "en": "Mammogram, mammography",
+        "ja": "マンモグラフィ"
+      },
+      {
+        "en": "Mammogram",
+        "ja": "マンモグラフィ"
+      },
+      {
+        "en": "mammography",
+        "ja": "マンモグラフィ"
+      },
+      {
+        "en": "Menopause",
+        "ja": "閉経"
+      },
+      {
+        "en": "Menstruation period, period",
+        "ja": "月経、生理"
+      },
+      {
+        "en": "Menstruation period",
+        "ja": "月経"
+      },
+      {
+        "en": "Midwife",
+        "ja": "助産師"
+      },
+      {
+        "en": "Milk pump",
+        "ja": "搾乳器"
+      },
+      {
+        "en": "Milk supply",
+        "ja": "母乳の出"
+      },
+      {
+        "en": "Miscarriage",
+        "ja": "流産"
+      },
+      {
+        "en": "Mood swings",
+        "ja": "気分の浮き沈み"
+      },
+      {
+        "en": "Morning sickness",
+        "ja": "つわり"
+      },
+      {
+        "en": "Morning-after pill",
+        "ja": "緊急避妊薬"
+      },
+      {
+        "en": "Mucus",
+        "ja": "粘液"
+      },
+      {
+        "en": "Multiple birth",
+        "ja": "多胎出産"
+      },
+      {
+        "en": "Multiple pregnancy",
+        "ja": "多胎妊娠"
+      },
+      {
+        "en": "Narrow hips",
+        "ja": "狭い骨盤"
+      },
+      {
+        "en": "Nebulizer",
+        "ja": "ネブライザー"
+      },
+      {
+        "en": "Night sweats",
+        "ja": "寝汗"
+      },
+      {
+        "en": "Nipple discharge",
+        "ja": "乳頭からの分泌"
+      },
+      {
+        "en": "Norplant",
+        "ja": "ノルプラント"
+      },
+      {
+        "en": "contraceptive implant",
+        "ja": "避妊インプラント"
+      },
+      {
+        "en": "Nursing pads",
+        "ja": "母乳パッド"
+      },
+      {
+        "en": "Oral contraceptive",
+        "ja": "経口避妊薬"
+      },
+      {
+        "en": "Ovarian pregnancy",
+        "ja": "卵巣妊娠"
+      },
+      {
+        "en": "Ovary",
+        "ja": "卵巣"
+      },
+      {
+        "en": "Overactive bladder",
+        "ja": "過活動膀胱"
+      },
+      {
+        "en": "Oviduct",
+        "ja": "卵管"
+      },
+      {
+        "en": "Painkiller",
+        "ja": "鎮痛剤"
+      },
+      {
+        "en": "Pap smear",
+        "ja": "子宮頸部細胞診"
+      },
+      {
+        "en": "Parturient",
+        "ja": "産婦"
+      },
+      {
+        "en": "to Pass a clot",
+        "ja": "血の塊を出す"
+      },
+      {
+        "en": "Patch",
+        "ja": "貼付薬"
+      },
+      {
+        "en": "Permanent sterility",
+        "ja": "永久不妊"
+      },
+      {
+        "en": "PMS - Pre-Menstrual Syndrome",
+        "ja": "月経前症候群"
+      },
+      {
+        "en": "PMS",
+        "ja": "月経前症候群"
+      },
+      {
+        "en": "- Pre-Menstrual Syndrome",
+        "ja": "月経前症候群"
+      },
+      {
+        "en": "Pre-Menstrual Syndrome",
+        "ja": "月経前症候群"
+      },
+      {
+        "en": "Postpartum depression",
+        "ja": "産後うつ"
+      },
+      {
+        "en": "baby blues",
+        "ja": "マタニティブルー"
+      },
+      {
+        "en": "Post-term birth",
+        "ja": "過期産"
+      },
+      {
+        "en": "Precipitate labor",
+        "ja": "急遂分娩"
+      },
+      {
+        "en": "Pregnancy",
+        "ja": "妊娠"
+      },
+      {
+        "en": "Pregnant",
+        "ja": "妊娠している"
+      },
+      {
+        "en": "Premature",
+        "ja": "早産の"
+      },
+      {
+        "en": "Premature birth",
+        "ja": "早産"
+      },
+      {
+        "en": "Premature labor, delivery",
+        "ja": "切迫早産、早期分娩"
+      },
+      {
+        "en": "Premature labor",
+        "ja": "切迫早産"
+      },
+      {
+        "en": "Prenatal",
+        "ja": "出生前の"
+      },
+      {
+        "en": "Prolonged labor",
+        "ja": "遷延分娩"
+      },
+      {
+        "en": "to Pump out the milk",
+        "ja": "搾乳する"
+      },
+      {
+        "en": "Runny nose",
+        "ja": "鼻水"
+      },
+      {
+        "en": "Sanitary napkins/pads",
+        "ja": "生理用ナプキン"
+      },
+      {
+        "en": "Sanitary napkins",
+        "ja": "生理用ナプキン"
+      },
+      {
+        "en": "Scraping",
+        "ja": "掻爬"
+      },
+      {
+        "en": "Sitz-baths",
+        "ja": "坐浴"
+      },
+      {
+        "en": "Sore nipples",
+        "ja": "乳首の痛み"
+      },
+      {
+        "en": "Sore throat",
+        "ja": "咽頭痛"
+      },
+      {
+        "en": "Sperm",
+        "ja": "精子"
+      },
+      {
+        "en": "Spitting up",
+        "ja": "吐き戻し"
+      },
+      {
+        "en": "Spontaneous abortion",
+        "ja": "自然流産"
+      },
+      {
+        "en": "Spontaneous labor",
+        "ja": "自然陣痛"
+      },
+      {
+        "en": "Spotting",
+        "ja": "不正出血"
+      },
+      {
+        "en": "Staples",
+        "ja": "ステープラー"
+      },
+      {
+        "en": "Sterility",
+        "ja": "不妊"
+      },
+      {
+        "en": "Steri-strips",
+        "ja": "ステリストリップ"
+      },
+      {
+        "en": "Still-born",
+        "ja": "死産児"
+      },
+      {
+        "en": "Stool problem",
+        "ja": "便の異常"
+      },
+      {
+        "en": "Stool softener",
+        "ja": "便軟化剤"
+      },
+      {
+        "en": "to Stuffed be",
+        "ja": "詰まっている"
+      },
+      {
+        "en": "Tampons",
+        "ja": "タンポン"
+      },
+      {
+        "en": "Therapeutic abortion",
+        "ja": "治療的中絶"
+      },
+      {
+        "en": "Threaten abortion",
+        "ja": "切迫流産"
+      },
+      {
+        "en": "Tiredness",
+        "ja": "疲労"
+      },
+      {
+        "en": "Trained midwife",
+        "ja": "資格のある助産師"
+      },
+      {
+        "en": "Tubal pregnancy",
+        "ja": "卵管妊娠"
+      },
+      {
+        "en": "Tummy",
+        "ja": "お腹"
+      },
+      {
+        "en": "Twin pregnancy",
+        "ja": "双胎妊娠"
+      },
+      {
+        "en": "Ultrasound",
+        "ja": "超音波"
+      },
+      {
+        "en": "Umbilical cord",
+        "ja": "へその緒"
+      },
+      {
+        "en": "Untrained midwife",
+        "ja": "資格のない助産者"
+      },
+      {
+        "en": "Uterine cramps, after-pains",
+        "ja": "子宮のけいれん、後陣痛"
+      },
+      {
+        "en": "Uterine cramps",
+        "ja": "子宮のけいれん"
+      },
+      {
+        "en": "after-pains",
+        "ja": "後陣痛"
+      },
+      {
+        "en": "Uterine tenderness",
+        "ja": "子宮の圧痛"
+      },
+      {
+        "en": "Vaginal bleeding",
+        "ja": "性器出血"
+      },
+      {
+        "en": "Vaginal cream",
+        "ja": "膣クリーム"
+      },
+      {
+        "en": "Vaginal discharge",
+        "ja": "おりもの"
+      },
+      {
+        "en": "Vaginal dryness",
+        "ja": "膣の乾燥"
+      },
+      {
+        "en": "Vaginal jelly",
+        "ja": "膣用ゼリー"
+      },
+      {
+        "en": "Vaginal lubricant",
+        "ja": "膣用潤滑剤"
+      },
+      {
+        "en": "Vaginal yeast infection",
+        "ja": "膣カンジダ"
+      },
+      {
+        "en": "Varicose veins",
+        "ja": "静脈瘤"
+      },
+      {
+        "en": "Water soluble lubricant",
+        "ja": "水溶性潤滑剤"
+      },
+      {
+        "en": "Watery discharge",
+        "ja": "水っぽいおりもの"
+      },
+      {
+        "en": "to Wean",
+        "ja": "離乳する"
+      },
+      {
+        "en": "Witch hazel",
+        "ja": "ハマメリス"
+      },
+      {
+        "en": "1st Stage Labour",
+        "ja": "分娩第1期"
+      },
+      {
+        "en": "2st Stage Labour",
+        "ja": "分娩第2期"
+      },
+      {
+        "en": "3st Stage Labour",
+        "ja": "分娩第3期"
+      },
+      {
+        "en": "Additional shots",
+        "ja": "追加接種"
+      },
+      {
+        "en": "Booster shots",
+        "ja": "追加ワクチン"
+      },
+      {
+        "en": "Bronchitis",
+        "ja": "気管支炎"
+      },
+      {
+        "en": "By mouth",
+        "ja": "経口で"
+      },
+      {
+        "en": "Chicken pox",
+        "ja": "水ぼうそう"
+      },
+      {
+        "en": "Varicella",
+        "ja": "水痘"
+      },
+      {
+        "en": "Diphtheria-Tetanus-Pertussis Three-in-one shot/baby shot",
+        "ja": "ジフテリア・破傷風・百日咳の三種混合ワクチン"
+      },
+      {
+        "en": "DTP",
+        "ja": "三種混合ワクチン"
+      },
+      {
+        "en": "Diphtheria-Tetanus-Pertussis Three-in-one shot",
+        "ja": "ジフテリア・破傷風・百日咳の三種混合ワクチン"
+      },
+      {
+        "en": "baby shot",
+        "ja": "乳児の予防接種"
+      },
+      {
+        "en": "Drops",
+        "ja": "滴"
+      },
+      {
+        "en": "German measles",
+        "ja": "風疹"
+      },
+      {
+        "en": "to Give a shot",
+        "ja": "注射する"
+      },
+      {
+        "en": "Haemophiles, Influenza, Meningitis",
+        "ja": "ヘモフィルス、インフルエンザ、髄膜炎"
+      },
+      {
+        "en": "Haemophiles",
+        "ja": "ヘモフィルス菌"
+      },
+      {
+        "en": "Influenza",
+        "ja": "インフルエンザ"
+      },
+      {
+        "en": "Meningitis",
+        "ja": "髄膜炎"
+      },
+      {
+        "en": "Hepatitis B",
+        "ja": "B型肝炎"
+      },
+      {
+        "en": "Immunization",
+        "ja": "予防接種"
+      },
+      {
+        "en": "Immunization chart",
+        "ja": "予防接種の記録"
+      },
+      {
+        "en": "Immunization-booster dose",
+        "ja": "追加免疫"
+      },
+      {
+        "en": "to Immunize",
+        "ja": "予防接種する"
+      },
+      {
+        "en": "Jaundice",
+        "ja": "黄疸"
+      },
+      {
+        "en": "Malaria",
+        "ja": "マラリア"
+      },
+      {
+        "en": "Measles",
+        "ja": "はしか"
+      },
+      {
+        "en": "Mumps",
+        "ja": "おたふく風邪"
+      },
+      {
+        "en": "Pneumonia",
+        "ja": "肺炎"
+      },
+      {
+        "en": "Polio",
+        "ja": "ポリオ"
+      },
+      {
+        "en": "Rabies",
+        "ja": "狂犬病"
+      },
+      {
+        "en": "Rubella",
+        "ja": "風疹"
+      },
+      {
+        "en": "Scarlet fever",
+        "ja": "猩紅熱"
+      },
+      {
+        "en": "Shot",
+        "ja": "注射"
+      },
+      {
+        "en": "Shot chart / shot record",
+        "ja": "接種記録"
+      },
+      {
+        "en": "Shot chart",
+        "ja": "接種表"
+      },
+      {
+        "en": "shot record",
+        "ja": "接種記録"
+      },
+      {
+        "en": "Small pox or smallpox",
+        "ja": "天然痘"
+      },
+      {
+        "en": "Tetanus",
+        "ja": "破傷風"
+      },
+      {
+        "en": "Tonsillitis",
+        "ja": "扁桃炎"
+      },
+      {
+        "en": "BCG",
+        "ja": "BCGワクチン"
+      },
+      {
+        "en": "Typhoid",
+        "ja": "腸チフス"
+      },
+      {
+        "en": "Typhoid fever",
+        "ja": "腸チフス"
+      },
+      {
+        "en": "to Vaccinate",
+        "ja": "ワクチンを接種する"
+      },
+      {
+        "en": "Vaccination",
+        "ja": "ワクチン接種"
+      },
+      {
+        "en": "Whooping cough",
+        "ja": "百日咳"
+      },
+      {
+        "en": "Yellow fever",
+        "ja": "黄熱"
+      },
+      {
+        "en": "Andropause",
+        "ja": "男性更年期"
+      },
+      {
+        "en": "Erectile dysfunction",
+        "ja": "勃起不全"
+      },
+      {
+        "en": "Foreskin",
+        "ja": "包皮"
+      },
+      {
+        "en": "Glands",
+        "ja": "腺"
+      },
+      {
+        "en": "Jock itch",
+        "ja": "股部白癬"
+      },
+      {
+        "en": "Jock strap",
+        "ja": "股当てサポーター"
+      },
+      {
+        "en": "Penis",
+        "ja": "陰茎"
+      },
+      {
+        "en": "Prostate",
+        "ja": "前立腺"
+      },
+      {
+        "en": "Scrotum",
+        "ja": "陰嚢"
+      },
+      {
+        "en": "Testicles",
+        "ja": "精巣"
+      },
+      {
+        "en": "Vasectomy",
+        "ja": "精管切除"
+      },
+      {
+        "en": "Blood smear",
+        "ja": "血液塗抹"
+      },
+      {
+        "en": "Blood test, blood work",
+        "ja": "血液検査"
+      },
+      {
+        "en": "Blood test",
+        "ja": "血液検査"
+      },
+      {
+        "en": "blood work",
+        "ja": "血液検査"
+      },
+      {
+        "en": "CAT scan",
+        "ja": "CT検査"
+      },
+      {
+        "en": "computerized axial tomography",
+        "ja": "コンピュータ断層撮影"
+      },
+      {
+        "en": "CAT",
+        "ja": "コンピュータ断層撮影"
+      },
+      {
+        "en": "scan",
+        "ja": "スキャン"
+      },
+      {
+        "en": "CBC complete blood count",
+        "ja": "全血球計算"
+      },
+      {
+        "en": "CBC",
+        "ja": "全血球計算"
+      },
+      {
+        "en": "complete blood count",
+        "ja": "全血球計算"
+      },
+      {
+        "en": "CT scan",
+        "ja": "CT検査"
+      },
+      {
+        "en": "computed tomography",
+        "ja": "コンピュータ断層撮影"
+      },
+      {
+        "en": "CT",
+        "ja": "コンピュータ断層撮影"
+      },
+      {
+        "en": "ECG Electrocardiogram",
+        "ja": "心電図"
+      },
+      {
+        "en": "ECG",
+        "ja": "心電図"
+      },
+      {
+        "en": "Electrocardiogram",
+        "ja": "心電図"
+      },
+      {
+        "en": "EEG electroencephalogram",
+        "ja": "脳波"
+      },
+      {
+        "en": "EEG",
+        "ja": "脳波"
+      },
+      {
+        "en": "electroencephalogram",
+        "ja": "脳波"
+      },
+      {
+        "en": "ELISA test",
+        "ja": "エライザ検査"
+      },
+      {
+        "en": "ELISA",
+        "ja": "エライザ検査"
+      },
+      {
+        "en": "test",
+        "ja": "検査"
+      },
+      {
+        "en": "Eye exam",
+        "ja": "眼科検査"
+      },
+      {
+        "en": "Fasting blood sugar",
+        "ja": "空腹時血糖"
+      },
+      {
+        "en": "Glucose tolerance test",
+        "ja": "ブドウ糖負荷試験"
+      },
+      {
+        "en": "Hearing test",
+        "ja": "聴力検査"
+      },
+      {
+        "en": "MRI Magnetic Resonance Imaging",
+        "ja": "磁気共鳴画像"
+      },
+      {
+        "en": "MRI",
+        "ja": "磁気共鳴画像"
+      },
+      {
+        "en": "Magnetic Resonance Imaging",
+        "ja": "磁気共鳴画像"
+      },
+      {
+        "en": "Pelvic examination",
+        "ja": "内診"
+      },
+      {
+        "en": "Physical Therapy",
+        "ja": "理学療法"
+      },
+      {
+        "en": "PT",
+        "ja": "理学療法"
+      },
+      {
+        "en": "Post-operative tests",
+        "ja": "術後検査"
+      },
+      {
+        "en": "Pre-operative tests",
+        "ja": "術前検査"
+      },
+      {
+        "en": "Pulmonary function test",
+        "ja": "肺機能検査"
+      },
+      {
+        "en": "RBC red blood count",
+        "ja": "赤血球数"
+      },
+      {
+        "en": "RBC",
+        "ja": "赤血球数"
+      },
+      {
+        "en": "red blood count",
+        "ja": "赤血球数"
+      },
+      {
+        "en": "Rectal examination",
+        "ja": "直腸診"
+      },
+      {
+        "en": "Serum glutamic oxaloacetic transaminase",
+        "ja": "血清GOT"
+      },
+      {
+        "en": "SGOT",
+        "ja": "血清GOT"
+      },
+      {
+        "en": "Skin test",
+        "ja": "皮膚試験"
+      },
+      {
+        "en": "Sonogram",
+        "ja": "超音波画像"
+      },
+      {
+        "en": "SR sedimentation rate",
+        "ja": "赤血球沈降速度"
+      },
+      {
+        "en": "SR",
+        "ja": "赤血球沈降速度"
+      },
+      {
+        "en": "sedimentation rate",
+        "ja": "赤血球沈降速度"
+      },
+      {
+        "en": "Stool specimen",
+        "ja": "便検体"
+      },
+      {
+        "en": "Stress test",
+        "ja": "負荷試験"
+      },
+      {
+        "en": "Urine routine, urinalysis",
+        "ja": "尿一般検査"
+      },
+      {
+        "en": "Urine routine",
+        "ja": "尿一般検査"
+      },
+      {
+        "en": "WBC white blood count",
+        "ja": "白血球数"
+      },
+      {
+        "en": "WBC",
+        "ja": "白血球数"
+      },
+      {
+        "en": "white blood count",
+        "ja": "白血球数"
+      }
     ]
   }
 }

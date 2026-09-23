@@ -1,8 +1,42 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import fs from "fs";
 import path from "path";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
+
+/** Serve kuromoji's gzip dictionary only when Romaji is turned on. Do not mark Content-Encoding: gzip — the browser loader inflates the bytes itself. */
+function kuromojiDictPlugin(): Plugin {
+  const src = path.resolve(import.meta.dirname, "node_modules/kuromoji/dict");
+  const mount = (url: string | undefined): string | null => {
+    if (!url) return null;
+    const pathOnly = url.split("?")[0] ?? "";
+    const marker = "/kuromoji-dict/";
+    const at = pathOnly.indexOf(marker);
+    if (at < 0) return null;
+    const rel = decodeURIComponent(pathOnly.slice(at + marker.length));
+    if (!rel || rel.includes("..")) return null;
+    const file = path.join(src, rel);
+    return file.startsWith(src) ? file : null;
+  };
+  return {
+    name: "kuromoji-dict",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const file = mount(req.url);
+        if (!file || !fs.existsSync(file)) return next();
+        res.setHeader("Content-Type", "application/octet-stream");
+        fs.createReadStream(file).pipe(res);
+      });
+    },
+    closeBundle() {
+      if (!fs.existsSync(src)) return;
+      const dest = path.resolve(import.meta.dirname, "dist/public/kuromoji-dict");
+      fs.mkdirSync(dest, { recursive: true });
+      fs.cpSync(src, dest, { recursive: true });
+    },
+  };
+}
 
 const isProduction = process.env.NODE_ENV === "production";
 /** Set `VITE_KEEP_CONSOLE=1` on the build machine to retain console.* in production bundles (debug only). */
@@ -41,6 +75,7 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
+    kuromojiDictPlugin(),
     ...(isProduction ? [] : [runtimeErrorOverlay()]),
     ...(process.env.NODE_ENV !== "production" &&
     process.env.REPL_ID !== undefined
@@ -108,6 +143,7 @@ export default defineConfig({
             assetFileNames: "assets/[hash][extname]",
             manualChunks(id) {
               if (id.includes("node_modules")) {
+                if (id.includes("kuromoji")) return "kuromoji";
                 return "v";
               }
             },

@@ -14,6 +14,18 @@ import pack from "./interpreter-glossary.json";
 import { meaningLockPinPairs } from "./meaning-locks";
 
 export const SONIOX_X_CONTEXT_SAFE_CHARS = 9_600;
+/**
+ * Japanese pairs stay in the 8.5k–9k band. Soniox still rejects past ~10k;
+ * the lower ceiling keeps the en-ja medical/legal/auto pack from overfilling.
+ */
+export const SONIOX_X_JA_CONTEXT_SAFE_CHARS = 9_000;
+
+export function sonioxContextCharLimit(langA: string, langB: string): number {
+  const a = langBase(langA);
+  const b = langBase(langB);
+  if (a === "ja" || b === "ja") return SONIOX_X_JA_CONTEXT_SAFE_CHARS;
+  return SONIOX_X_CONTEXT_SAFE_CHARS;
+}
 
 export type GlossaryTerm = { source: string; target: string };
 type PackEntry = Record<string, string>;
@@ -549,8 +561,8 @@ function withHealthcareTopic(ctx: SonioxStartContext): void {
   }
 }
 
-function fits(ctx: SonioxStartContext, reserve = 0): boolean {
-  return contextChars(ctx) <= SONIOX_X_CONTEXT_SAFE_CHARS - reserve;
+function fits(ctx: SonioxStartContext, limit: number, reserve = 0): boolean {
+  return contextChars(ctx) <= limit - reserve;
 }
 
 /** Chars reserved so intro handoff terms still fit after the medical pack. */
@@ -573,6 +585,7 @@ function addPackPairs(
   includedSources: Set<string>,
   userSources: Set<string>,
   predicate: (start: GlossaryTerm) => boolean,
+  limit: number,
   reserve = 0,
 ): void {
   ctx.translation_terms = ctx.translation_terms ?? [];
@@ -585,7 +598,7 @@ function addPackPairs(
     if (batch.length === 0) continue;
     const before = ctx.translation_terms.length;
     ctx.translation_terms.push(...batch);
-    if (!fits(ctx, reserve)) {
+    if (!fits(ctx, limit, reserve)) {
       // Skip this pair and keep trying — a longer term must not block shorter priority pins.
       ctx.translation_terms.length = before;
       continue;
@@ -607,11 +620,12 @@ export function mergeSonioxXInterpreterContext(args: {
   langA: string;
   langB: string;
 }): SonioxStartContext {
+  const limit = sonioxContextCharLimit(args.langA, args.langB);
   const ctx = cloneContext(args.dialect);
   if (args.packTerms.length > 0) withHealthcareTopic(ctx);
 
   ctx.translation_terms = [...(ctx.translation_terms ?? []), ...args.userTerms];
-  if (!fits(ctx, INTRO_CONTEXT_RESERVE)) ctx.translation_terms = [...args.userTerms];
+  if (!fits(ctx, limit, INTRO_CONTEXT_RESERVE)) ctx.translation_terms = [...args.userTerms];
 
   const seen = new Set((ctx.translation_terms ?? []).map((t) => `${t.source}->${t.target}`));
   const includedSources = new Set((ctx.translation_terms ?? []).map((t) => t.source));
@@ -624,6 +638,7 @@ export function mergeSonioxXInterpreterContext(args: {
     includedSources,
     userSources,
     isPriorityPairStart,
+    limit,
     INTRO_CONTEXT_RESERVE,
   );
 
@@ -635,7 +650,7 @@ export function mergeSonioxXInterpreterContext(args: {
     seenTerm.add(pin.toLowerCase());
     terms.push(pin);
     ctx.terms = terms;
-    if (!fits(ctx, INTRO_CONTEXT_RESERVE)) {
+    if (!fits(ctx, limit, INTRO_CONTEXT_RESERVE)) {
       terms.pop();
       break;
     }
@@ -654,7 +669,7 @@ export function mergeSonioxXInterpreterContext(args: {
     if (lead && includedSources.has(lead[1])) continue;
     extra.push(line);
     ctx.text = [baseText, header, extra.join("\n")].filter(Boolean).join("\n");
-    if (!fits(ctx, INTRO_CONTEXT_RESERVE)) {
+    if (!fits(ctx, limit, INTRO_CONTEXT_RESERVE)) {
       extra.pop();
       ctx.text = extra.length > 0 ? [baseText, header, extra.join("\n")].filter(Boolean).join("\n") : baseText || undefined;
       break;
@@ -669,6 +684,7 @@ export function mergeSonioxXInterpreterContext(args: {
     includedSources,
     userSources,
     (start) => !isPriorityPairStart(start),
+    limit,
     INTRO_CONTEXT_RESERVE,
   );
 
@@ -689,7 +705,7 @@ export function mergeSonioxXInterpreterContext(args: {
       "iud",
     ],
   );
-  while (!fits(ctx) && (ctx.translation_terms?.length ?? 0) > args.userTerms.length) {
+  while (!fits(ctx, limit) && (ctx.translation_terms?.length ?? 0) > args.userTerms.length) {
     const terms = ctx.translation_terms!;
     let idx = terms.length - 1;
     while (idx >= 0 && protectedSources.has(terms[idx]!.source.trim().toLowerCase())) {
@@ -698,7 +714,7 @@ export function mergeSonioxXInterpreterContext(args: {
     if (idx < 0) break;
     terms.splice(idx, 1);
   }
-  while (!fits(ctx) && (ctx.terms?.length ?? 0) > buildInterpreterIntroTerms(args.langA, args.langB).length) {
+  while (!fits(ctx, limit) && (ctx.terms?.length ?? 0) > buildInterpreterIntroTerms(args.langA, args.langB).length) {
     ctx.terms!.pop();
   }
 

@@ -22,6 +22,9 @@ export type BidiPiece = {
 const RTL_SCRIPT_RE =
   /[\u0590-\u05FF\u0600-\u06FF\u0700-\u074F\u0750-\u077F\u08A0-\u08FF\ufb50-\ufdff\ufe70-\ufeff]/;
 const LTR_STRONG_RE = /[A-Za-z\u00C0-\u024F0-9]/;
+/** Hiragana, katakana, and kanji are left-to-right. Counting them keeps a Japanese line from flipping RTL when a short Arabic name is inside it. */
+const CJK_KANA_LTR_RE =
+  /[\u3040-\u30FF\u31F0-\u31FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\uFF66-\uFF9D]/;
 const BIDI_CONTROLS_RE = /[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
 
 export function stripBidiControls(text: string): string {
@@ -30,7 +33,7 @@ export function stripBidiControls(text: string): string {
 
 function strongDir(ch: string): BidiDir | null {
   if (RTL_SCRIPT_RE.test(ch)) return "rtl";
-  if (LTR_STRONG_RE.test(ch)) return "ltr";
+  if (LTR_STRONG_RE.test(ch) || CJK_KANA_LTR_RE.test(ch)) return "ltr";
   return null;
 }
 

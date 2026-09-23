@@ -59,4 +59,28 @@ describe("dominantBidiDir", () => {
   it("picks RTL when the translation is mostly Arabic", () => {
     expect(dominantBidiDir("نعم، هذا كل شيء CPR", "ltr")).toBe("rtl");
   });
+
+  it("keeps Japanese left-to-right when a short Arabic name is inside it", () => {
+    const text = "患者の名前は أحمد です";
+    expect(dominantBidiDir(text, "rtl")).toBe("ltr");
+    const pieces = splitBidiIslands(text, "ltr");
+    expect(pieces.find((p) => p.text.includes("أحمد"))?.isolate).toBe("rtl");
+    expect(pieces.some((p) => p.text.includes("患者") && !p.isolate)).toBe(true);
+  });
+
+  it("isolates a Japanese clause as one LTR run inside Arabic", () => {
+    const text = "قال こんにちは、具合はどうですか ثم صمت";
+    const pieces = splitBidiIslands(text, "rtl");
+    const japanese = pieces.find((p) => p.isolate === "ltr" && p.text.includes("こんにちは"));
+    expect(japanese).toBeTruthy();
+    expect(pieces.filter((p) => p.isolate === "ltr")).toHaveLength(1);
+  });
+
+  it("does not isolate a plain Japanese sentence", () => {
+    const text = "こんにちは、具合はどうですか";
+    const pieces = splitBidiIslands(text, "ltr");
+    expect(pieces.every((p) => !p.isolate)).toBe(true);
+    expect(pieces.map((p) => p.text).join("")).toBe(text);
+    expect(dominantBidiDir(text, "rtl")).toBe("ltr");
+  });
 });

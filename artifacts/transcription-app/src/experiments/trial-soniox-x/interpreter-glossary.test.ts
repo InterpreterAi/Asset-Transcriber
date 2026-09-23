@@ -6,6 +6,7 @@ import {
   packTermsForPair,
   userGlossaryToTerms,
   SONIOX_X_CONTEXT_SAFE_CHARS,
+  SONIOX_X_JA_CONTEXT_SAFE_CHARS,
 } from "./interpreter-glossary";
 
 describe("interpreter glossary", () => {
@@ -196,7 +197,49 @@ describe("interpreter glossary", () => {
     expect(ctx.text).toMatch(/ogólnopolski|polszczyzna/i);
   });
 
-  it("pins high-value legal terms for Arabic/Spanish/Portuguese/Polish/German/Italian", () => {
+  it("loads the en-ja medical, legal, and auto pack both directions", () => {
+    const pack = packTermsForPair("en", "ja");
+    expect(pack.translationTerms.some((t) => t.source === "CPR" && t.target === "心肺蘇生")).toBe(true);
+    expect(pack.translationTerms.some((t) => t.source === "心肺蘇生" && t.target === "CPR")).toBe(true);
+    expect(pack.translationTerms.some((t) => t.source === "Sonogram" && t.target === "超音波画像")).toBe(true);
+    expect(pack.translationTerms.some((t) => t.source === "MRI" && t.target === "磁気共鳴画像")).toBe(true);
+    expect(pack.translationTerms.some((t) => t.source === "Immigration status" && t.target === "在留資格")).toBe(true);
+    expect(pack.translationTerms.some((t) => t.source === "Felony" && t.target === "重罪")).toBe(true);
+    expect(pack.translationTerms.some((t) => t.source === "Pro bono")).toBe(true);
+    expect(pack.translationTerms.some((t) => t.source === "Car insurance" && t.target === "自動車保険")).toBe(true);
+    expect(pack.translationTerms.some((t) => t.source === "Car accident" && t.target === "自動車事故")).toBe(true);
+    expect(pack.translationTerms.some((t) => t.source === "Insurance claim" && t.target === "保険金請求")).toBe(true);
+    expect(pack.glossaryLines.length).toBeGreaterThan(400);
+  });
+
+  it("keeps the Japanese glossary context between 8.5k and 9k", () => {
+    const dialect = buildStableDialectContext("en", "ja");
+    const pack = packTermsForPair("en", "ja");
+    const ctx = mergeSonioxXInterpreterContext({
+      dialect,
+      packTerms: pack.translationTerms,
+      packPins: pack.recognitionPins,
+      packLines: pack.glossaryLines,
+      userTerms: [],
+      langA: "en",
+      langB: "ja",
+    });
+    const n = JSON.stringify(ctx).length;
+    expect(n).toBeGreaterThanOrEqual(8_500);
+    expect(n).toBeLessThanOrEqual(SONIOX_X_JA_CONTEXT_SAFE_CHARS);
+    expect(n).toBeLessThanOrEqual(9_000);
+    for (const en of ["CPR", "MRI", "Sonogram", "Immigration status", "Car insurance"] as const) {
+      const ok =
+        ctx.translation_terms?.some((t) => t.source === en) || (ctx.text ?? "").includes(`${en}=`);
+      expect(ok, `${en} missing; chars=${n}`).toBe(true);
+    }
+    const sono = ctx.translation_terms?.find((t) => t.source === "Sonogram");
+    expect(sono?.target).toBe("超音波画像");
+    expect(ctx.text).toMatch(/hyōjungo|標準語/);
+    expect(ctx.terms?.some((t) => /you're through to the Japanese interpreter/i.test(t))).toBe(true);
+  });
+
+  it("pins high-value legal terms for Arabic/Spanish/Portuguese/Polish/German/Italian/Japanese", () => {
     for (const [a, b] of [
       ["en", "ar"],
       ["en", "es"],
@@ -204,6 +247,7 @@ describe("interpreter glossary", () => {
       ["en", "pl"],
       ["en", "de"],
       ["en", "it"],
+      ["en", "ja"],
     ] as const) {
       const pack = packTermsForPair(a, b);
       expect(pack.translationTerms.some((t) => t.source === "Immigration status")).toBe(true);
@@ -245,7 +289,7 @@ describe("interpreter glossary", () => {
     }
   });
 
-  it("pins high-value auto insurance terms for Arabic/Spanish/Portuguese/Polish/German/Italian", () => {
+  it("pins high-value auto insurance terms for Arabic/Spanish/Portuguese/Polish/German/Italian/Japanese", () => {
     for (const [a, b] of [
       ["en", "ar"],
       ["en", "es"],
@@ -253,6 +297,7 @@ describe("interpreter glossary", () => {
       ["en", "pl"],
       ["en", "de"],
       ["en", "it"],
+      ["en", "ja"],
     ] as const) {
       const pack = packTermsForPair(a, b);
       expect(pack.translationTerms.some((t) => t.source === "Car insurance")).toBe(true);

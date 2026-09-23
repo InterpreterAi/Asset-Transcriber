@@ -47,6 +47,11 @@ import useSonioxClient from "./useSonioxClient";
 import { getLanguage } from "./languages";
 import { sonioxTwoWayLanguageHints, workspaceLangToOfficialSonioxCode } from "./soniox-lang";
 import { dominantBidiDir } from "./bidi-islands";
+import {
+  ensureJapaneseRomaji,
+  japaneseTextToRomaji,
+  shouldShowJapaneseReading,
+} from "./japanese-romaji";
 import { applyFaithfulMeaningFixes } from "./meaning-locks";
 import { langDir, attachNonFinalRows, rowsFromSonioxTokens, snapshotLinesFromSonioxXRows, stripeClassesForRows, type SonioxXRow } from "./rows-from-tokens";
 import { BidiText } from "./BidiText";
@@ -66,6 +71,7 @@ import { LiveElapsedClock } from "./live-elapsed-clock";
 const LANG_OPTIONS = workspaceLanguageOptions();
 const WORKSPACE_THEME_STORAGE_KEY = "interpreterai-theme";
 const WIDE_WORKSPACE_STORAGE_KEY = "interpreterai-wide-workspace";
+const JA_ROMAJI_STORAGE_KEY = "soniox-x-ja-romaji";
 const MORSY_FONT_PX_OPTIONS = [12, 14, 16, 18, 20, 22, 24] as const;
 type FontPx = (typeof MORSY_FONT_PX_OPTIONS)[number];
 const MORSY_WS_FONT_LS = "interpreterai_morsy_ws_font_px";
@@ -130,16 +136,48 @@ function CopyBtn({ text }: { text: string }) {
   );
 }
 
+function JapaneseReading({
+  text,
+  enabled,
+  ready,
+  failed,
+}: {
+  text: string;
+  enabled: boolean;
+  ready: boolean;
+  failed: boolean;
+}) {
+  if (!shouldShowJapaneseReading(text, enabled) || failed) return null;
+  const reading = ready ? japaneseTextToRomaji(text) : "";
+  if (ready && !reading) return null;
+  return (
+    <span
+      dir="ltr"
+      lang="ja-Latn"
+      className="block mt-0.5 text-[0.72em] leading-snug tracking-wide text-muted-foreground"
+      style={{ unicodeBidi: "isolate", textAlign: "left" }}
+    >
+      {reading || "…"}
+    </span>
+  );
+}
+
 const SonioxXTranscriptRow = memo(function SonioxXTranscriptRow({
   row,
   stripeClass,
   pinPairs,
   marked,
+  showJaRomaji,
+  romajiReady,
+  romajiFailed,
 }: {
   row: SonioxXRow;
   stripeClass: string;
   pinPairs: readonly GlossaryTerm[];
   marked: boolean;
+  showJaRomaji: boolean;
+  romajiReady: boolean;
+  romajiFailed: boolean;
 }) {
   const orig = `${row.origFinal}${row.origPartial}`;
   const live = Boolean(row.origPartial || row.transPartial);
@@ -161,30 +199,36 @@ const SonioxXTranscriptRow = memo(function SonioxXTranscriptRow({
       <div className="flex min-w-0 items-start overflow-visible">
         <div className={cn("w-1 shrink-0 rounded-full self-stretch min-h-[1.25rem] mt-0.5", stripeClass)} />
         <div className="flex items-start gap-1 min-w-0 flex-1 pl-2">
-          <p
-            className="ts-text ts-original leading-relaxed whitespace-pre-wrap flex-1 min-w-0"
-            dir={origDir}
-            style={{ textAlign: origDir === "rtl" ? "right" : "left", unicodeBidi: "isolate" }}
-          >
-            <BidiText text={row.origFinal} baseDir={origDir} className="workspace-selectable-text" />
-            <BidiText
-              text={row.origPartial}
-              baseDir={origDir}
-              className="text-muted-foreground/70 italic workspace-selectable-text"
-            />
-          </p>
+          <div className="flex-1 min-w-0">
+            <p
+              className="ts-text ts-original leading-relaxed whitespace-pre-wrap"
+              dir={origDir}
+              style={{ textAlign: origDir === "rtl" ? "right" : "left", unicodeBidi: "isolate" }}
+            >
+              <BidiText text={row.origFinal} baseDir={origDir} className="workspace-selectable-text" />
+              <BidiText
+                text={row.origPartial}
+                baseDir={origDir}
+                className="text-muted-foreground/70 italic workspace-selectable-text"
+              />
+            </p>
+            <JapaneseReading text={orig} enabled={showJaRomaji} ready={romajiReady} failed={romajiFailed} />
+          </div>
           <CopyBtn text={orig} />
         </div>
       </div>
       <div className="min-w-0 pt-0.5">
         <div className="flex items-start gap-1 min-w-0">
-          <p
-            className="ts-text ts-translation leading-relaxed whitespace-pre-wrap flex-1 min-w-0"
-            dir={transDir}
-            style={{ textAlign: transDir === "rtl" ? "right" : "left", unicodeBidi: "isolate" }}
-          >
-            <BidiText text={trans} baseDir={transDir} className="workspace-selectable-text" />
-          </p>
+          <div className="flex-1 min-w-0">
+            <p
+              className="ts-text ts-translation leading-relaxed whitespace-pre-wrap"
+              dir={transDir}
+              style={{ textAlign: transDir === "rtl" ? "right" : "left", unicodeBidi: "isolate" }}
+            >
+              <BidiText text={trans} baseDir={transDir} className="workspace-selectable-text" />
+            </p>
+            <JapaneseReading text={trans} enabled={showJaRomaji} ready={romajiReady} failed={romajiFailed} />
+          </div>
           <CopyBtn text={trans} />
         </div>
       </div>
@@ -200,7 +244,10 @@ const SonioxXTranscriptRow = memo(function SonioxXTranscriptRow({
   prev.row.transFinal === next.row.transFinal &&
   prev.row.transPartial === next.row.transPartial &&
   prev.row.origLang === next.row.origLang &&
-  prev.row.transLang === next.row.transLang
+  prev.row.transLang === next.row.transLang &&
+  prev.showJaRomaji === next.showJaRomaji &&
+  prev.romajiReady === next.romajiReady &&
+  prev.romajiFailed === next.romajiFailed
 ));
 
 function FontSizePxStepper({
@@ -338,6 +385,16 @@ export default function TrialSonioxXWorkspace() {
       return false;
     }
   });
+  const [jaRomaji, setJaRomaji] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem(JA_ROMAJI_STORAGE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [romajiReady, setRomajiReady] = useState(false);
+  const [romajiError, setRomajiError] = useState(false);
   const [activeTab, setActiveTab] = useState<WorkspacePanel>("mic");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showLeftPanel, setShowLeftPanel] = useState(false);
@@ -371,6 +428,8 @@ export default function TrialSonioxXWorkspace() {
   const languageA = getLanguage(sonioxA ?? "en");
   const languageB = getLanguage(sonioxB ?? "es");
   const pairReady = Boolean(sonioxA && sonioxB && sonioxA !== sonioxB);
+  const jaPair = languageA.code === "ja" || languageB.code === "ja";
+  const showJaRomaji = jaPair && jaRomaji;
 
   const sessionIdHolder = useRef<number | null>(null);
 
@@ -499,6 +558,30 @@ export default function TrialSonioxXWorkspace() {
       /* ignore */
     }
   }, [wideWorkspace]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(JA_ROMAJI_STORAGE_KEY, jaRomaji ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }, [jaRomaji]);
+
+  useEffect(() => {
+    if (!showJaRomaji) return;
+    let cancelled = false;
+    setRomajiError(false);
+    void ensureJapaneseRomaji()
+      .then(() => {
+        if (!cancelled) setRomajiReady(true);
+      })
+      .catch(() => {
+        if (!cancelled) setRomajiError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showJaRomaji]);
 
   useEffect(() => {
     try {
@@ -1337,6 +1420,9 @@ export default function TrialSonioxXWorkspace() {
                       stripeClass={rowStripeClasses[index] ?? rowStripeClasses[0] ?? ""}
                       pinPairs={pinPairs}
                       marked={markedRowId === row.id}
+                      showJaRomaji={showJaRomaji}
+                      romajiReady={romajiReady}
+                      romajiFailed={romajiError}
                     />
                   ))}
                 </div>
@@ -1621,6 +1707,30 @@ export default function TrialSonioxXWorkspace() {
               >
                 {LANG_OPTIONS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
               </Select>
+              {jaPair && (
+                <button
+                  type="button"
+                  aria-pressed={jaRomaji}
+                  onClick={() => setJaRomaji((on) => !on)}
+                  title={
+                    romajiError
+                      ? "Romaji dictionary could not load"
+                      : "Show a Latin-letter reading under the Japanese. Japanese characters stay."
+                  }
+                  className={cn(
+                    "h-9 px-2.5 rounded-lg border text-xs font-semibold shrink-0 transition-colors",
+                    jaRomaji
+                      ? wsDark
+                        ? "border-sky-400/40 bg-sky-500/15 text-sky-200"
+                        : "border-primary/40 bg-primary/10 text-primary"
+                      : wsDark
+                        ? "border-white/10 text-muted-foreground hover:bg-white/10"
+                        : "border-border text-muted-foreground hover:bg-muted",
+                  )}
+                >
+                  {jaRomaji && !romajiReady && !romajiError ? "Romaji…" : "Romaji"}
+                </button>
+              )}
             </div>
             <div className="w-full sm:flex-1 flex justify-center items-center">
               {isBlocked ? (

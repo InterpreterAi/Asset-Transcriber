@@ -144,6 +144,11 @@ const PAIR_TRANSLATION_TEXT: Record<string, string> = {
     "Do not copy regional dialect forms into the translation; still translate their exact meaning, including slang. " +
     "Never repeat English words or Latin abbreviations in the Polish translation (Sonogram → ultrasonografia). " +
     "ORIGINAL COLUMN: transcribe spoken Polish exactly, including dialect.",
+  ja:
+    "TRANSLATION COLUMN into Japanese: standard Japanese (標準語 / hyōjungo). " +
+    "Do not copy Kansai-ben or other dialects into the translation; still translate their exact meaning. " +
+    "Never repeat English words or Latin abbreviations in the Japanese translation (Sonogram → 超音波画像). " +
+    "ORIGINAL COLUMN: transcribe spoken Japanese in Japanese script, including dialect.",
 };
 
 const AR_EN_MSA_TERMS: { source: string; target: string }[] = [
@@ -179,6 +184,17 @@ const DE_EN_STANDARD_TERMS: { source: string; target: string }[] = [
   { source: "I get you", target: "ich verstehe Sie" },
   { source: "no one", target: "niemand" },
   { source: "nobody", target: "niemand" },
+];
+
+const JA_EN_STANDARD_TERMS: { source: string; target: string }[] = [
+  { source: "next time", target: "次回" },
+  { source: "that's why", target: "だから" },
+  { source: "that is why", target: "だから" },
+  { source: "that's all", target: "それだけです" },
+  { source: "you need to know", target: "知っておく必要があります" },
+  { source: "I get you", target: "わかりました" },
+  { source: "no one", target: "誰も" },
+  { source: "nobody", target: "誰も" },
 ];
 
 const PL_EN_STANDARD_TERMS: { source: string; target: string }[] = [
@@ -255,6 +271,9 @@ export function buildStableDialectContext(langA: string, langB: string): SonioxS
   }
   if (a === "de" || b === "de") {
     translation_terms.push(...DE_EN_STANDARD_TERMS);
+  }
+  if (a === "ja" || b === "ja") {
+    translation_terms.push(...JA_EN_STANDARD_TERMS);
   }
 
   const ctx: SonioxStartContext = { general };
