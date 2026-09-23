@@ -2078,7 +2078,10 @@ export default function Admin() {
                         <span>{formatDistanceToNow(new Date(s.startedAt), { addSuffix: true })}</span>
                       </div>
                       {(() => {
-                        const used = s.minutesUsedToday ?? 0;
+                        const used = displayMinutesUsedToday(
+                          s.minutesUsedToday ?? 0,
+                          s.dailyLimitMinutes ?? 0,
+                        );
                         const limit = s.dailyLimitMinutes ?? 0;
                         const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
                         return (
@@ -2679,7 +2682,10 @@ export default function Admin() {
                               <div className="h-full bg-primary rounded-full" style={{ width: `${todayPct}%` }} />
                             </div>
                             <span className="text-xs text-muted-foreground whitespace-nowrap">
-                              {formatMinutes(u.minutesUsedToday)} / {formatMinutes(u.dailyLimitMinutes)}
+                              {formatMinutes(
+                                displayMinutesUsedToday(u.minutesUsedToday, u.dailyLimitMinutes),
+                              )}{" "}
+                              / {formatMinutes(u.dailyLimitMinutes)}
                             </span>
                           </div>
                           {(u as { calendarMonthHoursUsed?: number }).calendarMonthHoursUsed != null && (

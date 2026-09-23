@@ -5,11 +5,44 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/** Same threshold as workspace UI / server: caps at or above this are treated as unlimited. */
+export const UNLIMITED_DAILY_CAP_MINUTES = 9000;
+
+/**
+ * Format billable minutes for UI. Rounds to the nearest whole minute and omits
+ * a trailing `0m` so a finished 2h/5h day reads `2h` / `5h`, not `2h 0m`.
+ */
 export function formatMinutes(minutes: number): string {
-  const h = Math.floor(minutes / 60);
-  const m = Math.floor(minutes % 60);
+  const total = Math.max(0, Math.round(Number(minutes) || 0));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  if (h > 0 && m === 0) return `${h}h`;
   if (h > 0) return `${h}h ${m}m`;
   return `${m}m`;
+}
+
+/**
+ * Minutes to show as "used today". When less than 1 minute remains (same rule as
+ * the server new-session gate), snap to the daily cap so the badge never reads
+ * `1h 59m / 2h` or `4h 59m / 5h` after the day is spent.
+ */
+export function displayMinutesUsedToday(
+  usedMinutes: number,
+  dailyLimitMinutes: number,
+  minutesRemainingToday?: number,
+): number {
+  const used = Math.max(0, Number(usedMinutes) || 0);
+  const cap = Number(dailyLimitMinutes);
+  if (!Number.isFinite(cap) || cap <= 0 || cap >= UNLIMITED_DAILY_CAP_MINUTES) {
+    return used;
+  }
+  const remaining =
+    minutesRemainingToday !== undefined && Number.isFinite(Number(minutesRemainingToday))
+      ? Math.max(0, Number(minutesRemainingToday))
+      : Math.max(0, cap - used);
+  if (used > 0 && remaining < 1 - 1e-6) return cap;
+  if (used >= cap - 1e-6) return cap;
+  return used;
 }
 
 /** Matches server `isTrialLikePlanType` (usage.ts). */

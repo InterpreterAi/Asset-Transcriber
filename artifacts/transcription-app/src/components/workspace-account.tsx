@@ -30,6 +30,7 @@ import { PRICING_PLANS, type PricingPlanKey } from "@/lib/pricing-copy";
 import { getWorkspacePlanTestOptions } from "@/lib/workspace-plan-test-options";
 import {
   cn,
+  displayMinutesUsedToday,
   formatMinutes,
   isTrialLikePlanType,
   workspacePlanDisplayName,
@@ -663,18 +664,19 @@ export function useWorkspaceAccount(user: WorkspaceAccountUser | null | undefine
                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2.5">Today's Usage</p>
                   <div className="flex items-center justify-between text-xs mb-1.5">
                     <span className="font-medium">
-                      {(() => {
-                        const h = Math.floor(user.minutesUsedToday / 60);
-                        const m = Math.round(user.minutesUsedToday % 60);
-                        return h > 0 ? `${h}h ${m}m used` : `${m}m used`;
-                      })()}
+                      {formatMinutes(
+                        displayMinutesUsedToday(
+                          user.minutesUsedToday,
+                          user.dailyLimitMinutes,
+                          user.minutesRemainingToday,
+                        ),
+                      )}{" "}
+                      used
                     </span>
                     {usageShowsUnlimitedCap
                       ? <span className="text-muted-foreground font-medium">/ unlimited</span>
                       : <span className="text-muted-foreground">
-                          / {Math.floor(user.dailyLimitMinutes / 60) > 0
-                            ? `${Math.floor(user.dailyLimitMinutes / 60)}h`
-                            : `${user.dailyLimitMinutes}m`}
+                          / {formatMinutes(user.dailyLimitMinutes)}
                         </span>
                     }
                   </div>
@@ -682,9 +684,23 @@ export function useWorkspaceAccount(user: WorkspaceAccountUser | null | undefine
                     <div className="h-1.5 bg-muted rounded-full overflow-hidden mb-2">
                       <div
                         className={`h-full rounded-full transition-all ${
-                          user.minutesUsedToday >= user.dailyLimitMinutes ? "bg-destructive" : "bg-primary"
+                          user.minutesRemainingToday < 1 - 1e-6 ||
+                          user.minutesUsedToday >= user.dailyLimitMinutes
+                            ? "bg-destructive"
+                            : "bg-primary"
                         }`}
-                        style={{ width: `${Math.min(100, (user.minutesUsedToday / user.dailyLimitMinutes) * 100)}%` }}
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            (displayMinutesUsedToday(
+                              user.minutesUsedToday,
+                              user.dailyLimitMinutes,
+                              user.minutesRemainingToday,
+                            ) /
+                              user.dailyLimitMinutes) *
+                              100,
+                          )}%`,
+                        }}
                       />
                     </div>
                   )}

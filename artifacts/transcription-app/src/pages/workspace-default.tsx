@@ -37,6 +37,7 @@ import { EarlyTrialFeedbackPrompt } from "@/components/EarlyTrialFeedbackPrompt"
 import { SessionHistoryPanel } from "@/components/SessionHistoryPanel";
 import {
   cn,
+  displayMinutesUsedToday,
   formatMinutes,
   isTrialLikePlanType,
   planUsesLibreEngine,
@@ -1125,8 +1126,13 @@ export default function WorkspaceDefault() {
         : null);
 
   const isLimitReached =
-    user.minutesUsedToday > 0 && user.minutesRemainingToday <= 0;
+    user.minutesUsedToday > 0 && user.minutesRemainingToday < 1 - 1e-6;
   const isBlocked      = user.trialExpired || isLimitReached;
+  const displayUsedMinutes = displayMinutesUsedToday(
+    user.minutesUsedToday,
+    user.dailyLimitMinutes,
+    user.minutesRemainingToday,
+  );
 
   const effectiveMinutesUsedToday =
     user.minutesUsedToday +
@@ -1475,18 +1481,19 @@ export default function WorkspaceDefault() {
             <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2.5">Today's Usage</p>
             <div className="flex items-center justify-between text-xs mb-1.5">
               <span className="font-medium">
-                {(() => {
-                  const h = Math.floor(user.minutesUsedToday / 60);
-                  const m = Math.round(user.minutesUsedToday % 60);
-                  return h > 0 ? `${h}h ${m}m used` : `${m}m used`;
-                })()}
+                {formatMinutes(
+                  displayMinutesUsedToday(
+                    user.minutesUsedToday,
+                    user.dailyLimitMinutes,
+                    user.minutesRemainingToday,
+                  ),
+                )}{" "}
+                used
               </span>
               {usageShowsUnlimitedCap
                 ? <span className="text-muted-foreground font-medium">/ unlimited</span>
                 : <span className="text-muted-foreground">
-                    / {Math.floor(user.dailyLimitMinutes / 60) > 0
-                      ? `${Math.floor(user.dailyLimitMinutes / 60)}h`
-                      : `${user.dailyLimitMinutes}m`}
+                    / {formatMinutes(user.dailyLimitMinutes)}
                   </span>
               }
             </div>
@@ -1494,9 +1501,22 @@ export default function WorkspaceDefault() {
               <div className="h-1.5 bg-muted rounded-full overflow-hidden mb-2">
                 <div
                   className={`h-full rounded-full transition-all ${
-                    user.minutesUsedToday >= user.dailyLimitMinutes ? "bg-destructive" : "bg-primary"
+                    isLimitReached || user.minutesUsedToday >= user.dailyLimitMinutes
+                      ? "bg-destructive"
+                      : "bg-primary"
                   }`}
-                  style={{ width: `${Math.min(100, (user.minutesUsedToday / user.dailyLimitMinutes) * 100)}%` }}
+                  style={{
+                    width: `${Math.min(
+                      100,
+                      (displayMinutesUsedToday(
+                        user.minutesUsedToday,
+                        user.dailyLimitMinutes,
+                        user.minutesRemainingToday,
+                      ) /
+                        user.dailyLimitMinutes) *
+                        100,
+                    )}%`,
+                  }}
                 />
               </div>
             )}
@@ -2019,19 +2039,19 @@ export default function WorkspaceDefault() {
                 {usageShowsUnlimitedCap ? (
                   <>
                     <span className="hidden sm:inline">
-                      {formatMinutes(user.minutesUsedToday)} / unlimited today
+                      {formatMinutes(displayUsedMinutes)} / unlimited today
                     </span>
                     <span className="sm:hidden">
-                      {formatMinutes(user.minutesUsedToday)} / unlimited
+                      {formatMinutes(displayUsedMinutes)} / unlimited
                     </span>
                   </>
                 ) : (
                   <>
                     <span className="sm:hidden">
-                      {formatMinutes(user.minutesUsedToday)} / {formatMinutes(user.dailyLimitMinutes)}
+                      {formatMinutes(displayUsedMinutes)} / {formatMinutes(user.dailyLimitMinutes)}
                     </span>
                     <span className="hidden sm:inline">
-                      {formatMinutes(user.minutesUsedToday)} / {formatMinutes(user.dailyLimitMinutes)} today
+                      {formatMinutes(displayUsedMinutes)} / {formatMinutes(user.dailyLimitMinutes)} today
                     </span>
                   </>
                 )}

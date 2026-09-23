@@ -33,6 +33,7 @@ import { forgetSessionPresence, presenceFields, rememberSessionPresence } from "
 import {
   cn,
   formatMinutes,
+  displayMinutesUsedToday,
   isTrialLikePlanType,
   workspacePlanDisplayName,
   workspacePlanTierKey,
@@ -97,7 +98,7 @@ function apiErrorCode(err: unknown): string | undefined {
   return typeof body?.code === "string" ? body.code : undefined;
 }
 
-/** Leftover under 1 displayed minute is the day used (`formatMinutes` floors 4h 59m / 5h 0m). */
+/** Leftover under 1 displayed minute is the day used (`displayMinutesUsedToday` snaps the badge). */
 function sonioxXDailyCapExhausted(user: {
   dailyLimitMinutes: number;
   minutesRemainingToday: number;
@@ -892,7 +893,11 @@ export default function TrialSonioxXWorkspace() {
     user.dailyLimitMinutes >= 9000 || workspaceUsageShowsSlashUnlimited(user.planType);
   const isLimitReached = sonioxXDailyCapExhausted(user);
   const isBlocked = user.trialExpired || isLimitReached;
-  const displayUsedMinutes = isLimitReached ? user.dailyLimitMinutes : user.minutesUsedToday;
+  const displayUsedMinutes = displayMinutesUsedToday(
+    user.minutesUsedToday,
+    user.dailyLimitMinutes,
+    user.minutesRemainingToday,
+  );
   const liveSessionMinutes =
     recording && sessionStartedAt != null
       ? Math.max(0, (Date.now() - sessionStartedAt) / 60_000)
