@@ -18,6 +18,10 @@ import {
 import { isActiveState } from "@soniox/speech-to-text-web";
 import { Select } from "@/components/ui-components";
 import { InviteModal } from "@/components/InviteModal";
+import {
+  EarlyTrialFeedbackPrompt,
+  TRIAL_FEEDBACK_REQUIRED_EVENT,
+} from "@/components/EarlyTrialFeedbackPrompt";
 import { UserFeedbackModal } from "@/components/UserFeedbackModal";
 import { GlossaryPanel } from "@/components/GlossaryPanel";
 import { SupportPanel } from "@/components/SupportPanel";
@@ -85,6 +89,12 @@ function errMessage(err: unknown, fallback: string): string {
   }
   if (err instanceof Error && err.message.trim()) return err.message;
   return fallback;
+}
+
+function apiErrorCode(err: unknown): string | undefined {
+  if (!(err instanceof ApiError)) return undefined;
+  const body = (err as ApiError & { data?: { code?: unknown } }).data;
+  return typeof body?.code === "string" ? body.code : undefined;
 }
 
 /** Leftover under 1 displayed minute is the day used (`formatMinutes` floors 4h 59m / 5h 0m). */
@@ -783,7 +793,15 @@ export default function TrialSonioxXWorkspace() {
         tabCaptureStopRef.current = null;
         setTabStream(null);
       }
-      setSessionError(errMessage(err, "Could not start a live session."));
+      const code = apiErrorCode(err);
+      if (code === "FEEDBACK_REQUIRED") {
+        setSessionError("Trial feedback is required before you can start another session.");
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent(TRIAL_FEEDBACK_REQUIRED_EVENT));
+        }
+      } else {
+        setSessionError(errMessage(err, "Could not start a live session."));
+      }
       await closeBillingSession();
     } finally {
       setStarting(false);
@@ -875,6 +893,11 @@ export default function TrialSonioxXWorkspace() {
   const isLimitReached = sonioxXDailyCapExhausted(user);
   const isBlocked = user.trialExpired || isLimitReached;
   const displayUsedMinutes = isLimitReached ? user.dailyLimitMinutes : user.minutesUsedToday;
+  const liveSessionMinutes =
+    recording && sessionStartedAt != null
+      ? Math.max(0, (Date.now() - sessionStartedAt) / 60_000)
+      : 0;
+  const effectiveMinutesUsedToday = user.minutesUsedToday + liveSessionMinutes;
   const workspaceTextSizeStyle: CSSProperties = {
     "--ts-font-size": `${workspaceFontPx}px`,
     "--ts-line-height": "1.625",
@@ -897,6 +920,14 @@ export default function TrialSonioxXWorkspace() {
         <InviteModal userId={user.id} username={user.username} onClose={() => setShowInviteModal(false)} />
       )}
       <UserFeedbackModal isOpen={showUserFeedback} onClose={() => setShowUserFeedback(false)} />
+      {/* New signups default to trial-soniox-x — same mandatory 1h feedback as workspace-default. */}
+      <EarlyTrialFeedbackPrompt
+        planType={user.planType}
+        trialExpired={user.trialExpired}
+        effectiveMinutesUsedToday={effectiveMinutesUsedToday}
+        dailyLimitMinutes={user.dailyLimitMinutes}
+        isRecording={recording || starting}
+      />
       {account.accountOverlays}
 
       {settingsOpen && (
