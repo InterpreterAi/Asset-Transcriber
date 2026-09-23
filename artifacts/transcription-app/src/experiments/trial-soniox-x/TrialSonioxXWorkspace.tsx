@@ -199,36 +199,36 @@ const SonioxXTranscriptRow = memo(function SonioxXTranscriptRow({
       <div className="flex min-w-0 items-start overflow-visible">
         <div className={cn("w-1 shrink-0 rounded-full self-stretch min-h-[1.25rem] mt-0.5", stripeClass)} />
         <div className="flex items-start gap-1 min-w-0 flex-1 pl-2">
-          <div className="flex-1 min-w-0">
-            <p
-              className="ts-text ts-original leading-relaxed whitespace-pre-wrap"
-              dir={origDir}
-              style={{ textAlign: origDir === "rtl" ? "right" : "left", unicodeBidi: "isolate" }}
-            >
-              <BidiText text={row.origFinal} baseDir={origDir} className="workspace-selectable-text" />
-              <BidiText
-                text={row.origPartial}
-                baseDir={origDir}
-                className="text-muted-foreground/70 italic workspace-selectable-text"
-              />
-            </p>
-            <JapaneseReading text={orig} enabled={showJaRomaji} ready={romajiReady} failed={romajiFailed} />
-          </div>
+          <p
+            className="ts-text ts-original leading-relaxed whitespace-pre-wrap flex-1 min-w-0"
+            dir={origDir}
+            style={{ textAlign: origDir === "rtl" ? "right" : "left", unicodeBidi: "isolate" }}
+          >
+            <BidiText text={row.origFinal} baseDir={origDir} className="workspace-selectable-text" />
+            <BidiText
+              text={row.origPartial}
+              baseDir={origDir}
+              className="text-muted-foreground/70 italic workspace-selectable-text"
+            />
+            {showJaRomaji ? (
+              <JapaneseReading text={orig} enabled ready={romajiReady} failed={romajiFailed} />
+            ) : null}
+          </p>
           <CopyBtn text={orig} />
         </div>
       </div>
       <div className="min-w-0 pt-0.5">
         <div className="flex items-start gap-1 min-w-0">
-          <div className="flex-1 min-w-0">
-            <p
-              className="ts-text ts-translation leading-relaxed whitespace-pre-wrap"
-              dir={transDir}
-              style={{ textAlign: transDir === "rtl" ? "right" : "left", unicodeBidi: "isolate" }}
-            >
-              <BidiText text={trans} baseDir={transDir} className="workspace-selectable-text" />
-            </p>
-            <JapaneseReading text={trans} enabled={showJaRomaji} ready={romajiReady} failed={romajiFailed} />
-          </div>
+          <p
+            className="ts-text ts-translation leading-relaxed whitespace-pre-wrap flex-1 min-w-0"
+            dir={transDir}
+            style={{ textAlign: transDir === "rtl" ? "right" : "left", unicodeBidi: "isolate" }}
+          >
+            <BidiText text={trans} baseDir={transDir} className="workspace-selectable-text" />
+            {showJaRomaji ? (
+              <JapaneseReading text={trans} enabled ready={romajiReady} failed={romajiFailed} />
+            ) : null}
+          </p>
           <CopyBtn text={trans} />
         </div>
       </div>
@@ -1714,8 +1714,10 @@ export default function TrialSonioxXWorkspace() {
                   onClick={() => setJaRomaji((on) => !on)}
                   title={
                     romajiError
-                      ? "Romaji dictionary could not load"
-                      : "Show a Latin-letter reading under the Japanese. Japanese characters stay."
+                      ? "Romaji dictionary could not load. Japanese characters stay as they are."
+                      : jaRomaji
+                        ? "Romaji is on, under the Japanese. Japanese characters stay. Click to hide the reading."
+                        : "Japanese stays as it is. Click to add a Latin-letter reading under it."
                   }
                   className={cn(
                     "h-9 px-2.5 rounded-lg border text-xs font-semibold shrink-0 transition-colors",
