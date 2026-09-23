@@ -115,7 +115,14 @@ if (spaEnabled) {
     express.static(spaStaticRoot, {
       index: ["index.html"],
       setHeaders(res, filePath) {
-        if (/\/assets\//.test(filePath.replace(/\\/g, "/"))) {
+        const normalized = filePath.replace(/\\/g, "/");
+        if (/\/assets\//.test(normalized)) {
+          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        }
+        // Raw gzip bytes for the Japanese romaji dictionary. Do not advertise
+        // Content-Encoding: gzip — the browser inflates the file itself.
+        if (/\/kuromoji-dict\//.test(normalized)) {
+          res.setHeader("Content-Type", "application/octet-stream");
           res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
         }
       },

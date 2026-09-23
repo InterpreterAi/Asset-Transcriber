@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { containsJapaneseScript, readingsToRomaji, shouldShowJapaneseReading } from "./japanese-romaji";
+import { gzipSync } from "node:zlib";
+import {
+  containsJapaneseScript,
+  inflateDictBytes,
+  isGzipBuffer,
+  kanaFallbackRomaji,
+  readingsToRomaji,
+  shouldShowJapaneseReading,
+} from "./japanese-romaji";
 
 describe("japanese romaji reading", () => {
   it("turns kana readings into spaced romaji and keeps the option extra", () => {
@@ -29,5 +37,21 @@ describe("japanese romaji reading", () => {
         { surface: "MRI", pos: "名詞" },
       ]),
     ).toBe("konnichiwa MRI");
+  });
+
+  it("shows Latin letters for kana even before the dictionary loads", () => {
+    expect(kanaFallbackRomaji("ありがとうございます。")).toBe("arigatougozaimasu.");
+    expect(kanaFallbackRomaji("お元気ですか")).toBe("o desuka");
+    expect(isGzipBuffer(new Uint8Array([0x1f, 0x8b, 0x08]))).toBe(true);
+    expect(isGzipBuffer(new Uint8Array([0x00, 0x00]))).toBe(false);
+  });
+
+  it("inflates gzip dict bytes and leaves already-plain bytes alone", async () => {
+    const raw = new TextEncoder().encode("romaji-dict");
+    const gz = gzipSync(raw);
+    const inflated = new Uint8Array(await inflateDictBytes(gz.buffer.slice(gz.byteOffset, gz.byteOffset + gz.byteLength)));
+    expect(new TextDecoder().decode(inflated)).toBe("romaji-dict");
+    const plain = await inflateDictBytes(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength));
+    expect(new TextDecoder().decode(new Uint8Array(plain))).toBe("romaji-dict");
   });
 });
