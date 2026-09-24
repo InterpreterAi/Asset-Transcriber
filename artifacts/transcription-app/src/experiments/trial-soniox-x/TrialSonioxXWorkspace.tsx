@@ -1095,7 +1095,7 @@ export default function TrialSonioxXWorkspace() {
         <InviteModal userId={user.id} username={user.username} onClose={() => setShowInviteModal(false)} />
       )}
       <UserFeedbackModal isOpen={showUserFeedback} onClose={() => setShowUserFeedback(false)} />
-      {/* New signups default to trial-soniox-x — same mandatory 1h feedback as workspace-default. */}
+      {/* New signups default to trial-soniox-x — mandatory 1h feedback each trial day. */}
       <EarlyTrialFeedbackPrompt
         planType={user.planType}
         trialExpired={user.trialExpired}

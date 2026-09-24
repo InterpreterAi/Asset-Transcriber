@@ -42,9 +42,10 @@ function trialFeedbackThresholdMinutes(dailyLimitMinutes: number): number {
 }
 
 /**
- * Active trial accounts only: after ~1 hour of billable usage, block the workspace
- * until they submit stars + a written comment. Does **not** interrupt an open call —
- * shows after Stop. `/session/start` and `/token` return `FEEDBACK_REQUIRED` until submitted.
+ * Active trial accounts only: after ~1 hour of billable usage **each app day**,
+ * block the workspace until they submit stars + a written comment. Does **not**
+ * interrupt an open call — shows after Stop. `/session/start` and `/token`
+ * return `FEEDBACK_REQUIRED` until today’s submission is in.
  */
 export function EarlyTrialFeedbackPrompt({
   planType,
@@ -246,7 +247,7 @@ export function EarlyTrialFeedbackPrompt({
                   Feedback required to continue your trial
                 </h2>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
-                  You&apos;ve used about 1 hour of your trial. Rate your experience and leave a short comment to keep using the trial (once per account).
+                  You&apos;ve used about 1 hour of your trial today. Rate your experience and leave a short comment to keep using the trial (required each day you reach 1 hour).
                 </p>
               </div>
             </div>

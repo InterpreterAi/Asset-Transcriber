@@ -1157,8 +1157,8 @@ export default function WorkspaceDefault() {
         isOpen={showUserFeedback}
         onClose={() => setShowUserFeedback(false)}
       />
-      {/* Mandatory feedback: all active trials after ~1h billable usage.
-          Prompt waits until Stop; Start/token stay blocked until submitted. */}
+      {/* Mandatory feedback: all active trials after ~1h billable usage each app day.
+          Prompt waits until Stop; Start/token stay blocked until today’s submission. */}
       {paddlePaymentProcessing && (
         <div className="fixed top-3 left-1/2 z-50 -translate-x-1/2 max-w-md w-[calc(100%-1.5rem)] rounded-lg border border-border bg-background px-4 py-3 shadow-lg text-sm text-foreground">
           <p className="font-semibold">Payment processing</p>

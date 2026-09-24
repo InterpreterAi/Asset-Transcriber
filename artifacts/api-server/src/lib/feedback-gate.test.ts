@@ -19,3 +19,14 @@ describe("getMandatoryFeedbackThresholdMinutes", () => {
     assert.equal(getMandatoryFeedbackThresholdMinutes(45), 45);
   });
 });
+
+describe("trial mandatory feedback cadence", () => {
+  it("documents once-per-app-day gating (hasMandatoryFeedbackGateSatisfied delegates to today)", async () => {
+    const src = await import("node:fs/promises").then((fs) =>
+      fs.readFile(new URL("./feedback-gate.ts", import.meta.url), "utf8"),
+    );
+    assert.match(src, /hasSubmittedTrialMandatoryFeedbackToday/);
+    assert.match(src, /each trial day/);
+    assert.doesNotMatch(src, /once per account, ever/);
+  });
+});

@@ -130,6 +130,11 @@ export function isPaidPostSessionFeedbackRequiredByUsage(user: User): boolean {
   return used >= threshold - 1e-6;
 }
 
+/**
+ * Trial mandatory feedback for this app calendar day: stars + min comment with the
+ * mandatory (or daily-prompt) source. Resets each day so a 7-day trial is asked
+ * again after ~1h of billable usage on every day they hit the threshold.
+ */
 export async function hasSubmittedTrialMandatoryFeedbackToday(userId: number): Promise<boolean> {
   const [row] = await db
     .select({ count: sql<number>`count(*)::int` })
@@ -168,21 +173,12 @@ export async function hasSubmittedPaidPostSessionFeedbackToday(userId: number): 
 }
 
 /**
- * Mandatory session gate satisfied — **once per account, ever** after any qualifying submission
- * (stars + min comment). Plan switches (trial ↔ paid ↔ *-openai) must not re-trigger the gate.
+ * Trial session-start / status gate: satisfied only by **today’s** qualifying
+ * mandatory feedback (app timezone). Prior days do not count — so each trial day
+ * that crosses ~1h billable usage requires a fresh submission.
  */
 export async function hasMandatoryFeedbackGateSatisfied(userId: number): Promise<boolean> {
-  const [row] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(feedbackTable)
-    .where(
-      and(
-        eq(feedbackTable.userId, userId),
-        gte(feedbackTable.rating, 1),
-        sql`length(trim(coalesce(${feedbackTable.comment}, ''))) >= ${MANDATORY_FEEDBACK_MIN_COMMENT_LENGTH}`,
-      ),
-    );
-  return Number(row?.count ?? 0) > 0;
+  return hasSubmittedTrialMandatoryFeedbackToday(userId);
 }
 
 async function latestPaidPostSessionMandatoryFeedbackSubmittedAt(userId: number): Promise<Date | null> {

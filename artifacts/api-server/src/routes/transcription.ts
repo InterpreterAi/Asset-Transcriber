@@ -308,7 +308,7 @@ function trialLimitBypassedForAdmin(user: { isAdmin?: boolean | null }): boolean
   return user.isAdmin === true;
 }
 
-/** Mandatory feedback for active trials after 1h billable usage: once per account ever; admins bypass. */
+/** Mandatory feedback for active trials after 1h billable usage: once per app day; admins bypass. */
 async function mandatoryFeedbackGateSatisfied(
   user: User,
   liveBillableMinutes: number,
