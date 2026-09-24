@@ -107,6 +107,8 @@ export default defineConfig({
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),
       "@assets": path.resolve(import.meta.dirname, "..", "..", "attached_assets"),
+      // kuromoji DictionaryLoader calls path.join; Vite's empty path stub breaks Romaji.
+      path: path.resolve(import.meta.dirname, "src/experiments/trial-soniox-x/path-shim.ts"),
       "kuromoji/src/loader/NodeDictionaryLoader.js": path.resolve(
         kuromojiDictDir(),
         "..",

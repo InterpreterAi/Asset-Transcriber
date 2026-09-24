@@ -219,8 +219,20 @@ const SonioxXTranscriptRow = memo(function SonioxXTranscriptRow({
   const transDir = dominantBidiDir(trans, langDir(row.transLang));
   const showReading = readingMode !== "off";
   const latinOnly = readingMode === "latin-only";
-  const showOrigScript = !latinOnly || !shouldShowScriptReading(orig, readingMode, readingFamily);
-  const showTransScript = !latinOnly || !shouldShowScriptReading(trans, readingMode, readingFamily);
+  // Never hide Japanese/Chinese/etc. until we actually have Latin text to show.
+  // Otherwise "Romaji only" blanks the translation column while the dict loads/fails.
+  const origReading =
+    showReading && shouldShowScriptReading(orig, readingMode, readingFamily)
+      ? textToLatinReading(orig, readingFamily)
+      : "";
+  const transReading =
+    showReading && shouldShowScriptReading(trans, readingMode, readingFamily)
+      ? textToLatinReading(trans, readingFamily)
+      : "";
+  const showOrigScript =
+    !latinOnly || !shouldShowScriptReading(orig, readingMode, readingFamily) || !origReading;
+  const showTransScript =
+    !latinOnly || !shouldShowScriptReading(trans, readingMode, readingFamily) || !transReading;
   return (
     <div
       data-caw-segment={row.id}

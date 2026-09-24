@@ -101,4 +101,12 @@ describe("japanese romaji reading", () => {
     expect(display("", false, true)).toBe("");
     expect(display("konnichiwa", false, false)).toBe("konnichiwa");
   });
+
+  it("vite aliases Node path so kuromoji path.join works in the browser", async () => {
+    const vite = await import("node:fs/promises").then((fs) =>
+      fs.readFile(new URL("../../../vite.config.ts", import.meta.url), "utf8"),
+    );
+    expect(vite).toMatch(/path-shim/);
+    expect(vite).toMatch(/path:\s*path\.resolve/);
+  });
 });
