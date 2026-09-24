@@ -2,8 +2,10 @@
  * Trial · Soniox X only.
  *
  * Extra Latin-letter reading under Japanese script. The Japanese characters stay.
- * Prefetch the dict as gzip bytes and hand those to kuromoji's own XHR loader.
- * Do not import kuromoji's Node `fs` loader — that breaks the Railway Vite build.
+ * Prefetch dict files, inflate gzip only when needed, and hand exact ArrayBuffers to
+ * the browser dictionary loader. Do not import kuromoji's Node `fs` loader — that
+ * breaks the Railway Vite build. Do not mock XHR gunzip: oversized decompressed
+ * buffers leave the tokenizer broken and the UI stuck on "…".
  *
  * Accuracy rules for interpreters:
  * - Never show a kana-only fallback when the line still has kanji (that drops words).
@@ -56,6 +58,10 @@ type KuromojiModule = {
   builder: (opts: { dicPath: string }) => {
     build: (cb: (err: Error | null, tokenizer: KuromojiTokenizer) => void) => void;
   };
+};
+
+type DictLoaderCtor = new (dicPath: string) => {
+  loadArrayBuffer: (url: string, cb: (err: Error | null, buffer: ArrayBuffer | null) => void) => void;
 };
 
 let tokenizer: KuromojiTokenizer | null = null;
@@ -267,36 +273,37 @@ export async function inflateDictBytes(buf: ArrayBuffer): Promise<ArrayBuffer> {
   return await new Response(stream).arrayBuffer();
 }
 
-async function fetchDictGzip(filename: string): Promise<Uint8Array> {
+async function fetchDictBuffer(filename: string): Promise<ArrayBuffer> {
   const res = await fetch(dictFileUrl(filename), { credentials: "same-origin" });
   if (!res.ok) throw new Error(`Romaji dictionary ${filename} ${res.status}`);
-  const bytes = new Uint8Array(await res.arrayBuffer());
-  if (isGzipBuffer(bytes)) return bytes;
-  const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream("gzip"));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
+  // Proxies sometimes already inflate .gz — inflateDictBytes is a no-op then.
+  return inflateDictBytes(await res.arrayBuffer());
 }
 
-function installRomajiXhr(files: Map<string, Uint8Array>): () => void {
-  const open = XMLHttpRequest.prototype.open;
-  const send = XMLHttpRequest.prototype.send;
-  XMLHttpRequest.prototype.open = function (method: string, url: string | URL, async?: boolean, user?: string | null, password?: string | null) {
-    (this as XMLHttpRequest & { __romajiUrl?: string }).__romajiUrl = String(url);
-    return open.call(this, method, url, async ?? true, user, password);
-  };
-  XMLHttpRequest.prototype.send = function (body?: Document | XMLHttpRequestBodyInit | null) {
-    const url = (this as XMLHttpRequest & { __romajiUrl?: string }).__romajiUrl ?? "";
-    const name = url.replace(/\\/g, "/").split("/").pop()?.split("?")[0] ?? "";
-    const data = files.get(name);
-    if (!data) return send.call(this, body);
-    const xhr = this;
-    Object.defineProperty(xhr, "status", { configurable: true, get: () => 200 });
-    const copy = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
-    Object.defineProperty(xhr, "response", { configurable: true, get: () => copy });
-    queueMicrotask(() => xhr.onload?.(new ProgressEvent("load")));
+function dictFileNameFromUrl(url: string): string {
+  return String(url).replace(/\\/g, "/").split("/").pop()?.split("?")[0] ?? "";
+}
+
+/**
+ * Hand pre-inflated buffers to kuromoji. Vite aliases the Node fs-based loader to this
+ * same browser module, so patching the prototype covers builder().build().
+ */
+function patchDictLoader(Loader: DictLoaderCtor, buffers: Map<string, ArrayBuffer>): () => void {
+  const original = Loader.prototype.loadArrayBuffer;
+  Loader.prototype.loadArrayBuffer = function (
+    url: string,
+    cb: (err: Error | null, buffer: ArrayBuffer | null) => void,
+  ) {
+    const name = dictFileNameFromUrl(url);
+    const buf = buffers.get(name);
+    if (!buf) {
+      cb(new Error(`Romaji dictionary missing ${name}`), null);
+      return;
+    }
+    cb(null, buf.slice(0));
   };
   return () => {
-    XMLHttpRequest.prototype.open = open;
-    XMLHttpRequest.prototype.send = send;
+    Loader.prototype.loadArrayBuffer = original;
   };
 }
 
@@ -304,17 +311,25 @@ export function ensureJapaneseRomaji(): Promise<void> {
   if (tokenizer) return Promise.resolve();
   if (!loading) {
     loading = (async () => {
-      const files = new Map<string, Uint8Array>();
+      const buffers = new Map<string, ArrayBuffer>();
       await Promise.all(
         DICT_FILES.map(async (name) => {
-          files.set(name, await fetchDictGzip(name));
+          buffers.set(name, await fetchDictBuffer(name));
         }),
       );
-      const kuromojiMod = await import("kuromoji");
-      const kuromoji = ((kuromojiMod as { default?: KuromojiModule }).default ??
-        kuromojiMod) as KuromojiModule;
-      const undo = typeof XMLHttpRequest === "undefined" ? () => {} : installRomajiXhr(files);
+      // Browser loader only — Vite remaps the Node fs-based loader to this same module so
+      // TokenizerBuilder never pulls `fs`.
+      const browserLoaderMod = await import("kuromoji/src/loader/BrowserDictionaryLoader.js");
+      const Loader = ((browserLoaderMod as { default?: DictLoaderCtor }).default ??
+        browserLoaderMod) as DictLoaderCtor;
+      if (typeof Loader !== "function") {
+        throw new Error("Japanese romaji dictionary loader unavailable");
+      }
+      const undo = patchDictLoader(Loader, buffers);
       try {
+        const kuromojiMod = await import("kuromoji");
+        const kuromoji = ((kuromojiMod as { default?: KuromojiModule }).default ??
+          kuromojiMod) as KuromojiModule;
         await new Promise<void>((resolve, reject) => {
           kuromoji.builder({ dicPath: "/kuromoji-dict/" }).build((err, built) => {
             if (err || !built) {

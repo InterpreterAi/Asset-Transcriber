@@ -150,18 +150,21 @@ function ScriptReadingLine({
   mode,
   pairFamily,
   ready,
+  failed,
   latinOnly,
 }: {
   text: string;
   mode: ScriptReadingMode;
   pairFamily: ScriptReadingFamily | null;
   ready: boolean;
+  failed?: boolean;
   latinOnly?: boolean;
 }) {
   if (!shouldShowScriptReading(text, mode, pairFamily)) return null;
   const reading = textToLatinReading(text, pairFamily);
   // While the Japanese dict loads, never show a truncated kana-only guess under kanji.
-  const display = reading || (ready ? "" : "…");
+  // If load failed, hide the placeholder — do not leave a permanent "…".
+  const display = reading || (ready || failed ? "" : "…");
   if (!display) return null;
   return (
     <span
@@ -195,7 +198,7 @@ const SonioxXTranscriptRow = memo(function SonioxXTranscriptRow({
   readingMode,
   readingFamily,
   readingReady,
-  readingFailed: _readingFailed,
+  readingFailed,
 }: {
   row: SonioxXRow;
   stripeClass: string;
@@ -207,7 +210,6 @@ const SonioxXTranscriptRow = memo(function SonioxXTranscriptRow({
   readingReady: boolean;
   readingFailed: boolean;
 }) {
-  void _readingFailed;
   const orig = `${row.origFinal}${row.origPartial}`;
   const live = Boolean(row.origPartial || row.transPartial);
   const transRaw = `${row.transFinal}${row.transPartial}`;
@@ -256,6 +258,7 @@ const SonioxXTranscriptRow = memo(function SonioxXTranscriptRow({
                 mode={readingMode}
                 pairFamily={readingFamily}
                 ready={readingReady}
+                failed={readingFailed}
                 latinOnly={latinOnly && !showOrigScript}
               />
             ) : null}
@@ -283,6 +286,7 @@ const SonioxXTranscriptRow = memo(function SonioxXTranscriptRow({
                 mode={readingMode}
                 pairFamily={readingFamily}
                 ready={readingReady}
+                failed={readingFailed}
                 latinOnly={latinOnly && !showTransScript}
               />
             ) : null}
@@ -636,12 +640,17 @@ export default function TrialSonioxXWorkspace() {
     }
     let cancelled = false;
     setReadingError(false);
+    // Keep ready=false until the dict is up so kanji lines show a brief "…" not a wrong guess.
+    if (readingFamily === "ja") setReadingReady(false);
     void ensureScriptReadingReady(readingFamily)
       .then(() => {
         if (!cancelled) setReadingReady(true);
       })
       .catch(() => {
-        if (!cancelled) setReadingError(true);
+        if (!cancelled) {
+          setReadingError(true);
+          setReadingReady(false);
+        }
       });
     return () => {
       cancelled = true;

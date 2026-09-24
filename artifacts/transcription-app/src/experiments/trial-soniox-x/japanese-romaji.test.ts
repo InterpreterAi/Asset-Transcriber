@@ -75,9 +75,12 @@ describe("japanese romaji reading", () => {
     const src = await import("node:fs/promises").then((fs) =>
       fs.readFile(new URL("./japanese-romaji.ts", import.meta.url), "utf8"),
     );
-    expect(src).not.toMatch(/NodeDictionaryLoader/);
+    expect(src).not.toMatch(/loader\/NodeDictionaryLoader/);
     expect(src).not.toMatch(/from ["']fs["']/);
-    expect(src).not.toMatch(/zlibjs/);
+    expect(src).not.toMatch(/zlibjs\/bin/);
+    expect(src).not.toMatch(/XMLHttpRequest/);
+    expect(src).toMatch(/BrowserDictionaryLoader/);
+    expect(src).toMatch(/patchDictLoader/);
   });
 
   it("inflates gzip dict bytes and leaves already-plain bytes alone", async () => {
@@ -87,5 +90,15 @@ describe("japanese romaji reading", () => {
     expect(new TextDecoder().decode(inflated)).toBe("romaji-dict");
     const plain = await inflateDictBytes(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength));
     expect(new TextDecoder().decode(new Uint8Array(plain))).toBe("romaji-dict");
+  });
+
+  it("placeholder ellipsis is only for in-flight loads, not failures", () => {
+    // Mirrors ScriptReadingLine: reading || (ready || failed ? "" : "…")
+    const display = (reading: string, ready: boolean, failed: boolean) =>
+      reading || (ready || failed ? "" : "…");
+    expect(display("", false, false)).toBe("…");
+    expect(display("", true, false)).toBe("");
+    expect(display("", false, true)).toBe("");
+    expect(display("konnichiwa", false, false)).toBe("konnichiwa");
   });
 });
