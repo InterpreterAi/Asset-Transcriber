@@ -26,6 +26,8 @@ interface UseSonioxClientOptions {
   context?: SonioxStartContext;
   onStarted?: () => void;
   onFinished?: () => void;
+  /** Fired when Soniox returns any speech token — used to reset the 5‑min inactivity timer. */
+  onSpeechActivity?: () => void;
 }
 
 type TranscriptionError = {
@@ -50,11 +52,14 @@ export default function useSonioxClient({
   context,
   onStarted,
   onFinished,
+  onSpeechActivity,
 }: UseSonioxClientOptions) {
   const sonioxClient = useRef<SonioxClient | null>(null);
   const apiKeyRef = useRef(apiKey);
   const pendingStartKeyRef = useRef<string | null>(null);
+  const onSpeechActivityRef = useRef(onSpeechActivity);
   apiKeyRef.current = apiKey;
+  onSpeechActivityRef.current = onSpeechActivity;
 
   if (sonioxClient.current == null) {
     sonioxClient.current = new SonioxClient({
@@ -165,6 +170,10 @@ export default function useSonioxClient({
           }
         }
 
+        if (result.tokens.length > 0) {
+          onSpeechActivityRef.current?.();
+        }
+
         if (newFinalTokens.length > 0) {
           finalAccRef.current = finalAccRef.current.concat(newFinalTokens);
         }
@@ -174,11 +183,12 @@ export default function useSonioxClient({
     });
   }, [context, languageHints, languageHintsStrict, onFinished, onStarted, scheduleTokenFlush, translationConfig, wipeTokens]);
 
-  const stopTranscription = useCallback(() => {
+  const stopTranscription = useCallback((opts?: { preserveTokens?: boolean }) => {
     // Match Chuck v2: wipe the transcript as soon as Stop is pressed — not on the
     // next Start. Reject any late SDK partials that arrive while stop() drains.
+    // Admin inactivity / max-session auto-stop may preserveTokens so the transcript stays.
     acceptResultsRef.current = false;
-    wipeTokens();
+    if (!opts?.preserveTokens) wipeTokens();
     sonioxClient.current?.stop();
   }, [wipeTokens]);
 

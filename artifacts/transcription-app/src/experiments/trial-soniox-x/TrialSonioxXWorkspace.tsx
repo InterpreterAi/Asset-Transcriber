@@ -86,6 +86,9 @@ type FontPx = (typeof MORSY_FONT_PX_OPTIONS)[number];
 const MORSY_WS_FONT_LS = "interpreterai_morsy_ws_font_px";
 const MORSY_NOTES_FONT_LS = "interpreterai_morsy_notes_font_px";
 type WorkspacePanel = "profile" | "mic" | "glossary" | "support" | "referrals";
+/** Same as Chuck / chunk-v2 `use-transcription.ts`. */
+const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
+const MAX_SESSION_MS = 3 * 60 * 60 * 1000;
 
 function readFontPx(storageKey: string = MORSY_WS_FONT_LS, fallback: FontPx = 16): FontPx {
   try {
@@ -483,8 +486,18 @@ export default function TrialSonioxXWorkspace() {
   const micStreamRef = useRef<MediaStream | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const tailPinnedRef = useRef(true);
-  const stopLiveRef = useRef<() => Promise<void>>(async () => {});
+  const stopLiveRef = useRef<(opts?: { reason?: "manual" | "inactivity" | "max_session" }) => Promise<void>>(
+    async () => {},
+  );
   const stoppingForCapRef = useRef(false);
+  // Match Chuck v2: auto-stop after 5 min with no speech tokens, or 3 hours absolute.
+  const inactivityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const maxSessionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resetInactivityRef = useRef<(() => void) | null>(null);
+  const isAdminRef = useRef(Boolean(user?.isAdmin));
+  useEffect(() => {
+    isAdminRef.current = Boolean(user?.isAdmin);
+  }, [user?.isAdmin]);
   const [liveSessionId, setLiveSessionId] = useState<number | null>(null);
   const [sessionStartedAt, setSessionStartedAt] = useState<number | null>(null);
   const snapshotSeqRef = useRef(0);
@@ -606,6 +619,9 @@ export default function TrialSonioxXWorkspace() {
     languageHints,
     languageHintsStrict: true,
     context: sonioxContext,
+    onSpeechActivity: () => {
+      resetInactivityRef.current?.();
+    },
   });
 
   const recording = isActiveState(state);
@@ -684,6 +700,18 @@ export default function TrialSonioxXWorkspace() {
     }
   }, []);
 
+  const clearSessionAutoStopTimers = useCallback(() => {
+    if (inactivityTimerRef.current !== null) {
+      clearTimeout(inactivityTimerRef.current);
+      inactivityTimerRef.current = null;
+    }
+    if (maxSessionTimerRef.current !== null) {
+      clearTimeout(maxSessionTimerRef.current);
+      maxSessionTimerRef.current = null;
+    }
+    resetInactivityRef.current = null;
+  }, []);
+
   const closeBillingSession = useCallback(async () => {
     const sid = sessionIdRef.current;
     const startedAt = startTimeRef.current;
@@ -691,6 +719,7 @@ export default function TrialSonioxXWorkspace() {
     sessionIdHolder.current = null;
     setLiveSessionId(null);
     clearHeartbeat();
+    clearSessionAutoStopTimers();
     startTimeRef.current = null;
     setSessionStartedAt(null);
     if (!sid) return;
@@ -709,7 +738,7 @@ export default function TrialSonioxXWorkspace() {
     }
     forgetSessionPresence(sid);
     void queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
-  }, [clearHeartbeat, queryClient]);
+  }, [clearHeartbeat, clearSessionAutoStopTimers, queryClient]);
 
   const stopOwnedMic = useCallback(() => {
     setMeterStream(null);
@@ -717,15 +746,23 @@ export default function TrialSonioxXWorkspace() {
     micStreamRef.current = null;
   }, []);
 
-  const stopLive = useCallback(async () => {
-    // Wipe transcript immediately on Stop (Chuck v2). Do this before awaiting
-    // billing so a slow network close cannot leave text on screen until next Start.
-    stopTranscription();
-    clearTokens();
-    setMarkedRowId(null);
-    setNotes("");
-    setClearedForPrivacy(true);
-    setTimeout(() => setClearedForPrivacy(false), 4000);
+  const stopLive = useCallback(async (opts?: { reason?: "manual" | "inactivity" | "max_session" }) => {
+    const reason = opts?.reason ?? "manual";
+    // Chuck v2: inactivity / max-session still stop the session for admins, but
+    // leave the transcript on screen. Manual Stop always wipes (privacy).
+    const keepTranscript = reason !== "manual" && isAdminRef.current;
+    clearSessionAutoStopTimers();
+
+    stopTranscription(keepTranscript ? { preserveTokens: true } : undefined);
+    if (!keepTranscript) {
+      clearTokens();
+      setMarkedRowId(null);
+      setNotes("");
+      if (reason === "manual") {
+        setClearedForPrivacy(true);
+        setTimeout(() => setClearedForPrivacy(false), 4000);
+      }
+    }
 
     stopOwnedMic();
     if (tabCaptureStopRef.current) {
@@ -737,7 +774,7 @@ export default function TrialSonioxXWorkspace() {
     setTabStream(null);
     await closeBillingSession();
     setHistoryRefreshKey((k) => k + 1);
-  }, [clearTokens, closeBillingSession, stopOwnedMic, stopTranscription, tabStream]);
+  }, [clearTokens, clearSessionAutoStopTimers, closeBillingSession, stopOwnedMic, stopTranscription, tabStream]);
   stopLiveRef.current = stopLive;
 
   useEffect(() => {
@@ -952,6 +989,26 @@ export default function TrialSonioxXWorkspace() {
 
       await startTranscription({ stream, apiKey });
       setMeterStream(stream);
+
+      // ── 5-minute inactivity auto-stop (same as Chuck / chunk-v2) ──────────
+      const scheduleInactivity = () => {
+        if (inactivityTimerRef.current !== null) clearTimeout(inactivityTimerRef.current);
+        inactivityTimerRef.current = setTimeout(() => {
+          inactivityTimerRef.current = null;
+          setSessionError("Session stopped due to inactivity.");
+          void stopLiveRef.current({ reason: "inactivity" });
+        }, INACTIVITY_TIMEOUT_MS);
+      };
+      resetInactivityRef.current = scheduleInactivity;
+      scheduleInactivity();
+
+      // ── 3-hour max session auto-stop ─────────────────────────────────────
+      if (maxSessionTimerRef.current !== null) clearTimeout(maxSessionTimerRef.current);
+      maxSessionTimerRef.current = setTimeout(() => {
+        maxSessionTimerRef.current = null;
+        setSessionError("Session time limit reached (3 hours). Please start a new session.");
+        void stopLiveRef.current({ reason: "max_session" });
+      }, MAX_SESSION_MS);
     } catch (err) {
       if (openedMic) {
         void micPromise.then((stream) => {
