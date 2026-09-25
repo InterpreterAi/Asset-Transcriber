@@ -215,13 +215,16 @@ export function buildStableDialectContext(langA: string, langB: string): SonioxS
   const pinA = pinFor(a);
   const pinB = pinFor(b);
   const arabicPair = a === "ar" || b === "ar";
+  const japanesePair = a === "ja" || b === "ja";
   const general: { key: string; value: string }[] = [
     { key: "domain", value: "Live two-way interpretation" },
     {
       key: "languages",
       value: arabicPair
         ? `Two-way ${LANG_NAME[a] ?? a} and ${LANG_NAME[b] ?? b}. Both languages will be spoken. Arabic includes ${AR_SPOKEN_DIALECTS}. Transcribe whichever is spoken; Maghrebi/Darija is Arabic, not French; do not ignore Arabic dialect as silence.`
-        : `Two-way ${LANG_NAME[a] ?? a} and ${LANG_NAME[b] ?? b}. Both languages will be spoken. Transcribe whichever is spoken; do not ignore one side.`,
+        : japanesePair
+          ? `Two-way ${LANG_NAME[a] ?? a} and ${LANG_NAME[b] ?? b}. Both languages will be spoken. Always transcribe Japanese speech in Japanese script when Japanese is spoken; never treat Japanese as silence, background, or English.`
+          : `Two-way ${LANG_NAME[a] ?? a} and ${LANG_NAME[b] ?? b}. Both languages will be spoken. Transcribe whichever is spoken; do not ignore one side.`,
     },
     {
       key: "transcription",
@@ -229,7 +232,9 @@ export function buildStableDialectContext(langA: string, langB: string): SonioxS
         "Original column: transcribe everything spoken in either pair language, exactly as spoken — dialect, slang, and code-switching included. Never drop one side. Do not rewrite originals into the standard written variety." +
         (arabicPair
           ? ` Arabic originals MUST include ${AR_SPOKEN_DIALECTS}. Write them in Arabic script as heard. Do not skip dialect. Do not treat Maghrebi/Darija/Algerian/Tunisian as French or as silence.`
-          : ""),
+          : japanesePair
+            ? " When Japanese is spoken, write Japanese script (kanji/kana) as heard. Never skip Japanese turns. Never wait for English. Never leave the original blank for Japanese speech."
+            : ""),
     },
     {
       key: "translation",
@@ -252,6 +257,13 @@ export function buildStableDialectContext(langA: string, langB: string): SonioxS
       key: "instructions",
       value:
         `Arabic will be spoken in any dialect (${AR_SPOKEN_DIALECTS}). Transcribe that original as dialect Arabic. Translation into Arabic is الفصحى only.`,
+    });
+  }
+  if (japanesePair) {
+    general.push({
+      key: "instructions",
+      value:
+        "Japanese and English alternate on this call. Capture every Japanese utterance in Japanese script. Do not ignore Japanese because English glossary terms are present.",
     });
   }
 

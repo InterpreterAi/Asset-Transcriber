@@ -212,7 +212,7 @@ describe("interpreter glossary", () => {
     expect(pack.glossaryLines.length).toBeGreaterThan(400);
   });
 
-  it("keeps the Japanese glossary context between 8.5k and 9k", () => {
+  it("keeps the Japanese Soniox context lean so JA speech is not silenced", () => {
     const dialect = buildStableDialectContext("en", "ja");
     const pack = packTermsForPair("en", "ja");
     const ctx = mergeSonioxXInterpreterContext({
@@ -225,9 +225,12 @@ describe("interpreter glossary", () => {
       langB: "ja",
     });
     const n = JSON.stringify(ctx).length;
-    expect(n).toBeGreaterThanOrEqual(8_500);
     expect(n).toBeLessThanOrEqual(SONIOX_X_JA_CONTEXT_SAFE_CHARS);
-    expect(n).toBeLessThanOrEqual(9_000);
+    expect(n).toBeLessThan(6_500);
+    // Far under the old ~9k dump that silenced Japanese speech.
+    expect(n).toBeLessThan(7_500);
+    // No bulk English=Japanese text dump (that locks LID onto English).
+    expect(ctx.text ?? "").not.toMatch(/Bidirectional medical glossary/);
     for (const en of ["CPR", "MRI", "Sonogram", "Immigration status", "Car insurance"] as const) {
       const ok =
         ctx.translation_terms?.some((t) => t.source === en) || (ctx.text ?? "").includes(`${en}=`);
@@ -235,7 +238,8 @@ describe("interpreter glossary", () => {
     }
     const sono = ctx.translation_terms?.find((t) => t.source === "Sonogram");
     expect(sono?.target).toBe("超音波画像");
-    expect(ctx.text).toMatch(/hyōjungo|標準語/);
+    expect(JSON.stringify(ctx.general)).toMatch(/hyōjungo|標準語/);
+    expect(JSON.stringify(ctx.general)).toMatch(/Never treat Japanese as silence|never treat Japanese as silence|Never leave the original blank for Japanese/i);
     expect(ctx.terms?.some((t) => /you're through to the Japanese interpreter/i.test(t))).toBe(true);
   });
 

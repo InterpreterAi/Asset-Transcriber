@@ -652,8 +652,8 @@ export default function TrialSonioxXWorkspace() {
     }
     let cancelled = false;
     setReadingError(false);
-    // Keep ready=false until the dict is up so kanji lines show a brief "…" not a wrong guess.
-    if (readingFamily === "ja") setReadingReady(false);
+    // Don't flash ready→false on every effect re-run once the JA dict is warm —
+    // that blanks Romaji under live Japanese lines for no reason.
     void ensureScriptReadingReady(readingFamily)
       .then(() => {
         if (!cancelled) setReadingReady(true);

@@ -15,16 +15,24 @@ import { meaningLockPinPairs } from "./meaning-locks";
 
 export const SONIOX_X_CONTEXT_SAFE_CHARS = 9_600;
 /**
- * Japanese pairs stay in the 8.5k–9k band. Soniox still rejects past ~10k;
- * the lower ceiling keeps the en-ja medical/legal/auto pack from overfilling.
+ * English↔Japanese must stay lean. Dumping the full ~9k English medical glossary
+ * into Soniox `text` locks LID onto English so Japanese speech is dropped.
+ * Keep priority translation_terms + intro only — no bulk glossary line dump.
+ * Romaji is client-side display only.
  */
-export const SONIOX_X_JA_CONTEXT_SAFE_CHARS = 9_000;
+export const SONIOX_X_JA_CONTEXT_SAFE_CHARS = 6_000;
 
 export function sonioxContextCharLimit(langA: string, langB: string): number {
-  const a = langBase(langA);
-  const b = langBase(langB);
+  const a = (langA || "").split("-")[0]?.toLowerCase() ?? "";
+  const b = (langB || "").split("-")[0]?.toLowerCase() ?? "";
   if (a === "ja" || b === "ja") return SONIOX_X_JA_CONTEXT_SAFE_CHARS;
   return SONIOX_X_CONTEXT_SAFE_CHARS;
+}
+
+export function isJapaneseSonioxPair(langA: string, langB: string): boolean {
+  const a = (langA || "").split("-")[0]?.toLowerCase() ?? "";
+  const b = (langB || "").split("-")[0]?.toLowerCase() ?? "";
+  return a === "ja" || b === "ja";
 }
 
 export type GlossaryTerm = { source: string; target: string };
@@ -324,6 +332,15 @@ function isRecognitionPin(en: string): boolean {
   return RECOGNITION_ABBR.test(t) || /^[A-Z]{3,8}$/.test(t);
 }
 
+/** Tight abbr set for English↔Japanese — the broad recognition-pin flood locks LID onto English. */
+const JA_PRIORITY_ABBR = new Set(
+  ["CPR", "MRI", "ECG", "EEG", "ER", "CT", "IUD", "CBC", "IVF", "D&C"].map((w) => w.toLowerCase()),
+);
+
+function isJapanesePriorityPin(en: string): boolean {
+  return JA_PRIORITY_ABBR.has(en.trim().toLowerCase());
+}
+
 function uniqueRows(rows: PackEntry[], other: string): { en: string; tgt: string }[] {
   const out: { en: string; tgt: string }[] = [];
   const seen = new Set<string>();
@@ -568,14 +585,14 @@ function fits(ctx: SonioxStartContext, limit: number, reserve = 0): boolean {
 /** Chars reserved so intro handoff terms still fit after the medical pack. */
 const INTRO_CONTEXT_RESERVE = 500;
 
-function isPriorityPairStart(term: GlossaryTerm): boolean {
+function isPriorityPairStart(term: GlossaryTerm, japanesePair = false): boolean {
   const src = term.source.trim();
-  return (
-    LEGAL_PRIORITY.has(src.toLowerCase()) ||
-    AUTO_PRIORITY.has(src.toLowerCase()) ||
-    isRecognitionPin(src) ||
-    /^(sonogram|ultrasound|mammogram|mammography|stroke)$/i.test(src)
-  );
+  // Reverse-direction rows (Japanese → English) are never "priority starts".
+  if (!/^[A-Za-z0-9]/.test(src)) return false;
+  if (LEGAL_PRIORITY.has(src.toLowerCase()) || AUTO_PRIORITY.has(src.toLowerCase())) return true;
+  if (/^(sonogram|ultrasound|mammogram|mammography|stroke)$/i.test(src)) return true;
+  if (japanesePair) return isJapanesePriorityPin(src);
+  return isRecognitionPin(src);
 }
 
 function addPackPairs(
@@ -621,36 +638,55 @@ export function mergeSonioxXInterpreterContext(args: {
   langB: string;
 }): SonioxStartContext {
   const limit = sonioxContextCharLimit(args.langA, args.langB);
+  const japanesePair = isJapaneseSonioxPair(args.langA, args.langB);
   const ctx = cloneContext(args.dialect);
-  if (args.packTerms.length > 0) withHealthcareTopic(ctx);
+  // JA: drop the long PAIR_TRANSLATION_TEXT blob — register guidance stays in `general`.
+  // That frees budget for priority pins without the Latin glossary wall.
+  if (japanesePair) delete ctx.text;
+
+  // JA: keep topic light — a heavy "medical/legal/auto" banner plus a Latin glossary
+  // dump is what silences Japanese speech on this pair.
+  if (args.packTerms.length > 0 && !japanesePair) withHealthcareTopic(ctx);
+  else if (args.packTerms.length > 0 && japanesePair) {
+    if (!ctx.general) ctx.general = [];
+    if (!ctx.general.some((kv) => kv.key === "topic")) {
+      ctx.general.push({
+        key: "topic",
+        value: "Live interpreter call — English and Japanese both spoken; transcribe both",
+      });
+    }
+  }
 
   ctx.translation_terms = [...(ctx.translation_terms ?? []), ...args.userTerms];
-  if (!fits(ctx, limit, INTRO_CONTEXT_RESERVE)) ctx.translation_terms = [...args.userTerms];
+  const packReserve = japanesePair ? 200 : INTRO_CONTEXT_RESERVE;
+  if (!fits(ctx, limit, packReserve)) ctx.translation_terms = [...args.userTerms];
 
   const seen = new Set((ctx.translation_terms ?? []).map((t) => `${t.source}->${t.target}`));
   const includedSources = new Set((ctx.translation_terms ?? []).map((t) => t.source));
   const userSources = new Set(args.userTerms.map((t) => t.source));
 
+  // Priority pins only for every pair (CPR, legal, auto, …).
   addPackPairs(
     ctx,
     args.packTerms,
     seen,
     includedSources,
     userSources,
-    isPriorityPairStart,
+    (start) => isPriorityPairStart(start, japanesePair),
     limit,
-    INTRO_CONTEXT_RESERVE,
+    packReserve,
   );
 
   const terms: string[] = [...(ctx.terms ?? [])];
   const seenTerm = new Set(terms.map((t) => t.toLowerCase()));
   for (const pin of args.packPins) {
-    if (!includedSources.has(pin) && !isRecognitionPin(pin)) continue;
+    const pinOk = japanesePair ? isJapanesePriorityPin(pin) : isRecognitionPin(pin);
+    if (!includedSources.has(pin) && !pinOk) continue;
     if (seenTerm.has(pin.toLowerCase())) continue;
     seenTerm.add(pin.toLowerCase());
     terms.push(pin);
     ctx.terms = terms;
-    if (!fits(ctx, limit, INTRO_CONTEXT_RESERVE)) {
+    if (!fits(ctx, limit, packReserve)) {
       terms.pop();
       break;
     }
@@ -658,35 +694,39 @@ export function mergeSonioxXInterpreterContext(args: {
   if (terms.length > 0) ctx.terms = terms;
   else delete ctx.terms;
 
-  const baseText = ctx.text ?? "";
-  const header =
-    "Bidirectional medical glossary (either side is source). Use the paired wording only; never keep the English word in the non-English translation.";
-  const extra: string[] = [];
-  for (const line of args.packLines ?? []) {
-    const en = line.split("=")[0] ?? "";
-    if (!en || includedSources.has(en)) continue;
-    const lead = /^([A-Z]{2,8}|D&C)\s+/.exec(en);
-    if (lead && includedSources.has(lead[1])) continue;
-    extra.push(line);
-    ctx.text = [baseText, header, extra.join("\n")].filter(Boolean).join("\n");
-    if (!fits(ctx, limit, INTRO_CONTEXT_RESERVE)) {
-      extra.pop();
-      ctx.text = extra.length > 0 ? [baseText, header, extra.join("\n")].filter(Boolean).join("\n") : baseText || undefined;
-      break;
+  // Skip the bulk English=target text dump for Japanese — that Latin wall biases STT
+  // onto English. Other pairs keep the compact glossary lines.
+  if (!japanesePair) {
+    const baseText = ctx.text ?? "";
+    const header =
+      "Bidirectional medical glossary (either side is source). Use the paired wording only; never keep the English word in the non-English translation.";
+    const extra: string[] = [];
+    for (const line of args.packLines ?? []) {
+      const en = line.split("=")[0] ?? "";
+      if (!en || includedSources.has(en)) continue;
+      const lead = /^([A-Z]{2,8}|D&C)\s+/.exec(en);
+      if (lead && includedSources.has(lead[1])) continue;
+      extra.push(line);
+      ctx.text = [baseText, header, extra.join("\n")].filter(Boolean).join("\n");
+      if (!fits(ctx, limit, INTRO_CONTEXT_RESERVE)) {
+        extra.pop();
+        ctx.text = extra.length > 0 ? [baseText, header, extra.join("\n")].filter(Boolean).join("\n") : baseText || undefined;
+        break;
+      }
     }
-  }
-  if (!ctx.text) delete ctx.text;
+    if (!ctx.text) delete ctx.text;
 
-  addPackPairs(
-    ctx,
-    args.packTerms,
-    seen,
-    includedSources,
-    userSources,
-    (start) => !isPriorityPairStart(start),
-    limit,
-    INTRO_CONTEXT_RESERVE,
-  );
+    addPackPairs(
+      ctx,
+      args.packTerms,
+      seen,
+      includedSources,
+      userSources,
+      (start) => !isPriorityPairStart(start),
+      limit,
+      INTRO_CONTEXT_RESERVE,
+    );
+  }
 
   // Intro handoff bias last so medical pack keeps its slot — still prepended in terms.
   withInterpreterCallFraming(ctx, args.langA, args.langB);
@@ -706,13 +746,13 @@ export function mergeSonioxXInterpreterContext(args: {
     ],
   );
   while (!fits(ctx, limit) && (ctx.translation_terms?.length ?? 0) > args.userTerms.length) {
-    const terms = ctx.translation_terms!;
-    let idx = terms.length - 1;
-    while (idx >= 0 && protectedSources.has(terms[idx]!.source.trim().toLowerCase())) {
+    const termsList = ctx.translation_terms!;
+    let idx = termsList.length - 1;
+    while (idx >= 0 && protectedSources.has(termsList[idx]!.source.trim().toLowerCase())) {
       idx -= 1;
     }
     if (idx < 0) break;
-    terms.splice(idx, 1);
+    termsList.splice(idx, 1);
   }
   while (!fits(ctx, limit) && (ctx.terms?.length ?? 0) > buildInterpreterIntroTerms(args.langA, args.langB).length) {
     ctx.terms!.pop();
