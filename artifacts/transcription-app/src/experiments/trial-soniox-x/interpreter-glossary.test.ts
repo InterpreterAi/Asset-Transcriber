@@ -99,6 +99,50 @@ describe("interpreter glossary", () => {
     expect(pack.glossaryLines.length).toBeGreaterThan(400);
   });
 
+  it("loads the enlarged en-pt pack both directions without changing other pairs", () => {
+    const pt = packTermsForPair("en", "pt");
+    expect(pt.glossaryLines.length).toBeGreaterThan(1000);
+    expect(pt.translationTerms.some((t) => t.source === "Immigration status" && t.target === "status migratório")).toBe(
+      true,
+    );
+    expect(pt.translationTerms.some((t) => t.source === "CPR" && t.target === "RCP")).toBe(true);
+    expect(pt.translationTerms.some((t) => t.source === "RCP" && t.target === "CPR")).toBe(true);
+    expect(pt.translationTerms.some((t) => t.source === "Abdominal Pain" && /dor abdominal/i.test(t.target))).toBe(
+      true,
+    );
+    expect(pt.translationTerms.some((t) => t.source === "alimony" && /pensão/i.test(t.target))).toBe(true);
+    expect(pt.translationTerms.some((t) => t.source === "Accident claim")).toBe(true);
+    // Other pairs must stay at their prior catalog sizes (PT-only merge).
+    expect(packTermsForPair("en", "es").glossaryLines.length).toBeGreaterThan(400);
+    expect(packTermsForPair("en", "es").glossaryLines.length).toBeLessThan(900);
+    expect(packTermsForPair("en", "ar").glossaryLines.length).toBeGreaterThan(400);
+    expect(packTermsForPair("en", "ar").glossaryLines.length).toBeLessThan(900);
+    expect(packTermsForPair("en", "ja").glossaryLines.length).toBeGreaterThan(400);
+    expect(packTermsForPair("en", "ja").glossaryLines.length).toBeLessThan(900);
+  });
+
+  it("keeps en-pt Soniox context inside the non-JA budget", () => {
+    const dialect = buildStableDialectContext("en", "pt");
+    const pack = packTermsForPair("en", "pt");
+    const ctx = mergeSonioxXInterpreterContext({
+      dialect,
+      packTerms: pack.translationTerms,
+      packPins: pack.recognitionPins,
+      packLines: pack.glossaryLines,
+      userTerms: [],
+      langA: "en",
+      langB: "pt",
+    });
+    const n = JSON.stringify(ctx).length;
+    expect(n).toBeGreaterThan(7_500);
+    expect(n).toBeLessThanOrEqual(SONIOX_X_CONTEXT_SAFE_CHARS);
+    for (const en of ["CPR", "MRI", "Immigration status", "Car insurance"] as const) {
+      const ok =
+        ctx.translation_terms?.some((t) => t.source === en) || (ctx.text ?? "").includes(`${en}=`);
+      expect(ok, `${en} missing; chars=${n}`).toBe(true);
+    }
+  });
+
   it("pins high-value Spanish medical terms inside the Soniox budget", () => {
     const dialect = buildStableDialectContext("en", "es");
     const pack = packTermsForPair("en", "es");

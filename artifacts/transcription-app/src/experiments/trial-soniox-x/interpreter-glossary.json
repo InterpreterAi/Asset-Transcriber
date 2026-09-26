@@ -13228,6 +13228,74 @@
     ],
     "en-pt": [
       {
+        "en": "CT",
+        "pt": "Tomografia computadorizada"
+      },
+      {
+        "en": "CAT",
+        "pt": "Tomografia computadorizada"
+      },
+      {
+        "en": "IV",
+        "pt": "IV / intravenoso"
+      },
+      {
+        "en": "ER",
+        "pt": "Sala de emergência"
+      },
+      {
+        "en": "AIDS",
+        "pt": "Síndrome da imunodeficiência adquirida (AIDS)"
+      },
+      {
+        "en": "CBC",
+        "pt": "Hemograma completo"
+      },
+      {
+        "en": "COPD",
+        "pt": "DPOC"
+      },
+      {
+        "en": "CPR",
+        "pt": "RCP"
+      },
+      {
+        "en": "DNR",
+        "pt": "DNR"
+      },
+      {
+        "en": "ECG",
+        "pt": "Eletrocardiograma (ECG)"
+      },
+      {
+        "en": "EEG",
+        "pt": "Eletroencefalograma (EEG)"
+      },
+      {
+        "en": "EKG",
+        "pt": "Eletrocardiograma (ECG)"
+      },
+      {
+        "en": "ICU",
+        "pt": "UTI"
+      },
+      {
+        "en": "IUD",
+        "pt": "Dispositivo intrauterino (DIU)"
+      },
+      {
+        "en": "IVF",
+        "pt": "Fertilização in vitro (FIV)"
+      },
+      {
+        "en": "MRI",
+        "pt": "Ressonância magnética"
+      },
+      {
+        "en": "Sonogram",
+        "pt": "Ultrassom"
+      },
+      {
         "en": "Immigration status",
         "pt": "status migratório"
       },
@@ -13600,10 +13668,6 @@
         "pt": "registro do veículo"
       },
       {
-        "en": "VIN",
-        "pt": "número de chassi"
-      },
-      {
         "en": "Airbag",
         "pt": "airbag"
       },
@@ -13672,12 +13736,5836 @@
         "pt": "multa de trânsito"
       },
       {
-        "en": "DUI",
-        "pt": "condução sob efeito de álcool"
+        "en": "Accident claim",
+        "pt": "sinistro de seguro por acidente"
       },
       {
-        "en": "DMV",
-        "pt": "departamento de trânsito"
+        "en": "Asbestos",
+        "pt": "amianto"
+      },
+      {
+        "en": "Authorized user",
+        "pt": "usuário(a) autorizado(a)"
+      },
+      {
+        "en": "Auto loan",
+        "pt": "empréstimo/financiamento automotivo"
+      },
+      {
+        "en": "Available balance",
+        "pt": "saldo disponível"
+      },
+      {
+        "en": "Balance",
+        "pt": "saldo"
+      },
+      {
+        "en": "Benefit determination",
+        "pt": "determinação de benefícios"
+      },
+      {
+        "en": "Billing statement",
+        "pt": "fatura / demonstrativo de cobrança"
+      },
+      {
+        "en": "Carbon monoxide",
+        "pt": "monóxido de carbono"
+      },
+      {
+        "en": "Case manager",
+        "pt": "gestor(a) de caso / gerente de caso"
+      },
+      {
+        "en": "Case number",
+        "pt": "número do caso"
+      },
+      {
+        "en": "Cash assistance",
+        "pt": "assistência em dinheiro"
+      },
+      {
+        "en": "Checking account",
+        "pt": "conta corrente"
+      },
+      {
+        "en": "Claim denial",
+        "pt": "negação do sinistro / recusa da reclamação"
+      },
+      {
+        "en": "Claim status",
+        "pt": "status do sinistro / status da reclamação"
+      },
+      {
+        "en": "Co-signer",
+        "pt": "fiador(a) / coassinante"
+      },
+      {
+        "en": "Collection agency",
+        "pt": "agência de cobrança"
+      },
+      {
+        "en": "Collections",
+        "pt": "cobrança / cobranças"
+      },
+      {
+        "en": "Compliance",
+        "pt": "conformidade"
+      },
+      {
+        "en": "Consent",
+        "pt": "consentimento"
+      },
+      {
+        "en": "Contractor",
+        "pt": "empreiteiro(a) / contratado(a)"
+      },
+      {
+        "en": "Copay",
+        "pt": "copagamento"
+      },
+      {
+        "en": "Court order",
+        "pt": "ordem judicial"
+      },
+      {
+        "en": "Coverage",
+        "pt": "cobertura"
+      },
+      {
+        "en": "Coverage limit",
+        "pt": "limite de cobertura"
+      },
+      {
+        "en": "Credit history",
+        "pt": "histórico de crédito"
+      },
+      {
+        "en": "Credit report",
+        "pt": "relatório de crédito"
+      },
+      {
+        "en": "Credit score",
+        "pt": "pontuação de crédito / score de crédito"
+      },
+      {
+        "en": "Creditor",
+        "pt": "credor"
+      },
+      {
+        "en": "Debt",
+        "pt": "dívida"
+      },
+      {
+        "en": "Debtor",
+        "pt": "devedor"
+      },
+      {
+        "en": "Default",
+        "pt": "inadimplência"
+      },
+      {
+        "en": "Direct deposit",
+        "pt": "depósito direto"
+      },
+      {
+        "en": "Disbursement",
+        "pt": "desembolso"
+      },
+      {
+        "en": "Employment verification",
+        "pt": "comprovação/verificação de emprego"
+      },
+      {
+        "en": "Escrow",
+        "pt": "conta de garantia / depósito em garantia"
+      },
+      {
+        "en": "Eviction notice",
+        "pt": "aviso de despejo / notificação de despejo"
+      },
+      {
+        "en": "Fees",
+        "pt": "taxas / tarifas"
+      },
+      {
+        "en": "Financial hardship",
+        "pt": "dificuldade financeira"
+      },
+      {
+        "en": "Fraud",
+        "pt": "fraude"
+      },
+      {
+        "en": "Gross income",
+        "pt": "renda bruta"
+      },
+      {
+        "en": "Identity theft",
+        "pt": "roubo de identidade"
+      },
+      {
+        "en": "Identity verification",
+        "pt": "verificação de identidade"
+      },
+      {
+        "en": "Income verification",
+        "pt": "comprovação/verificação de renda"
+      },
+      {
+        "en": "Insufficient funds",
+        "pt": "fundos insuficientes"
+      },
+      {
+        "en": "Insurance policy",
+        "pt": "apólice de seguro"
+      },
+      {
+        "en": "Insurance premium",
+        "pt": "prêmio de seguro"
+      },
+      {
+        "en": "Interest rate",
+        "pt": "taxa de juros"
+      },
+      {
+        "en": "Late fee",
+        "pt": "taxa/cargo por atraso"
+      },
+      {
+        "en": "Lead-based paint",
+        "pt": "tinta/pintura à base de chumbo"
+      },
+      {
+        "en": "Lease renewal",
+        "pt": "renovação do contrato de aluguel/arrendamento"
+      },
+      {
+        "en": "Legal guardian",
+        "pt": "tutor(a) legal / guardião legal"
+      },
+      {
+        "en": "Legal notice",
+        "pt": "aviso legal / notificação legal"
+      },
+      {
+        "en": "Legal representation",
+        "pt": "representação legal"
+      },
+      {
+        "en": "Lien",
+        "pt": "penhor / gravame"
+      },
+      {
+        "en": "Loan",
+        "pt": "empréstimo"
+      },
+      {
+        "en": "Loan application",
+        "pt": "solicitação/requerimento de empréstimo"
+      },
+      {
+        "en": "Loan approval",
+        "pt": "aprovação do empréstimo"
+      },
+      {
+        "en": "Loan term",
+        "pt": "prazo do empréstimo"
+      },
+      {
+        "en": "Minimum payment",
+        "pt": "pagamento mínimo"
+      },
+      {
+        "en": "Mold",
+        "pt": "mofo"
+      },
+      {
+        "en": "Mortgage",
+        "pt": "hipoteca / financiamento imobiliário"
+      },
+      {
+        "en": "Notarized document",
+        "pt": "documento notarizado / com firma reconhecida"
+      },
+      {
+        "en": "Notice to vacate",
+        "pt": "pedido/aviso de desocupação"
+      },
+      {
+        "en": "Out-of-pocket costs",
+        "pt": "custos/gastos do próprio bolso"
+      },
+      {
+        "en": "Outstanding balance",
+        "pt": "saldo devedor / saldo pendente"
+      },
+      {
+        "en": "Overdraft",
+        "pt": "cheque especial / descoberto bancário"
+      },
+      {
+        "en": "Past-due rent",
+        "pt": "aluguel em atraso / aluguel vencido"
+      },
+      {
+        "en": "Pay stub",
+        "pt": "contracheque / comprovante de pagamento"
+      },
+      {
+        "en": "Payments due",
+        "pt": "pagamentos devidos / pagamentos pendentes"
+      },
+      {
+        "en": "Policyholder",
+        "pt": "titular da apólice"
+      },
+      {
+        "en": "Principal",
+        "pt": "principal / capital"
+      },
+      {
+        "en": "Privacy policy",
+        "pt": "política de privacidade"
+      },
+      {
+        "en": "Proof of insurance",
+        "pt": "comprovante de seguro"
+      },
+      {
+        "en": "Public assistance",
+        "pt": "assistência pública / benefícios públicos"
+      },
+      {
+        "en": "Radon",
+        "pt": "radônio"
+      },
+      {
+        "en": "Refinance",
+        "pt": "refinanciar / refinanciamento"
+      },
+      {
+        "en": "Registration renewal",
+        "pt": "renovação do registro"
+      },
+      {
+        "en": "Rental application",
+        "pt": "solicitação de aluguel/arrendamento"
+      },
+      {
+        "en": "Returned payment",
+        "pt": "pagamento devolvido"
+      },
+      {
+        "en": "Savings account",
+        "pt": "conta poupança"
+      },
+      {
+        "en": "Section 8",
+        "pt": "Seção 8"
+      },
+      {
+        "en": "Security deposit",
+        "pt": "depósito de segurança"
+      },
+      {
+        "en": "Security questions",
+        "pt": "perguntas de segurança"
+      },
+      {
+        "en": "Settlement offer",
+        "pt": "oferta de acordo"
+      },
+      {
+        "en": "Summons",
+        "pt": "intimação"
+      },
+      {
+        "en": "Traffic citation",
+        "pt": "multa de trânsito"
+      },
+      {
+        "en": "Transaction history",
+        "pt": "histórico de transações"
+      },
+      {
+        "en": "Vehicle registration",
+        "pt": "registro do veículo"
+      },
+      {
+        "en": "Vehicle title",
+        "pt": "título do veículo"
+      },
+      {
+        "en": "VIN (Vehicle Identification Number)",
+        "pt": "VIN (Número de Identificação do Veículo)"
+      },
+      {
+        "en": "Wage garnishment",
+        "pt": "penhora de salários"
+      },
+      {
+        "en": "Abdominal Pain",
+        "pt": "Dor abdominal"
+      },
+      {
+        "en": "Admission",
+        "pt": "Admissão"
+      },
+      {
+        "en": "Advance Directive",
+        "pt": "Diretiva antecipada"
+      },
+      {
+        "en": "Allergic Reaction (Anaphylaxis)",
+        "pt": "Reação alérgica (Anafilaxia)"
+      },
+      {
+        "en": "Antibiotics",
+        "pt": "Antibióticos"
+      },
+      {
+        "en": "Anticoagulants",
+        "pt": "Anticoagulantes"
+      },
+      {
+        "en": "Asthma Attack",
+        "pt": "Crise de asma"
+      },
+      {
+        "en": "Bleeding",
+        "pt": "Sangramento"
+      },
+      {
+        "en": "Blood Clot",
+        "pt": "Coágulo sanguíneo"
+      },
+      {
+        "en": "Blood Pressure",
+        "pt": "Pressão arterial"
+      },
+      {
+        "en": "Blood Test",
+        "pt": "Exame de sangue"
+      },
+      {
+        "en": "Blood Thinner",
+        "pt": "Anticoagulante"
+      },
+      {
+        "en": "Blood Transfusion",
+        "pt": "Transfusão de sangue"
+      },
+      {
+        "en": "Body Mass Index (BMI)",
+        "pt": "Índice de massa corporal (IMC)"
+      },
+      {
+        "en": "Burn",
+        "pt": "Queimadura"
+      },
+      {
+        "en": "Cancer",
+        "pt": "Câncer"
+      },
+      {
+        "en": "Chest Pain",
+        "pt": "Dor no peito"
+      },
+      {
+        "en": "Chills",
+        "pt": "Calafrios"
+      },
+      {
+        "en": "Clavicle (Collar Bone)",
+        "pt": "Clavícula"
+      },
+      {
+        "en": "Code Blue",
+        "pt": "Código azul"
+      },
+      {
+        "en": "Concussion",
+        "pt": "Concussão"
+      },
+      {
+        "en": "Consent Form",
+        "pt": "Formulário de consentimento"
+      },
+      {
+        "en": "CPR (Cardiopulmonary Resuscitation)",
+        "pt": "RCP (Reanimação cardiopulmonar)"
+      },
+      {
+        "en": "CT scan (Computerized Tomography, CAT Scan)",
+        "pt": "Tomografia computadorizada"
+      },
+      {
+        "en": "Defibrillator",
+        "pt": "Desfibrilador"
+      },
+      {
+        "en": "Diabetic Emergency (Hypoglycemia, Hyperglycemia)",
+        "pt": "Emergência diabética (Hipoglicemia, Hiperglicemia)"
+      },
+      {
+        "en": "Dizziness",
+        "pt": "Tontura"
+      },
+      {
+        "en": "Discharge",
+        "pt": "Alta médica"
+      },
+      {
+        "en": "Electrocardiogram (EKG/ECG)",
+        "pt": "Eletrocardiograma (ECG)"
+      },
+      {
+        "en": "Emergency Room",
+        "pt": "Sala de emergência"
+      },
+      {
+        "en": "Epinephrine",
+        "pt": "Epinefrina"
+      },
+      {
+        "en": "Fatigue",
+        "pt": "Fadiga"
+      },
+      {
+        "en": "Fainting Spell",
+        "pt": "Desmaio"
+      },
+      {
+        "en": "Fever",
+        "pt": "Febre"
+      },
+      {
+        "en": "Fracture",
+        "pt": "Fratura"
+      },
+      {
+        "en": "Headache",
+        "pt": "Dor de cabeça"
+      },
+      {
+        "en": "Heart Attack (Myocardial Infarction)",
+        "pt": "Ataque cardíaco (Infarto do miocárdio)"
+      },
+      {
+        "en": "Heart Rate",
+        "pt": "Monitor Monitor de frequência cardíaca"
+      },
+      {
+        "en": "Hospitalized",
+        "pt": "Hospitalizado"
+      },
+      {
+        "en": "Hypertension",
+        "pt": "Hipertensão"
+      },
+      {
+        "en": "ICU (Intensive Care Unit)",
+        "pt": "UTI (Unidade de terapia intensiva)"
+      },
+      {
+        "en": "Injury",
+        "pt": "Lesão"
+      },
+      {
+        "en": "Intubation",
+        "pt": "Intubação"
+      },
+      {
+        "en": "IV Fluids",
+        "pt": "Fluidos intravenosos"
+      },
+      {
+        "en": "IV Line",
+        "pt": "Cateter intravenoso"
+      },
+      {
+        "en": "Laceration",
+        "pt": "Laceração"
+      },
+      {
+        "en": "Living Will",
+        "pt": "Testamento vital"
+      },
+      {
+        "en": "Lower Abdominal Pain",
+        "pt": "Dor abdominal inferior"
+      },
+      {
+        "en": "Lower Back",
+        "pt": "Parte inferior das costas"
+      },
+      {
+        "en": "Medical power of attorney",
+        "pt": "Procuração médica"
+      },
+      {
+        "en": "MRI (Magnetic Resonance Imaging)",
+        "pt": "Ressonância magnética"
+      },
+      {
+        "en": "Nausea",
+        "pt": "Náusea"
+      },
+      {
+        "en": "Observation",
+        "pt": "Observação"
+      },
+      {
+        "en": "Oxygen Saturation",
+        "pt": "Saturação de oxigênio"
+      },
+      {
+        "en": "Pain Relievers (Ibuprofen, Acetaminophen)",
+        "pt": "Analgésicos (Ibuprofeno, Paracetamol)"
+      },
+      {
+        "en": "Palpitation",
+        "pt": "Palpitação"
+      },
+      {
+        "en": "Period",
+        "pt": "Período"
+      },
+      {
+        "en": "PICC line: peripherally inserted central catheter",
+        "pt": "Linha PICC"
+      },
+      {
+        "en": "Physical Exam",
+        "pt": "Exame físico"
+      },
+      {
+        "en": "Provider",
+        "pt": "Prestador"
+      },
+      {
+        "en": "Pulse",
+        "pt": "Pulso"
+      },
+      {
+        "en": "Racing Heart",
+        "pt": "Coração acelerado"
+      },
+      {
+        "en": "Respiratory Rate",
+        "pt": "Frequência respiratória"
+      },
+      {
+        "en": "Seizure",
+        "pt": "Convulsão"
+      },
+      {
+        "en": "Sepsis",
+        "pt": "Sepse"
+      },
+      {
+        "en": "Severe Pain",
+        "pt": "Dor intensa"
+      },
+      {
+        "en": "Shock",
+        "pt": "Choque"
+      },
+      {
+        "en": "Shortness of Breath",
+        "pt": "Falta de ar"
+      },
+      {
+        "en": "Steroids",
+        "pt": "Esteroides"
+      },
+      {
+        "en": "Stroke (Cerebrovascular Accident - CVA)",
+        "pt": "Derrame (Acidente vascular cerebral (AVC))"
+      },
+      {
+        "en": "Surgical Site",
+        "pt": "Local cirúrgico"
+      },
+      {
+        "en": "Swelling",
+        "pt": "Inchaço"
+      },
+      {
+        "en": "Temperature",
+        "pt": "Temperatura"
+      },
+      {
+        "en": "Triage",
+        "pt": "Triagem"
+      },
+      {
+        "en": "Trauma",
+        "pt": "Trauma"
+      },
+      {
+        "en": "Trauma Team",
+        "pt": "Equipe de trauma"
+      },
+      {
+        "en": "Urgent Care",
+        "pt": "Atendimento de urgência"
+      },
+      {
+        "en": "Urinalysis",
+        "pt": "Análise de urina"
+      },
+      {
+        "en": "Ultrasound",
+        "pt": "Ultrassom"
+      },
+      {
+        "en": "Vomiting",
+        "pt": "Vômito"
+      },
+      {
+        "en": "Vital Signs",
+        "pt": "Sinais vitais"
+      },
+      {
+        "en": "Weakness",
+        "pt": "Fraqueza"
+      },
+      {
+        "en": "X-ray",
+        "pt": "Raio-X"
+      },
+      {
+        "en": "Acid Reflux",
+        "pt": "refluxo gastroesofágico"
+      },
+      {
+        "en": "Alcohol Use",
+        "pt": "Consumo de álcool"
+      },
+      {
+        "en": "Allergy",
+        "pt": "Alergia"
+      },
+      {
+        "en": "Aspirin",
+        "pt": "Aspirina"
+      },
+      {
+        "en": "Asthma",
+        "pt": "Asma"
+      },
+      {
+        "en": "Blood Pressure Cuff",
+        "pt": "Manguito de pressão arterial"
+      },
+      {
+        "en": "Blood Sugar",
+        "pt": "Açúcar no sangue"
+      },
+      {
+        "en": "Booster (Vaccine)",
+        "pt": "Reforço (Vacina)"
+      },
+      {
+        "en": "Capillary",
+        "pt": "Capilar"
+      },
+      {
+        "en": "Calcium",
+        "pt": "Cálcio"
+      },
+      {
+        "en": "Chart",
+        "pt": "Prontuário"
+      },
+      {
+        "en": "Cholesterol",
+        "pt": "Colesterol"
+      },
+      {
+        "en": "Chronic Condition",
+        "pt": "Condição crônica"
+      },
+      {
+        "en": "Cold",
+        "pt": "Resfriado"
+      },
+      {
+        "en": "Cough",
+        "pt": "Tosse"
+      },
+      {
+        "en": "Compression stockings",
+        "pt": "Meias de compressão"
+      },
+      {
+        "en": "Cyst",
+        "pt": "Cisto"
+      },
+      {
+        "en": "Depression",
+        "pt": "Depressão"
+      },
+      {
+        "en": "Diabetes",
+        "pt": "Diabetes"
+      },
+      {
+        "en": "Diet",
+        "pt": "Dieta"
+      },
+      {
+        "en": "Dosage",
+        "pt": "Dosagem"
+      },
+      {
+        "en": "DTaP: Diphtheria, Tetanus, Acellular Pertussis",
+        "pt": "DTaP: Difteria, Tétano, Coqueluche acelular"
+      },
+      {
+        "en": "Evaluation",
+        "pt": "Avaliação"
+      },
+      {
+        "en": "Exercise",
+        "pt": "Exercício"
+      },
+      {
+        "en": "Foul-smelling",
+        "pt": "Mau cheiro"
+      },
+      {
+        "en": "Flu",
+        "pt": "(Influenza) Gripe (Influenza)"
+      },
+      {
+        "en": "Gout",
+        "pt": "Gota"
+      },
+      {
+        "en": "Glucometer",
+        "pt": "Glicosímetro"
+      },
+      {
+        "en": "Glucose",
+        "pt": "Glicose"
+      },
+      {
+        "en": "Health Assessment",
+        "pt": "Avaliação de saúde"
+      },
+      {
+        "en": "Health care proxy",
+        "pt": "Procuração para cuidados de saúde"
+      },
+      {
+        "en": "Height",
+        "pt": "Altura"
+      },
+      {
+        "en": "High Blood Pressure",
+        "pt": "Pressão alta"
+      },
+      {
+        "en": "High Density Lipoproteins (HDL) (Good Cholesterol)",
+        "pt": "Lipoproteínas de alta densidade (HDL) (Colesterol bom)"
+      },
+      {
+        "en": "Ibuprofen",
+        "pt": "Ibuprofeno"
+      },
+      {
+        "en": "Immunizations",
+        "pt": "Vacinas"
+      },
+      {
+        "en": "Inflammation",
+        "pt": "Inflamação"
+      },
+      {
+        "en": "IV Iron Infusion",
+        "pt": "Infusão de ferro endovenoso"
+      },
+      {
+        "en": "Lab",
+        "pt": "Laboratório"
+      },
+      {
+        "en": "Laxative",
+        "pt": "Laxante"
+      },
+      {
+        "en": "Lousy",
+        "pt": "Mal-estar"
+      },
+      {
+        "en": "Low Density Lipoproteins (LDL) (Bad Cholesterol)",
+        "pt": "Lipoproteínas de baixa densidade (LDL) (Colesterol ruim)"
+      },
+      {
+        "en": "Medication",
+        "pt": "Medicamento"
+      },
+      {
+        "en": "Medical Problems",
+        "pt": "Problemas médicos"
+      },
+      {
+        "en": "MRN: Medical Record Number",
+        "pt": "Número do prontuário médico (MRN)"
+      },
+      {
+        "en": "Mental Evaluation",
+        "pt": "Avaliação mental"
+      },
+      {
+        "en": "Milestones",
+        "pt": "Marcos"
+      },
+      {
+        "en": "MMR Vaccine (Measles, Mumps, and Rubella)",
+        "pt": "Vacina MMR (Sarampo, Caxumba, Rubéola)"
+      },
+      {
+        "en": "Nurse Practitioner",
+        "pt": "Enfermeiro especialista"
+      },
+      {
+        "en": "Nutrition",
+        "pt": "Nutrição"
+      },
+      {
+        "en": "Nutritionist",
+        "pt": "Nutricionista"
+      },
+      {
+        "en": "Over-the-Counter",
+        "pt": "Sem prescrição"
+      },
+      {
+        "en": "Pain (Chest Pain, Abdominal Pain, Joint Pain) Dor (Peito,",
+        "pt": "Abdômen, Articulações)"
+      },
+      {
+        "en": "Pediatrician",
+        "pt": "Pediatra"
+      },
+      {
+        "en": "Physician Assistant",
+        "pt": "Assistente médico"
+      },
+      {
+        "en": "Prescription",
+        "pt": "Prescrição"
+      },
+      {
+        "en": "Primary Care Doctor",
+        "pt": "Médico de família e comunidade"
+      },
+      {
+        "en": "Rash",
+        "pt": "Irritação na pele"
+      },
+      {
+        "en": "Refill",
+        "pt": "Refil"
+      },
+      {
+        "en": "RSV (Respiratory Syncytial Virus) Vaccine",
+        "pt": "Vacina contra o Vírus Sincicial Respiratório (VSR)"
+      },
+      {
+        "en": "Shot",
+        "pt": "Injeção"
+      },
+      {
+        "en": "Shooting pain",
+        "pt": "Dor aguda"
+      },
+      {
+        "en": "Shingles",
+        "pt": "Cobreiro/Herpes zóster"
+      },
+      {
+        "en": "Side Effect",
+        "pt": "Efeito colateral"
+      },
+      {
+        "en": "Smoking Cessation",
+        "pt": "Cessação do tabagismo"
+      },
+      {
+        "en": "Stethoscope",
+        "pt": "Estetoscópio"
+      },
+      {
+        "en": "Sugar",
+        "pt": "Açúcar"
+      },
+      {
+        "en": "Supplements",
+        "pt": "Suplementos"
+      },
+      {
+        "en": "Tdap (Tetanus, Diphtheria, and Acellular Pertussis)",
+        "pt": "dTpa (Tétano, Difteria, Coqueluche acelular)"
+      },
+      {
+        "en": "Type 2 Diabetes",
+        "pt": "Diabetes tipo 2"
+      },
+      {
+        "en": "Triglycerides",
+        "pt": "Triglicerídeos"
+      },
+      {
+        "en": "Vaccine",
+        "pt": "Vacina"
+      },
+      {
+        "en": "Vitamins",
+        "pt": "Vitaminas"
+      },
+      {
+        "en": "Wart",
+        "pt": "Verruga"
+      },
+      {
+        "en": "Weight",
+        "pt": "Peso"
+      },
+      {
+        "en": "Abscess",
+        "pt": "Abscesso"
+      },
+      {
+        "en": "Acknowledgement form",
+        "pt": "Formulário de reconhecimento"
+      },
+      {
+        "en": "Allergies",
+        "pt": "Alergias"
+      },
+      {
+        "en": "Amputation",
+        "pt": "Amputação"
+      },
+      {
+        "en": "Analgesics",
+        "pt": "Analgésicos"
+      },
+      {
+        "en": "Anesthesia",
+        "pt": "Anestesia"
+      },
+      {
+        "en": "Aneurysm",
+        "pt": "Aneurisma"
+      },
+      {
+        "en": "Appropriate treatment",
+        "pt": "Tratamento apropriado"
+      },
+      {
+        "en": "As deemed necessary",
+        "pt": "Conforme necessário"
+      },
+      {
+        "en": "At any time",
+        "pt": "A qualquer momento"
+      },
+      {
+        "en": "Authorized representative",
+        "pt": "Representante autorizado"
+      },
+      {
+        "en": "Biopsy",
+        "pt": "Biópsia"
+      },
+      {
+        "en": "Blood Work",
+        "pt": "Exames de sangue"
+      },
+      {
+        "en": "By signing below…",
+        "pt": "Ao assinar abaixo…"
+      },
+      {
+        "en": "Cannula",
+        "pt": "Cânula"
+      },
+      {
+        "en": "Carpal Tunnel Wrist Brace",
+        "pt": "Órtese de punho para túnel do carpo"
+      },
+      {
+        "en": "Cast",
+        "pt": "Gesso"
+      },
+      {
+        "en": "Catheter",
+        "pt": "Cateter"
+      },
+      {
+        "en": "Circumcision",
+        "pt": "Circuncisão"
+      },
+      {
+        "en": "Conditions of care",
+        "pt": "Condições de atendimento"
+      },
+      {
+        "en": "Currently in effect",
+        "pt": "Atualmente em vigor"
+      },
+      {
+        "en": "Custodian or Legal Guardian",
+        "pt": "Tutor ou guardião legal"
+      },
+      {
+        "en": "Dilation",
+        "pt": "Dilatação"
+      },
+      {
+        "en": "Discharge Instructions",
+        "pt": "Instruções de alta"
+      },
+      {
+        "en": "DNR (Do Not Resuscitate)",
+        "pt": "DNR (Não ressuscitar)"
+      },
+      {
+        "en": "Drain",
+        "pt": "Dreno"
+      },
+      {
+        "en": "Drainage",
+        "pt": "Drenagem"
+      },
+      {
+        "en": "Drapes",
+        "pt": "Campos cirúrgicos"
+      },
+      {
+        "en": "Dressing",
+        "pt": "Curativo"
+      },
+      {
+        "en": "Electrocautery",
+        "pt": "Eletrocautério"
+      },
+      {
+        "en": "Epidural",
+        "pt": "Peridural"
+      },
+      {
+        "en": "Feeding Pump",
+        "pt": "Bomba de Infusão para Dieta"
+      },
+      {
+        "en": "Feeding Tube",
+        "pt": "Sonda de alimentação"
+      },
+      {
+        "en": "Foley Catheter",
+        "pt": "Sonda Foley"
+      },
+      {
+        "en": "Follow-Up Appointment",
+        "pt": "Retorno/Consulta de acompanhamento"
+      },
+      {
+        "en": "Fully and voluntarily",
+        "pt": "Total e voluntariamente"
+      },
+      {
+        "en": "Gangrene",
+        "pt": "Gangrena"
+      },
+      {
+        "en": "Gauze",
+        "pt": "Gaze"
+      },
+      {
+        "en": "General Anesthesia",
+        "pt": "Anestesia geral"
+      },
+      {
+        "en": "General consent",
+        "pt": "Consentimento geral"
+      },
+      {
+        "en": "Hemodialysis",
+        "pt": "Hemodiálise"
+      },
+      {
+        "en": "Hemostasis",
+        "pt": "Hemostasia"
+      },
+      {
+        "en": "Hereby",
+        "pt": "Por meio deste"
+      },
+      {
+        "en": "Hernia",
+        "pt": "Hérnia"
+      },
+      {
+        "en": "I agree to the terms specified",
+        "pt": "Concordo com os termos especificados"
+      },
+      {
+        "en": "I agree to…",
+        "pt": "Concordo com…"
+      },
+      {
+        "en": "I am authorized to execute this form",
+        "pt": "Estou autorizado a assinar este formulário"
+      },
+      {
+        "en": "I authorize…",
+        "pt": "Autorizo…"
+      },
+      {
+        "en": "I certify that…",
+        "pt": "Certifico que…"
+      },
+      {
+        "en": "I consent to…",
+        "pt": "Consinto em…"
+      },
+      {
+        "en": "I have been advised that…",
+        "pt": "Fui informado que…"
+      },
+      {
+        "en": "I have been given…",
+        "pt": "Recebi…"
+      },
+      {
+        "en": "I have read and fully understand the above statements",
+        "pt": "Li e compreendo completamente as declarações acima"
+      },
+      {
+        "en": "I understand and acknowledge the following…",
+        "pt": "Entendo e reconheço o seguinte…"
+      },
+      {
+        "en": "I understand that I am responsible for…",
+        "pt": "Entendo que sou responsável por…"
+      },
+      {
+        "en": "Implant",
+        "pt": "Implante"
+      },
+      {
+        "en": "In writing",
+        "pt": "Por escrito"
+      },
+      {
+        "en": "Incision",
+        "pt": "Incisão"
+      },
+      {
+        "en": "Infection",
+        "pt": "Infecção"
+      },
+      {
+        "en": "Intermittent Biopsy",
+        "pt": "Biópsia intermitente"
+      },
+      {
+        "en": "Invasive",
+        "pt": "Invasivo"
+      },
+      {
+        "en": "Invasive or interventional procedures",
+        "pt": "Procedimentos invasivos ou intervencionistas"
+      },
+      {
+        "en": "Kidney Stones (Renal Calculi)",
+        "pt": "Pedras nos rins (Cálculos renais)"
+      },
+      {
+        "en": "Local Anesthesia",
+        "pt": "Anestesia local"
+      },
+      {
+        "en": "Mastectomy",
+        "pt": "Mastectomia"
+      },
+      {
+        "en": "Medical examinations, testing and treatment",
+        "pt": "Exames médicos, testes e tratamentos"
+      },
+      {
+        "en": "Medical Power of Attorney (MPOA)",
+        "pt": "Procuração médica"
+      },
+      {
+        "en": "Monitoring (EKG/ECG)",
+        "pt": "Monitoramento (EKG/ECG)"
+      },
+      {
+        "en": "Necessary treatment",
+        "pt": "Tratamento necessário"
+      },
+      {
+        "en": "NG Tube (Nasogastric Tube)",
+        "pt": "SNG (Sonda nasogástrica)"
+      },
+      {
+        "en": "NPO (Nothing by Mouth)",
+        "pt": "NPO (Nada por via oral)"
+      },
+      {
+        "en": "Pain Management",
+        "pt": "Controle da dor"
+      },
+      {
+        "en": "Palliative Care",
+        "pt": "Cuidados paliativos"
+      },
+      {
+        "en": "Permission for treatment",
+        "pt": "Permissão para tratamento"
+      },
+      {
+        "en": "Personal representative",
+        "pt": "Representante pessoal"
+      },
+      {
+        "en": "PICC Line (Peripherally Inserted Central Catheter)",
+        "pt": "Linha PICC (Cateter Venoso Central de inserção periférica)"
+      },
+      {
+        "en": "Postoperative",
+        "pt": "Pós-operatório"
+      },
+      {
+        "en": "Preoperative",
+        "pt": "Pré-operatório"
+      },
+      {
+        "en": "Prior to",
+        "pt": "Antes de"
+      },
+      {
+        "en": "Purpose, potential risks, and benefits of any test ordered for you",
+        "pt": "Objetivo, riscos potenciais e benefícios de qualquer exame solicitado"
+      },
+      {
+        "en": "Range of Motion",
+        "pt": "Amplitude de movimento"
+      },
+      {
+        "en": "Reasonable and necessary",
+        "pt": "Razoável e necessário"
+      },
+      {
+        "en": "Recommended treatment",
+        "pt": "Tratamento recomendado"
+      },
+      {
+        "en": "Recovery Room",
+        "pt": "Sala de recuperação"
+      },
+      {
+        "en": "Refusal to grant such consent will not jeopardize my right to…",
+        "pt": "Recusar esse consentimento não comprometerá meu direito a…"
+      },
+      {
+        "en": "Rehabilitation",
+        "pt": "Reabilitação"
+      },
+      {
+        "en": "Relationship to patient",
+        "pt": "Relação com o paciente"
+      },
+      {
+        "en": "Retractor",
+        "pt": "retrator/afastador"
+      },
+      {
+        "en": "Risk Assessment",
+        "pt": "Avaliação de risco"
+      },
+      {
+        "en": "Risks and hazards involved",
+        "pt": "Riscos e perigos envolvidos"
+      },
+      {
+        "en": "Scalpel",
+        "pt": "Bisturi"
+      },
+      {
+        "en": "Scar Tissue",
+        "pt": "Tecido cicatricial"
+      },
+      {
+        "en": "Screening Test",
+        "pt": "Teste de triagem"
+      },
+      {
+        "en": "Sedation",
+        "pt": "Sedação"
+      },
+      {
+        "en": "Splint",
+        "pt": "Tala"
+      },
+      {
+        "en": "Sprain",
+        "pt": "Entorse"
+      },
+      {
+        "en": "Staples",
+        "pt": "Grampos"
+      },
+      {
+        "en": "Stent",
+        "pt": "Stent"
+      },
+      {
+        "en": "Sterile Field",
+        "pt": "Campo estéril"
+      },
+      {
+        "en": "Stitches",
+        "pt": "Pontos"
+      },
+      {
+        "en": "Suggested treatment",
+        "pt": "Tratamento sugerido"
+      },
+      {
+        "en": "Surgical, medical or diagnostic procedure",
+        "pt": "Procedimento cirúrgico, médico ou diagnóstico"
+      },
+      {
+        "en": "Sutures",
+        "pt": "Suturas"
+      },
+      {
+        "en": "The consent will remain fully effective until it is revoked",
+        "pt": "O consentimento permanecerá plenamente em vigor até ser revogado"
+      },
+      {
+        "en": "This consent is effective for as long as…",
+        "pt": "Este consentimento é válido enquanto…"
+      },
+      {
+        "en": "Thoracentesis",
+        "pt": "Toracocentese"
+      },
+      {
+        "en": "To discontinue services",
+        "pt": "Para interromper serviços"
+      },
+      {
+        "en": "To facilitate my care",
+        "pt": "Para facilitar meu atendimento"
+      },
+      {
+        "en": "To obtain treatment",
+        "pt": "Para obter tratamento"
+      },
+      {
+        "en": "Tracheostomy",
+        "pt": "Traqueostomia"
+      },
+      {
+        "en": "Transplant",
+        "pt": "Transplante"
+      },
+      {
+        "en": "Treatment consent",
+        "pt": "Consentimento para tratamento"
+      },
+      {
+        "en": "Trigger Finger (stenosing tenosynovitis)",
+        "pt": "Dedo em gatilho (tenossinovite estenosante)"
+      },
+      {
+        "en": "Ventilator",
+        "pt": "Ventilador mecânico"
+      },
+      {
+        "en": "Wound Care",
+        "pt": "Cuidados de feridas"
+      },
+      {
+        "en": "You have the right to…",
+        "pt": "Você tem o direito de…"
+      },
+      {
+        "en": "Your signature indicates full acceptance and acknowledgement of each applicable paragraph marked by an (X)",
+        "pt": "Sua assinatura indica aceitação e reconhecimento completo de cada parágrafo aplicável marcado com um (X)"
+      },
+      {
+        "en": "Acromegaly",
+        "pt": "Acromegalia"
+      },
+      {
+        "en": "ACTH (Adrenocorticotropic Hormone)",
+        "pt": "ACTH (Hormônio adrenocorticotrófico)"
+      },
+      {
+        "en": "Addison’s Disease",
+        "pt": "Doença de Addison"
+      },
+      {
+        "en": "Adrenal Glands",
+        "pt": "Glândulas suprarrenais"
+      },
+      {
+        "en": "Bioidentical Hormones",
+        "pt": "Hormônios bioidênticos"
+      },
+      {
+        "en": "Bone Mineral Density (BMD)",
+        "pt": "Densidade mineral óssea (DMO)"
+      },
+      {
+        "en": "Cushing’s Syndrome",
+        "pt": "Síndrome de Cushing"
+      },
+      {
+        "en": "Diabetes Mellitus",
+        "pt": "Diabetes mellitus"
+      },
+      {
+        "en": "Goiter",
+        "pt": "Bócio"
+      },
+      {
+        "en": "Graves’ Disease",
+        "pt": "Doença de Graves"
+      },
+      {
+        "en": "Hashimoto’s Thyroiditis",
+        "pt": "Tireoidite de Hashimoto"
+      },
+      {
+        "en": "Hyperthyroidism",
+        "pt": "Hipertireoidismo"
+      },
+      {
+        "en": "Hypothyroidism",
+        "pt": "Hipotireoidismo"
+      },
+      {
+        "en": "Ovaries/Testes",
+        "pt": "Ovários/Testículos"
+      },
+      {
+        "en": "Pancreas",
+        "pt": "Pâncreas"
+      },
+      {
+        "en": "Parathyroid Glands",
+        "pt": "Glândulas paratireoides"
+      },
+      {
+        "en": "Pituitary Gland",
+        "pt": "Glândula pituitária"
+      },
+      {
+        "en": "Polycystic Ovary Syndrome (PCOS)",
+        "pt": "Síndrome dos ovários policísticos (SOP)"
+      },
+      {
+        "en": "Thyroid Gland",
+        "pt": "Glândula tireoide"
+      },
+      {
+        "en": "TSH (Thyroid-Stimulating Hormone)",
+        "pt": "TSH (hormônio tiroestimulante)"
+      },
+      {
+        "en": "Abortion",
+        "pt": "Aborto"
+      },
+      {
+        "en": "Birth canal",
+        "pt": "Canal de parto"
+      },
+      {
+        "en": "Birth defect",
+        "pt": "Defeito congênito"
+      },
+      {
+        "en": "Break the water",
+        "pt": "Romper a bolsa"
+      },
+      {
+        "en": "Breech delivery",
+        "pt": "Parto pélvico"
+      },
+      {
+        "en": "Cervix",
+        "pt": "Colo do útero"
+      },
+      {
+        "en": "Colostrum",
+        "pt": "Colostro"
+      },
+      {
+        "en": "Contractions",
+        "pt": "Contrações"
+      },
+      {
+        "en": "Cramps",
+        "pt": "Cólica"
+      },
+      {
+        "en": "C-section",
+        "pt": "Cesárea/cesariana"
+      },
+      {
+        "en": "Dilation and curettage (D & C)",
+        "pt": "Dilatação e curetagem (D & C)"
+      },
+      {
+        "en": "Engorgement",
+        "pt": "Ingurgitamento mamário"
+      },
+      {
+        "en": "Hemorrhoids",
+        "pt": "Hemorroidas"
+      },
+      {
+        "en": "Induced labor",
+        "pt": "Parto induzido"
+      },
+      {
+        "en": "Induction",
+        "pt": "Indução"
+      },
+      {
+        "en": "Midwife",
+        "pt": "Parteira"
+      },
+      {
+        "en": "Placenta",
+        "pt": "Placenta"
+      },
+      {
+        "en": "Vaginal Delivery",
+        "pt": "Parto vaginal"
+      },
+      {
+        "en": "Abnormal",
+        "pt": "Anormal"
+      },
+      {
+        "en": "Adoption",
+        "pt": "Adoção"
+      },
+      {
+        "en": "Amniocentesis",
+        "pt": "Amniocentese"
+      },
+      {
+        "en": "Amniotic fluid",
+        "pt": "Líquido amniótico"
+      },
+      {
+        "en": "At risk",
+        "pt": "Em risco"
+      },
+      {
+        "en": "Benign",
+        "pt": "Benigno"
+      },
+      {
+        "en": "Birth control",
+        "pt": "Controle de natalidade"
+      },
+      {
+        "en": "Breast exam",
+        "pt": "Exame das mamas"
+      },
+      {
+        "en": "Carrier",
+        "pt": "Portador"
+      },
+      {
+        "en": "Cell",
+        "pt": "Célula"
+      },
+      {
+        "en": "Cervical cancer",
+        "pt": "Câncer do colo de útero"
+      },
+      {
+        "en": "Chlamydia",
+        "pt": "Clamídia"
+      },
+      {
+        "en": "Clinically significant",
+        "pt": "Clinicamente significativo"
+      },
+      {
+        "en": "Colposcopy",
+        "pt": "Colposcopia"
+      },
+      {
+        "en": "Condition (e.g., genetic condition)",
+        "pt": "Condição (ex.: condição genética)"
+      },
+      {
+        "en": "Contraceptive",
+        "pt": "Contraceptivo"
+      },
+      {
+        "en": "Depo-Provera (Depo shot)",
+        "pt": "Depo-Provera (injeção Depo-Provera)"
+      },
+      {
+        "en": "Diagnostic test",
+        "pt": "Teste diagnóstico"
+      },
+      {
+        "en": "Egg",
+        "pt": "Óvulo"
+      },
+      {
+        "en": "Embryo",
+        "pt": "Embrião"
+      },
+      {
+        "en": "Endometrial cancer",
+        "pt": "Câncer endometrial"
+      },
+      {
+        "en": "Estrogen",
+        "pt": "Estrogênio"
+      },
+      {
+        "en": "Fallopian tube",
+        "pt": "Trompa de Falópio"
+      },
+      {
+        "en": "Family history",
+        "pt": "Histórico familiar"
+      },
+      {
+        "en": "Fertilization",
+        "pt": "Fertilização"
+      },
+      {
+        "en": "Fetal surgery",
+        "pt": "Cirurgia fetal"
+      },
+      {
+        "en": "Fetus",
+        "pt": "Feto"
+      },
+      {
+        "en": "Fibroids",
+        "pt": "Miomas"
+      },
+      {
+        "en": "First trimester screening",
+        "pt": "Triagem do primeiro trimestre"
+      },
+      {
+        "en": "Footrest",
+        "pt": "Apoio para os pés"
+      },
+      {
+        "en": "Gestational diabetes",
+        "pt": "Diabetes gestacional"
+      },
+      {
+        "en": "Gonorrhea",
+        "pt": "Gonorreia"
+      },
+      {
+        "en": "Hot flashes",
+        "pt": "Ondas de calor"
+      },
+      {
+        "en": "Hysterectomy",
+        "pt": "Histerectomia"
+      },
+      {
+        "en": "In vitro fertilization (IVF)",
+        "pt": "Fertilização in vitro (FIV)"
+      },
+      {
+        "en": "Infertility",
+        "pt": "Infertilidade"
+      },
+      {
+        "en": "Intrauterine device (IUD)",
+        "pt": "Dispositivo intrauterino (DIU)"
+      },
+      {
+        "en": "Lactation consultant",
+        "pt": "Consultor de lactação"
+      },
+      {
+        "en": "Mastitis",
+        "pt": "Mastite"
+      },
+      {
+        "en": "Menstrual cramps",
+        "pt": "Cólicas menstruais"
+      },
+      {
+        "en": "Menstrual period (period)",
+        "pt": "Menstruação"
+      },
+      {
+        "en": "Mirena",
+        "pt": "Mirena"
+      },
+      {
+        "en": "Miscarriage",
+        "pt": "Aborto espontâneo"
+      },
+      {
+        "en": "Nexplanon",
+        "pt": "Nexplanon"
+      },
+      {
+        "en": "Nipple shield",
+        "pt": "Protetor de mamilo"
+      },
+      {
+        "en": "Non-invasive prenatal testing (NIPT)",
+        "pt": "Teste pré-natal não invasivo (NIPT)"
+      },
+      {
+        "en": "Nuchal thickening",
+        "pt": "Espessamento da nuca"
+      },
+      {
+        "en": "Ova",
+        "pt": "Óvulos"
+      },
+      {
+        "en": "Ovary",
+        "pt": "Ovário"
+      },
+      {
+        "en": "Pap smear (Pap test)",
+        "pt": "Papanicolau"
+      },
+      {
+        "en": "PCOS (polycystic ovary syndrome)",
+        "pt": "SOP (síndrome do ovário policístico)"
+      },
+      {
+        "en": "Pelvic exam",
+        "pt": "Exame pélvico"
+      },
+      {
+        "en": "Post-partum",
+        "pt": "Pós-parto"
+      },
+      {
+        "en": "Post-partum depression",
+        "pt": "Depressão pós-parto"
+      },
+      {
+        "en": "Pre-eclampsia",
+        "pt": "Pré-eclâmpsia"
+      },
+      {
+        "en": "Pregnancy",
+        "pt": "Gravidez"
+      },
+      {
+        "en": "Prenatal",
+        "pt": "Pré-natal"
+      },
+      {
+        "en": "Prenatal vitamins",
+        "pt": "Vitaminas pré-natais"
+      },
+      {
+        "en": "Speculum",
+        "pt": "Espéculo"
+      },
+      {
+        "en": "Spotting",
+        "pt": "Sangramento de escape"
+      },
+      {
+        "en": "Syphilis",
+        "pt": "Sífilis"
+      },
+      {
+        "en": "Termination of pregnancy",
+        "pt": "Interrupção da gravidez"
+      },
+      {
+        "en": "Trichomonas",
+        "pt": "Tricomonas"
+      },
+      {
+        "en": "Tubal ligation",
+        "pt": "Laqueadura"
+      },
+      {
+        "en": "Uterus",
+        "pt": "Útero"
+      },
+      {
+        "en": "UTI (Urinary Tract Infection)",
+        "pt": "ITU (infecção do trato urinário)"
+      },
+      {
+        "en": "Vagina",
+        "pt": "Vagina"
+      },
+      {
+        "en": "Vaginal discharge",
+        "pt": "Corrimento vaginal"
+      },
+      {
+        "en": "Vaginal spotting",
+        "pt": "Sangramento de escape"
+      },
+      {
+        "en": "Vasectomy",
+        "pt": "Vasectomia"
+      },
+      {
+        "en": "Well woman exam",
+        "pt": "Exame ginecológico"
+      },
+      {
+        "en": "Yeast infection",
+        "pt": "Candidíase (infecção fúngica vaginal)"
+      },
+      {
+        "en": "Allodynia",
+        "pt": "Alodínia"
+      },
+      {
+        "en": "Alzheimer’s Disease",
+        "pt": "Mal de Alzheimer"
+      },
+      {
+        "en": "Amnesia",
+        "pt": "Amnésia"
+      },
+      {
+        "en": "Anxious",
+        "pt": "Ansioso"
+      },
+      {
+        "en": "Aphasia",
+        "pt": "Afasia"
+      },
+      {
+        "en": "Apraxia",
+        "pt": "Apraxia"
+      },
+      {
+        "en": "Atrophy",
+        "pt": "Atrofia"
+      },
+      {
+        "en": "Axon",
+        "pt": "Axônio"
+      },
+      {
+        "en": "Body ache",
+        "pt": "Dor no corpo"
+      },
+      {
+        "en": "Cerebellum",
+        "pt": "Cerebelo"
+      },
+      {
+        "en": "Cerebral Palsy",
+        "pt": "Paralisia cerebral"
+      },
+      {
+        "en": "Cerebrum",
+        "pt": "Telencéfalo"
+      },
+      {
+        "en": "Clonus",
+        "pt": "Clônus"
+      },
+      {
+        "en": "Coma",
+        "pt": "Coma"
+      },
+      {
+        "en": "Corpus Callosum",
+        "pt": "Corpo caloso"
+      },
+      {
+        "en": "Dementia",
+        "pt": "Demência"
+      },
+      {
+        "en": "Dendrites",
+        "pt": "Dendritos"
+      },
+      {
+        "en": "Depressed",
+        "pt": "Deprimido"
+      },
+      {
+        "en": "Dyskinesia",
+        "pt": "Discinesia"
+      },
+      {
+        "en": "Dystonia",
+        "pt": "Distonia"
+      },
+      {
+        "en": "Electroencephalogram",
+        "pt": "Eletroencefalograma"
+      },
+      {
+        "en": "Electroencephalogram (EEG)",
+        "pt": "Eletroencefalograma (EEG)"
+      },
+      {
+        "en": "Electromyogram (EMG)",
+        "pt": "Eletromiografia"
+      },
+      {
+        "en": "Encephalitis",
+        "pt": "Encefalite"
+      },
+      {
+        "en": "Encephalopathy",
+        "pt": "Encefalopatia"
+      },
+      {
+        "en": "Epilepsy",
+        "pt": "Epilepsia"
+      },
+      {
+        "en": "Headaches",
+        "pt": "Dores de cabeça"
+      },
+      {
+        "en": "Hydromyelia",
+        "pt": "Hidromielia"
+      },
+      {
+        "en": "Hypertonia",
+        "pt": "Hipertonia"
+      },
+      {
+        "en": "Hypotonia",
+        "pt": "Hipotonia"
+      },
+      {
+        "en": "Intravenous Immunoglobulin (IVIg)",
+        "pt": "Imunoglobulina intravenosa"
+      },
+      {
+        "en": "Irritable",
+        "pt": "Irritável"
+      },
+      {
+        "en": "Lightheadedness",
+        "pt": "Sensação de desmaio"
+      },
+      {
+        "en": "Meninges",
+        "pt": "Meninges"
+      },
+      {
+        "en": "Mood",
+        "pt": "Humor"
+      },
+      {
+        "en": "Mood Swings",
+        "pt": "Oscilações de humor"
+      },
+      {
+        "en": "Multiple Sclerosis (MS)",
+        "pt": "Esclerose múltipla (EM)"
+      },
+      {
+        "en": "Myelin",
+        "pt": "Mielina"
+      },
+      {
+        "en": "Neuron",
+        "pt": "Neurônio"
+      },
+      {
+        "en": "Neuropathy",
+        "pt": "Neuropatia"
+      },
+      {
+        "en": "Numbness",
+        "pt": "Dormência"
+      },
+      {
+        "en": "Occupational Therapy (OT)",
+        "pt": "Terapia ocupacional"
+      },
+      {
+        "en": "Paresthesia",
+        "pt": "Parestesia"
+      },
+      {
+        "en": "Parkinson’s Disease",
+        "pt": "Mal de Parkinson"
+      },
+      {
+        "en": "Physical Therapy (PT)",
+        "pt": "Fisioterapia"
+      },
+      {
+        "en": "Plasmapheresis",
+        "pt": "Plasmaférese"
+      },
+      {
+        "en": "Rapid eye movement (REM)",
+        "pt": "Movimento rápido dos olhos"
+      },
+      {
+        "en": "Rigidity",
+        "pt": "Rigidez"
+      },
+      {
+        "en": "Sad",
+        "pt": "Triste"
+      },
+      {
+        "en": "Sharp pain",
+        "pt": "Pontada"
+      },
+      {
+        "en": "Sickle cell anemia",
+        "pt": "Anemia falciforme"
+      },
+      {
+        "en": "Spasticity",
+        "pt": "Espasticidade"
+      },
+      {
+        "en": "Speech-Language Therapy (SLT)",
+        "pt": "Terapia da fala e linguagem / fonoaudiologia"
+      },
+      {
+        "en": "Spinal cord",
+        "pt": "Medula espinhal"
+      },
+      {
+        "en": "Stroke",
+        "pt": "Derrame"
+      },
+      {
+        "en": "Synapse",
+        "pt": "Sinapse"
+      },
+      {
+        "en": "Syncope",
+        "pt": "Síncope"
+      },
+      {
+        "en": "TENS (Transcutaneous Electrical Nerve Stimulation)",
+        "pt": "TENS (Estimulação elétrica nervosa transcutânea)"
+      },
+      {
+        "en": "Throbbing pain",
+        "pt": "Dor pulsátil"
+      },
+      {
+        "en": "Tilt Table Test (TTT)",
+        "pt": "Teste da inclinação"
+      },
+      {
+        "en": "Tingling sensation",
+        "pt": "Sensação de Formigamento"
+      },
+      {
+        "en": "White Matter",
+        "pt": "Massa branca"
+      },
+      {
+        "en": "A1C",
+        "pt": "A1C"
+      },
+      {
+        "en": "Abdomen",
+        "pt": "Abdômen"
+      },
+      {
+        "en": "Anal Fissure",
+        "pt": "Fissura anal"
+      },
+      {
+        "en": "Antacids",
+        "pt": "Antiácidos"
+      },
+      {
+        "en": "Antispasmodics",
+        "pt": "Antiespasmódicos"
+      },
+      {
+        "en": "Anus",
+        "pt": "Ânus"
+      },
+      {
+        "en": "Appendectomy",
+        "pt": "Apendicectomia"
+      },
+      {
+        "en": "Appetite",
+        "pt": "Apetite"
+      },
+      {
+        "en": "Ascites",
+        "pt": "Ascite"
+      },
+      {
+        "en": "Bacterial Infection",
+        "pt": "Infecção bacteriana"
+      },
+      {
+        "en": "Barium",
+        "pt": "Enema Enema de bário"
+      },
+      {
+        "en": "Barium Swallow",
+        "pt": "Deglutição de bário"
+      },
+      {
+        "en": "Barrett’s Esophagus",
+        "pt": "Esôfago de Barrett"
+      },
+      {
+        "en": "Bile",
+        "pt": "Bile"
+      },
+      {
+        "en": "Biliary System",
+        "pt": "Sistema biliar"
+      },
+      {
+        "en": "Bilirubin",
+        "pt": "Bilirrubina"
+      },
+      {
+        "en": "Bladder",
+        "pt": "Bexiga"
+      },
+      {
+        "en": "Bloated",
+        "pt": "Inchado"
+      },
+      {
+        "en": "Blood Sugars",
+        "pt": "Açúcar no sangue"
+      },
+      {
+        "en": "Bowel Movement",
+        "pt": "Evacuação intestinal"
+      },
+      {
+        "en": "Castor Oil Packs",
+        "pt": "Compressas de óleo de rícino"
+      },
+      {
+        "en": "Celiac Disease",
+        "pt": "Doença celíaca"
+      },
+      {
+        "en": "Cholangitis",
+        "pt": "Colangite"
+      },
+      {
+        "en": "Cholecystectomy",
+        "pt": "Colecistectomia"
+      },
+      {
+        "en": "Cholecystitis",
+        "pt": "Colecistite"
+      },
+      {
+        "en": "Cholelithiasis (Gallstone Disease)",
+        "pt": "Colelitíase"
+      },
+      {
+        "en": "Colics",
+        "pt": "Cólicas"
+      },
+      {
+        "en": "Colon Cancer",
+        "pt": "Câncer de cólon"
+      },
+      {
+        "en": "Colonoscopy",
+        "pt": "Colonoscopia"
+      },
+      {
+        "en": "Colostomy",
+        "pt": "Colostomia"
+      },
+      {
+        "en": "Common",
+        "pt": "Bile Duct Ducto biliar comum"
+      },
+      {
+        "en": "Constipation",
+        "pt": "Constipação"
+      },
+      {
+        "en": "Crohn’s Disease",
+        "pt": "Doença de Crohn"
+      },
+      {
+        "en": "Cystic Duct",
+        "pt": "Ducto cístico"
+      },
+      {
+        "en": "Cystitis",
+        "pt": "Cistite"
+      },
+      {
+        "en": "Dialysis",
+        "pt": "Diálise"
+      },
+      {
+        "en": "Diarrhea",
+        "pt": "Diarreia"
+      },
+      {
+        "en": "Digestion",
+        "pt": "Digestão"
+      },
+      {
+        "en": "Diuretic",
+        "pt": "Diurético"
+      },
+      {
+        "en": "Diuretic (Water Pill)",
+        "pt": "Diurético"
+      },
+      {
+        "en": "Diverticulitis",
+        "pt": "Diverticulite"
+      },
+      {
+        "en": "Duodenum",
+        "pt": "Duodeno"
+      },
+      {
+        "en": "Dysuria",
+        "pt": "Disúria"
+      },
+      {
+        "en": "EGD (Esophagogastroduodenoscopy)",
+        "pt": "Endoscopia digestiva alta (EDA)"
+      },
+      {
+        "en": "Elective Surgery",
+        "pt": "Cirurgia eletiva"
+      },
+      {
+        "en": "Endoscopy",
+        "pt": "Endoscopia"
+      },
+      {
+        "en": "Enemas",
+        "pt": "Enemas"
+      },
+      {
+        "en": "Esophagus",
+        "pt": "Esôfago"
+      },
+      {
+        "en": "Fatty Foods",
+        "pt": "Alimentos gordurosos"
+      },
+      {
+        "en": "Fecal Fat Test",
+        "pt": "Exame de gordura fecal"
+      },
+      {
+        "en": "Feces",
+        "pt": "Fezes"
+      },
+      {
+        "en": "Fiber",
+        "pt": "Fibra"
+      },
+      {
+        "en": "G(astric)-Tube",
+        "pt": "Sonda de gastrostomia (Sonda G)"
+      },
+      {
+        "en": "Gallbladder",
+        "pt": "Vesícula biliar"
+      },
+      {
+        "en": "Gallstone",
+        "pt": "Cálculo biliar (pedra na vesícula)"
+      },
+      {
+        "en": "Gastroenterologist (GI Doctor)",
+        "pt": "Gastroenterologista"
+      },
+      {
+        "en": "Gastrostomy Button",
+        "pt": "Botão de gastrostomia"
+      },
+      {
+        "en": "GERD: Gastroesophageal Reflux Disease",
+        "pt": "Refluxo gastroesofágico"
+      },
+      {
+        "en": "H.",
+        "pt": "Pylori H. Pylori"
+      },
+      {
+        "en": "Heartburn",
+        "pt": "Azia"
+      },
+      {
+        "en": "Hepatitis",
+        "pt": "Hepatite"
+      },
+      {
+        "en": "Hyperglycemia",
+        "pt": "Hiperglicemia"
+      },
+      {
+        "en": "Hypoglycemia",
+        "pt": "Hipoglicemia"
+      },
+      {
+        "en": "Irritable Bowel Syndrome (IBS)",
+        "pt": "Síndrome do intestino irritável (SII)"
+      },
+      {
+        "en": "Jaundice",
+        "pt": "Icterícia"
+      },
+      {
+        "en": "Laparoscopy",
+        "pt": "Laparoscopia"
+      },
+      {
+        "en": "Large Intestine",
+        "pt": "Intestino grosso"
+      },
+      {
+        "en": "Lavage",
+        "pt": "Lavagem"
+      },
+      {
+        "en": "Laxatives",
+        "pt": "Laxantes"
+      },
+      {
+        "en": "Liver",
+        "pt": "Fígado"
+      },
+      {
+        "en": "Liver cirrhosis",
+        "pt": "Cirrose hepática"
+      },
+      {
+        "en": "Liver Function Tests",
+        "pt": "Testes de função hepática"
+      },
+      {
+        "en": "Low-Fat Diet",
+        "pt": "Dieta com baixo teor de gordura"
+      },
+      {
+        "en": "Metformin",
+        "pt": "Metformina"
+      },
+      {
+        "en": "Nuclear",
+        "pt": "Medicine Medicina nuclear"
+      },
+      {
+        "en": "Overeating",
+        "pt": "Comer em excesso"
+      },
+      {
+        "en": "Pancreatic Duct",
+        "pt": "Ducto pancreático"
+      },
+      {
+        "en": "Pancreatitis",
+        "pt": "Pancreatite"
+      },
+      {
+        "en": "Polyps",
+        "pt": "Pólipos"
+      },
+      {
+        "en": "Proton Pump Inhibitors (PPIs)",
+        "pt": "Inibidores da bomba de prótons (IBPs)"
+      },
+      {
+        "en": "Rectum",
+        "pt": "Reto"
+      },
+      {
+        "en": "Shock-Wave Lithotripsy",
+        "pt": "Litotripsia por ondas de choque"
+      },
+      {
+        "en": "Sickle Cell",
+        "pt": "Anemia Anemia falciforme"
+      },
+      {
+        "en": "Sigmoidoscopy",
+        "pt": "Sigmoidoscopia"
+      },
+      {
+        "en": "Small Intestine",
+        "pt": "Intestino delgado"
+      },
+      {
+        "en": "Sphincter",
+        "pt": "Esfíncter"
+      },
+      {
+        "en": "Spleen",
+        "pt": "Baço"
+      },
+      {
+        "en": "Stents",
+        "pt": "Stents"
+      },
+      {
+        "en": "Stomach",
+        "pt": "Estômago"
+      },
+      {
+        "en": "Stomach ulcer",
+        "pt": "Úlcera gástrica"
+      },
+      {
+        "en": "Stool",
+        "pt": "Fezes"
+      },
+      {
+        "en": "Stool Softener",
+        "pt": "Amaciante de fezes"
+      },
+      {
+        "en": "Strictures",
+        "pt": "Estenoses"
+      },
+      {
+        "en": "Thalassemia",
+        "pt": "Talassemia"
+      },
+      {
+        "en": "Ulcerative Colitis",
+        "pt": "Colite ulcerativa"
+      },
+      {
+        "en": "Vomit",
+        "pt": "Vômito"
+      },
+      {
+        "en": "Acute Kidney Injury (AKI)",
+        "pt": "Lesão renal aguda"
+      },
+      {
+        "en": "Chronic Kidney Disease (CKD)",
+        "pt": "Doença renal crônica"
+      },
+      {
+        "en": "Creatinine",
+        "pt": "Creatinina"
+      },
+      {
+        "en": "Erythropoietin (EPO)",
+        "pt": "Eritropoetina"
+      },
+      {
+        "en": "GFR (Glomerular Filtration Rate)",
+        "pt": "Taxa de filtração glomerular (TFG)"
+      },
+      {
+        "en": "Glomerulonephritis",
+        "pt": "Glomerulonefrite"
+      },
+      {
+        "en": "Hematuria",
+        "pt": "Hematúria"
+      },
+      {
+        "en": "Kidney Failure",
+        "pt": "Insuficiência renal"
+      },
+      {
+        "en": "Kidney stone",
+        "pt": "Cálculo renal (pedra nos rins)"
+      },
+      {
+        "en": "Kidneys",
+        "pt": "Rins"
+      },
+      {
+        "en": "Nephron",
+        "pt": "Néfron"
+      },
+      {
+        "en": "Nephrotic Syndrome",
+        "pt": "Síndrome nefrótica"
+      },
+      {
+        "en": "Peritoneal Dialysis",
+        "pt": "Diálise peritoneal"
+      },
+      {
+        "en": "Proteinuria",
+        "pt": "Proteinúria"
+      },
+      {
+        "en": "Ureters",
+        "pt": "Ureteres"
+      },
+      {
+        "en": "Urethra",
+        "pt": "Uretra"
+      },
+      {
+        "en": "Urine culture",
+        "pt": "Urocultura"
+      },
+      {
+        "en": "Azoospermia",
+        "pt": "Azoospermia"
+      },
+      {
+        "en": "Benign Prostatic Hyperplasia (BPH)",
+        "pt": "Hiperplasia prostática benigna"
+      },
+      {
+        "en": "Cystoscopy",
+        "pt": "Cistoscopia"
+      },
+      {
+        "en": "Erectile Dysfunction",
+        "pt": "Disfunção erétil (impotência sexual)"
+      },
+      {
+        "en": "Hydronephrosis",
+        "pt": "Hidronefrose"
+      },
+      {
+        "en": "Interstitial Cystitis",
+        "pt": "Cistite intersticial"
+      },
+      {
+        "en": "Intravenous Pyelogram (IVP)",
+        "pt": "Pielografia intravenosa"
+      },
+      {
+        "en": "Lithotripsy",
+        "pt": "Litotripsia"
+      },
+      {
+        "en": "Meatotomy",
+        "pt": "Meatotomia"
+      },
+      {
+        "en": "Orchidectomy",
+        "pt": "Orquiectomia"
+      },
+      {
+        "en": "Prostate",
+        "pt": "Próstata"
+      },
+      {
+        "en": "Prostatectomy",
+        "pt": "Prostatectomia"
+      },
+      {
+        "en": "PSA (Prostate-Specific Antigen)",
+        "pt": "Antígeno prostático específico (PSA)"
+      },
+      {
+        "en": "Renal Artery/Vein",
+        "pt": "Artéria/veia renal"
+      },
+      {
+        "en": "Urinary Tract Infection (UTI)",
+        "pt": "Infecção do trato urinário (ITU)"
+      },
+      {
+        "en": "Urology",
+        "pt": "Urologia"
+      },
+      {
+        "en": "Acne",
+        "pt": "Acne"
+      },
+      {
+        "en": "Alopecia",
+        "pt": "Alopecia"
+      },
+      {
+        "en": "Bullae",
+        "pt": "Bolhas"
+      },
+      {
+        "en": "Cellulitis",
+        "pt": "Celulite"
+      },
+      {
+        "en": "Crust",
+        "pt": "Crosta"
+      },
+      {
+        "en": "Cryotherapy",
+        "pt": "Crioterapia"
+      },
+      {
+        "en": "Dermatitis",
+        "pt": "Dermatite"
+      },
+      {
+        "en": "Dermatology",
+        "pt": "Dermatologia"
+      },
+      {
+        "en": "Dermatosis",
+        "pt": "Dermatose"
+      },
+      {
+        "en": "Dermoscopy",
+        "pt": "Dermatoscopia"
+      },
+      {
+        "en": "Eczema (Atopic Dermatitis)",
+        "pt": "Eczema (Dermatite atópica)"
+      },
+      {
+        "en": "Lesion",
+        "pt": "Lesão"
+      },
+      {
+        "en": "Macule",
+        "pt": "Mácula"
+      },
+      {
+        "en": "Melanoma",
+        "pt": "Melanoma"
+      },
+      {
+        "en": "Nodule",
+        "pt": "Nódulo"
+      },
+      {
+        "en": "Papule",
+        "pt": "Pápula"
+      },
+      {
+        "en": "Phototherapy",
+        "pt": "Fototerapia"
+      },
+      {
+        "en": "Plaque",
+        "pt": "Placa"
+      },
+      {
+        "en": "Psoriasis",
+        "pt": "Psoríase"
+      },
+      {
+        "en": "Pustule",
+        "pt": "Pústula"
+      },
+      {
+        "en": "Rosacea",
+        "pt": "Rosácea"
+      },
+      {
+        "en": "Scale",
+        "pt": "Escama"
+      },
+      {
+        "en": "Topical",
+        "pt": "Tópico"
+      },
+      {
+        "en": "Ulcer",
+        "pt": "Úlcera"
+      },
+      {
+        "en": "Vesicle",
+        "pt": "Vesícula"
+      },
+      {
+        "en": "Vitiligo",
+        "pt": "Vitiligo"
+      },
+      {
+        "en": "Anemia",
+        "pt": "Anemia"
+      },
+      {
+        "en": "Antibody",
+        "pt": "Anticorpo"
+      },
+      {
+        "en": "Anticoagulant",
+        "pt": "Anticoagulante"
+      },
+      {
+        "en": "Antigen",
+        "pt": "Antígeno"
+      },
+      {
+        "en": "Autoimmune",
+        "pt": "Autoimune"
+      },
+      {
+        "en": "Blood Smear",
+        "pt": "Esfregaço de sangue"
+      },
+      {
+        "en": "Bone Marrow Biopsy",
+        "pt": "Biópsia da medula óssea"
+      },
+      {
+        "en": "CBC (Complete Blood Count)",
+        "pt": "Hemograma completo"
+      },
+      {
+        "en": "Coagulation Panel",
+        "pt": "Coagulograma"
+      },
+      {
+        "en": "Hematopoiesis",
+        "pt": "Hematopoiese"
+      },
+      {
+        "en": "Hemoglobin",
+        "pt": "Hemoglobina"
+      },
+      {
+        "en": "Hemophilia",
+        "pt": "Hemofilia"
+      },
+      {
+        "en": "Immunotherapy",
+        "pt": "Imunoterapia"
+      },
+      {
+        "en": "Leukemia",
+        "pt": "Leucemia"
+      },
+      {
+        "en": "Lymphoma",
+        "pt": "Linfoma"
+      },
+      {
+        "en": "Plasma",
+        "pt": "Plasma"
+      },
+      {
+        "en": "Platelet (Thrombocyte)",
+        "pt": "Plaqueta (trombócito)"
+      },
+      {
+        "en": "Sickle Cell Disease",
+        "pt": "Anemia falciforme"
+      },
+      {
+        "en": "Stem Cell Transplant",
+        "pt": "Transplante de células-tronco"
+      },
+      {
+        "en": "Thrombocytopenia",
+        "pt": "Trombocitopenia"
+      },
+      {
+        "en": "Transfusion",
+        "pt": "Transfusão"
+      },
+      {
+        "en": "Adenocarcinoma",
+        "pt": "Adenocarcinoma"
+      },
+      {
+        "en": "Adjuvant Therapy",
+        "pt": "Terapia adjuvante"
+      },
+      {
+        "en": "Biomarker",
+        "pt": "Biomarcador"
+      },
+      {
+        "en": "BRCA1/BRCA2",
+        "pt": "BRCA1/BRCA2"
+      },
+      {
+        "en": "Cancerous",
+        "pt": "Canceroso"
+      },
+      {
+        "en": "Carcinogen",
+        "pt": "Carcinógeno"
+      },
+      {
+        "en": "Carcinoma",
+        "pt": "Carcinoma"
+      },
+      {
+        "en": "Chemotherapy",
+        "pt": "Quimioterapia"
+      },
+      {
+        "en": "Cryosurgery",
+        "pt": "Criocirurgia"
+      },
+      {
+        "en": "Dysplasia",
+        "pt": "Displasia"
+      },
+      {
+        "en": "Edema",
+        "pt": "Edema"
+      },
+      {
+        "en": "Hospice",
+        "pt": "Cuidados paliativos (casa de repouso para doentes terminais)"
+      },
+      {
+        "en": "Imaging",
+        "pt": "Exames de imagem"
+      },
+      {
+        "en": "Lymph nodes",
+        "pt": "Gânglios linfáticos"
+      },
+      {
+        "en": "Malignant",
+        "pt": "Maligno"
+      },
+      {
+        "en": "Mass",
+        "pt": "Massa"
+      },
+      {
+        "en": "Metastasis",
+        "pt": "Metástase"
+      },
+      {
+        "en": "Oncology",
+        "pt": "Oncologia"
+      },
+      {
+        "en": "Radiation Therapy",
+        "pt": "Radioterapia"
+      },
+      {
+        "en": "Sarcoma",
+        "pt": "Sarcoma"
+      },
+      {
+        "en": "Staging",
+        "pt": "Estadiamento"
+      },
+      {
+        "en": "Targeted Therapy",
+        "pt": "Terapia direcionada"
+      },
+      {
+        "en": "Tumor",
+        "pt": "Tumor"
+      },
+      {
+        "en": "Acute Respiratory Distress Syndrome (ARDS)",
+        "pt": "Síndrome da angústia respiratória aguda (SARA)"
+      },
+      {
+        "en": "Acute Upper Respiratory Infection (URI)",
+        "pt": "Infecção aguda do trato respiratório superior"
+      },
+      {
+        "en": "Adenoids",
+        "pt": "Adenoides"
+      },
+      {
+        "en": "Airways",
+        "pt": "Vias aéreas"
+      },
+      {
+        "en": "Alveoli (Air Sacs)",
+        "pt": "Alvéolos"
+      },
+      {
+        "en": "Antibiotic",
+        "pt": "Antibiótico"
+      },
+      {
+        "en": "Antihistamine",
+        "pt": "Anti-histamínico"
+      },
+      {
+        "en": "Asbestosis",
+        "pt": "Asbestose"
+      },
+      {
+        "en": "Black Lung Disease",
+        "pt": "Doença do pulmão negro"
+      },
+      {
+        "en": "Breathing Tube",
+        "pt": "Tubo respiratório"
+      },
+      {
+        "en": "Bronchi",
+        "pt": "Brônquios"
+      },
+      {
+        "en": "Bronchitis",
+        "pt": "Bronquite"
+      },
+      {
+        "en": "Bronchoscopy",
+        "pt": "Broncoscopia"
+      },
+      {
+        "en": "Chest X-Ray",
+        "pt": "Radiografia de tórax"
+      },
+      {
+        "en": "Cigarettes",
+        "pt": "Cigarros"
+      },
+      {
+        "en": "Congestion",
+        "pt": "Congestão"
+      },
+      {
+        "en": "Contagious",
+        "pt": "Contagioso"
+      },
+      {
+        "en": "COPD (Chronic Obstructive Pulmonary Disease)",
+        "pt": "DPOC (Doença Pulmonar Obstrutiva Crônica)"
+      },
+      {
+        "en": "Cough Drop",
+        "pt": "Pastilha para tosse"
+      },
+      {
+        "en": "Cough Syrup",
+        "pt": "Xarope para tosse"
+      },
+      {
+        "en": "Cyanosis",
+        "pt": "Cianose"
+      },
+      {
+        "en": "Cystic Fibrosis",
+        "pt": "Fibrose cística"
+      },
+      {
+        "en": "Decongestant",
+        "pt": "Descongestionante"
+      },
+      {
+        "en": "Diaphragm",
+        "pt": "Diafragma"
+      },
+      {
+        "en": "Dyspnea (Shortness of Breath)",
+        "pt": "Dispneia (falta de ar)"
+      },
+      {
+        "en": "Emphysema",
+        "pt": "Enfisema"
+      },
+      {
+        "en": "ENT Doctor (Ear-Nose-Throat, Otorhinolaryngologist)",
+        "pt": "Otorrinolaringologista"
+      },
+      {
+        "en": "Epiglottis",
+        "pt": "Epiglote"
+      },
+      {
+        "en": "Flu Vaccine (Flu Shot)",
+        "pt": "Vacina contra a gripe"
+      },
+      {
+        "en": "Hyperventilation",
+        "pt": "Hiperventilação"
+      },
+      {
+        "en": "Infusion",
+        "pt": "Infusão"
+      },
+      {
+        "en": "Inhaler",
+        "pt": "Inalador"
+      },
+      {
+        "en": "Intubated",
+        "pt": "Intubado"
+      },
+      {
+        "en": "Itchy Eyes",
+        "pt": "Olhos com coceira"
+      },
+      {
+        "en": "Larynx (Voice Box)",
+        "pt": "Laringe"
+      },
+      {
+        "en": "Lobe of the Lung",
+        "pt": "Lobo pulmonar"
+      },
+      {
+        "en": "Lung",
+        "pt": "Pulmão"
+      },
+      {
+        "en": "Lung Capacity",
+        "pt": "Capacidade pulmonar"
+      },
+      {
+        "en": "Marijuana",
+        "pt": "Maconha"
+      },
+      {
+        "en": "Mechanical Ventilation",
+        "pt": "Ventilação mecânica"
+      },
+      {
+        "en": "Mucus",
+        "pt": "Muco"
+      },
+      {
+        "en": "Nasal Cannula",
+        "pt": "Cânula nasal"
+      },
+      {
+        "en": "Nasal Discharge",
+        "pt": "Secreção nasal"
+      },
+      {
+        "en": "Nasal",
+        "pt": "Spray Spray nasal"
+      },
+      {
+        "en": "Nebulizer",
+        "pt": "Nebulizador"
+      },
+      {
+        "en": "Nostril",
+        "pt": "Narina"
+      },
+      {
+        "en": "Obstructive Sleep Apnea",
+        "pt": "Apneia obstrutiva do sono (SAOS)"
+      },
+      {
+        "en": "Oxygen",
+        "pt": "Oxigênio"
+      },
+      {
+        "en": "Oxygen Face Mask",
+        "pt": "Máscara de oxigênio"
+      },
+      {
+        "en": "Oxygen Therapy",
+        "pt": "Oxigenoterapia"
+      },
+      {
+        "en": "Pertussis (Whooping Cough)",
+        "pt": "Coqueluche (tosse comprida)"
+      },
+      {
+        "en": "Pharynx (Throat)",
+        "pt": "Faringe (garganta)"
+      },
+      {
+        "en": "Phlegm",
+        "pt": "Catarro"
+      },
+      {
+        "en": "Pleura",
+        "pt": "Pleura"
+      },
+      {
+        "en": "Pleural Membrane",
+        "pt": "Membrana pleural"
+      },
+      {
+        "en": "Pneumonia",
+        "pt": "Pneumonia"
+      },
+      {
+        "en": "Post-Nasal Drip",
+        "pt": "Gotejamento pós-nasal"
+      },
+      {
+        "en": "Pulmonary",
+        "pt": "Pulmonar"
+      },
+      {
+        "en": "Pulmonary Embolism (PE)",
+        "pt": "Embolia pulmonar (EP)"
+      },
+      {
+        "en": "Pulmonary Function Test (PFT)",
+        "pt": "Prova de função pulmonar"
+      },
+      {
+        "en": "Pulmonology",
+        "pt": "Pneumologia"
+      },
+      {
+        "en": "Pulse Oximeter (Finger Clip)",
+        "pt": "Oxímetro de pulso"
+      },
+      {
+        "en": "Respiratory Failure",
+        "pt": "Insuficiência respiratória"
+      },
+      {
+        "en": "Respiratory System",
+        "pt": "Sistema respiratório"
+      },
+      {
+        "en": "Respiratory Therapist",
+        "pt": "Terapeuta respiratório"
+      },
+      {
+        "en": "Runny Nose",
+        "pt": "Coriza (nariz escorrendo)"
+      },
+      {
+        "en": "Saline",
+        "pt": "Soro"
+      },
+      {
+        "en": "Sinus",
+        "pt": "Seio nasal"
+      },
+      {
+        "en": "Sleep Apnea",
+        "pt": "Apneia do sono"
+      },
+      {
+        "en": "Sneeze",
+        "pt": "Espirro"
+      },
+      {
+        "en": "Sore Throat",
+        "pt": "Dor de garganta"
+      },
+      {
+        "en": "Spirometer",
+        "pt": "Espirômetro"
+      },
+      {
+        "en": "Sputum Culture",
+        "pt": "Cultura de escarro"
+      },
+      {
+        "en": "Strep",
+        "pt": "Estreptococo"
+      },
+      {
+        "en": "Strep Throat",
+        "pt": "Faringite estreptocócica"
+      },
+      {
+        "en": "Streptococcus",
+        "pt": "Estreptococo"
+      },
+      {
+        "en": "Thoracic",
+        "pt": "Torácico"
+      },
+      {
+        "en": "Thorax (Chest)",
+        "pt": "Tórax"
+      },
+      {
+        "en": "To Alleviate",
+        "pt": "Aliviar"
+      },
+      {
+        "en": "To Be Congested (To Have a Stuffy Nose)",
+        "pt": "Estar congestionado (estar com o nariz entupido)"
+      },
+      {
+        "en": "To Exhale",
+        "pt": "Exalar"
+      },
+      {
+        "en": "To Inhale",
+        "pt": "Inalar"
+      },
+      {
+        "en": "To Trigger",
+        "pt": "Desencadear"
+      },
+      {
+        "en": "Tonsillectomy",
+        "pt": "Amigdalectomia"
+      },
+      {
+        "en": "Tonsils",
+        "pt": "Amígdalas"
+      },
+      {
+        "en": "Trachea",
+        "pt": "Traqueia"
+      },
+      {
+        "en": "Tuberculosis (TB)",
+        "pt": "Tuberculose"
+      },
+      {
+        "en": "Upper Respiratory Tract Infection (URI)",
+        "pt": "Infecção do trato respiratório superior"
+      },
+      {
+        "en": "Vape",
+        "pt": "Vapear"
+      },
+      {
+        "en": "Viral Infection",
+        "pt": "Infecção viral"
+      },
+      {
+        "en": "Watery Eyes",
+        "pt": "Olhos lacrimejantes"
+      },
+      {
+        "en": "Wheezing",
+        "pt": "Sibilância"
+      },
+      {
+        "en": "Whooping Cough",
+        "pt": "Tosse comprida"
+      },
+      {
+        "en": "Audiologist",
+        "pt": "Audiologista"
+      },
+      {
+        "en": "Audiometer",
+        "pt": "Audiômetro"
+      },
+      {
+        "en": "Behind-the ear hearing aid",
+        "pt": "Aparelho auditivo retroauricular"
+      },
+      {
+        "en": "Completed-in-the-canal hearing aid",
+        "pt": "Aparelho auditivo intracanal"
+      },
+      {
+        "en": "Deaf",
+        "pt": "Surdo"
+      },
+      {
+        "en": "Ear canal",
+        "pt": "Canal auditivo"
+      },
+      {
+        "en": "Ear discharge (Otorrhea)",
+        "pt": "Secreção no ouvido (Otorreia)"
+      },
+      {
+        "en": "Ear drops",
+        "pt": "Gotas auriculares"
+      },
+      {
+        "en": "Ear drum (tympanic membrane)",
+        "pt": "Tímpano (membrana timpânica)"
+      },
+      {
+        "en": "Ear plug",
+        "pt": "Protetor auricular"
+      },
+      {
+        "en": "Ear tubes",
+        "pt": "Tubos no ouvido"
+      },
+      {
+        "en": "Ear wax",
+        "pt": "Cera de ouvido"
+      },
+      {
+        "en": "Earache",
+        "pt": "Dor de ouvido"
+      },
+      {
+        "en": "Earlobe",
+        "pt": "Lóbulo de orelha"
+      },
+      {
+        "en": "Earmuffs",
+        "pt": "Abafadores de ruído"
+      },
+      {
+        "en": "Eustachian tube",
+        "pt": "Trompa de Eustáquio"
+      },
+      {
+        "en": "Hard of hearing (Hearing-impaired)",
+        "pt": "Deficiente auditivo"
+      },
+      {
+        "en": "Hearing aid",
+        "pt": "Aparelho auditivo"
+      },
+      {
+        "en": "Hearing loss",
+        "pt": "Perda auditiva"
+      },
+      {
+        "en": "Hearing test (Audiometric test)",
+        "pt": "Teste auditivo (audiometria)"
+      },
+      {
+        "en": "Inner ear",
+        "pt": "Ouvido interno"
+      },
+      {
+        "en": "In-the-ear hearing aid (Full-shell)",
+        "pt": "Aparelho auditivo intra-auricular"
+      },
+      {
+        "en": "Mastoid bone",
+        "pt": "Osso mastoide"
+      },
+      {
+        "en": "Mastoiditis",
+        "pt": "Mastoidite"
+      },
+      {
+        "en": "Meniere's disease",
+        "pt": "Síndrome de Ménière"
+      },
+      {
+        "en": "Middle ear",
+        "pt": "Ouvido médio"
+      },
+      {
+        "en": "Muffled hearing",
+        "pt": "Audição abafada"
+      },
+      {
+        "en": "Open-fit hearing aid",
+        "pt": "Aparelho auditivo de adaptação aberta"
+      },
+      {
+        "en": "Otologic surgery",
+        "pt": "Cirurgia otológica"
+      },
+      {
+        "en": "Otoscope",
+        "pt": "Otoscópio"
+      },
+      {
+        "en": "Outer ear",
+        "pt": "Ouvido externo"
+      },
+      {
+        "en": "Q-tip",
+        "pt": "Cotonete"
+      },
+      {
+        "en": "Ringing in the Ears (Tinnitus)",
+        "pt": "Zumbido no ouvido"
+      },
+      {
+        "en": "Ruptured eardrum (Perforated eardrum)",
+        "pt": "Tímpano perfurado"
+      },
+      {
+        "en": "Swimmer's ear (Otitis externa)",
+        "pt": "Otite externa"
+      },
+      {
+        "en": "Vertigo",
+        "pt": "Vertigem"
+      },
+      {
+        "en": "…the diagnostic information obtained far outweighs the minimal risk of the procedure",
+        "pt": "…as informações diagnósticas obtidas superam em muito o risco mínimo do procedimento"
+      },
+      {
+        "en": "…to prevent possible problems or hazards related to acoustic noise",
+        "pt": "…para prevenir possíveis problemas ou perigos relacionados ao ruído acústico"
+      },
+      {
+        "en": "Acoustic Noise",
+        "pt": "Ruído acústico"
+      },
+      {
+        "en": "Adverse Reaction (To Contrast)",
+        "pt": "Reação adversa (ao contraste)"
+      },
+      {
+        "en": "Blurred Vision",
+        "pt": "Visão turva (visão embaçada)"
+      },
+      {
+        "en": "Bone Density Scan",
+        "pt": "Exame de densidade óssea"
+      },
+      {
+        "en": "Brain Scan",
+        "pt": "Exame cerebral"
+      },
+      {
+        "en": "Claustrophobia",
+        "pt": "Claustrofobia"
+      },
+      {
+        "en": "Consult The MRI Technologist or Radiologist",
+        "pt": "Consulte o técnico ou radiologista de ressonância magnética"
+      },
+      {
+        "en": "Contrast",
+        "pt": "Contraste"
+      },
+      {
+        "en": "Contrast Agent",
+        "pt": "Agente de contraste"
+      },
+      {
+        "en": "Contrast Dye",
+        "pt": "Corante de contraste"
+      },
+      {
+        "en": "Department of Radiology and Imaging",
+        "pt": "Departamento de Radiologia e"
+      },
+      {
+        "en": "Device",
+        "pt": "Dispositivo"
+      },
+      {
+        "en": "Do you have a history of…?",
+        "pt": "Você tem histórico de…?"
+      },
+      {
+        "en": "Earplugs",
+        "pt": "Protetores auriculares"
+      },
+      {
+        "en": "Fragment",
+        "pt": "Fragmento"
+      },
+      {
+        "en": "Gadolinium-Based Contrast",
+        "pt": "Contraste à base de gadolínio"
+      },
+      {
+        "en": "Gown",
+        "pt": "Camisola"
+      },
+      {
+        "en": "Have you ever been a machinist, welder, or metal-worker?",
+        "pt": "Você já foi maquinista, soldador ou ferreiro?"
+      },
+      {
+        "en": "Have you ever been injured by…?",
+        "pt": "Você já se machucou com…?"
+      },
+      {
+        "en": "Have you experienced any problem related to…?",
+        "pt": "Você já teve algum problema relacionado a…?"
+      },
+      {
+        "en": "Have you had an injury to…?",
+        "pt": "Você já sofreu uma lesão no/na/nos/nas…?"
+      },
+      {
+        "en": "Headset",
+        "pt": "Fone de ouvido com microfone"
+      },
+      {
+        "en": "Hearing Protection",
+        "pt": "Proteção auditiva"
+      },
+      {
+        "en": "I Attest",
+        "pt": "Declaro"
+      },
+      {
+        "en": "I had the opportunity to ask questions",
+        "pt": "Tive a oportunidade de fazer perguntas"
+      },
+      {
+        "en": "I read and understand",
+        "pt": "Li e compreendo"
+      },
+      {
+        "en": "Injection",
+        "pt": "Injeção"
+      },
+      {
+        "en": "Intake Form",
+        "pt": "Formulário de admissão"
+      },
+      {
+        "en": "Mammogram",
+        "pt": "Mamografia"
+      },
+      {
+        "en": "Motion Disorder",
+        "pt": "Distúrbio do movimento"
+      },
+      {
+        "en": "MR Angiography",
+        "pt": "Angiografia por RM (Angio-RM)"
+      },
+      {
+        "en": "MR Procedure",
+        "pt": "Procedimento de RM"
+      },
+      {
+        "en": "MR Spectroscopy",
+        "pt": "Espectroscopia por RM"
+      },
+      {
+        "en": "Open MRI",
+        "pt": "Ressonância magnética de campo aberto"
+      },
+      {
+        "en": "Open-Sided MRI",
+        "pt": "Ressonância magnética de campo aberto lateral"
+      },
+      {
+        "en": "PET Scan (Positron Emission Tomography)",
+        "pt": "Tomografia por emissão de pósitrons (PET)"
+      },
+      {
+        "en": "Radio Waves",
+        "pt": "Ondas de rádio"
+      },
+      {
+        "en": "Scope",
+        "pt": "Instrumento de observação"
+      },
+      {
+        "en": "Screening Form",
+        "pt": "Formulário de triagem"
+      },
+      {
+        "en": "Specimen",
+        "pt": "Amostra"
+      },
+      {
+        "en": "Squeezing ball",
+        "pt": "Bola de apertar"
+      },
+      {
+        "en": "To be hazardous to",
+        "pt": "Ser perigoso para"
+      },
+      {
+        "en": "To change into a patient gown",
+        "pt": "Vestir camisola de paciente"
+      },
+      {
+        "en": "To Interfere with",
+        "pt": "Interferir com"
+      },
+      {
+        "en": "To remove",
+        "pt": "Remover"
+      },
+      {
+        "en": "Upper Endoscopy",
+        "pt": "Endoscopia digestiva alta"
+      },
+      {
+        "en": "Ankle",
+        "pt": "Tornozelo"
+      },
+      {
+        "en": "Arthritis",
+        "pt": "Artrite"
+      },
+      {
+        "en": "Arthrogram",
+        "pt": "Artrograma"
+      },
+      {
+        "en": "Arthroscopy",
+        "pt": "Artroscopia"
+      },
+      {
+        "en": "Bursitis",
+        "pt": "Bursite"
+      },
+      {
+        "en": "Carpal Tunnel Syndrome",
+        "pt": "Síndrome do túnel do carpo"
+      },
+      {
+        "en": "Cartilage",
+        "pt": "Cartilagem"
+      },
+      {
+        "en": "Casting",
+        "pt": "Gesso"
+      },
+      {
+        "en": "Clavicle",
+        "pt": "Clavícula"
+      },
+      {
+        "en": "Dislocation",
+        "pt": "Luxação"
+      },
+      {
+        "en": "Femur",
+        "pt": "Fêmur"
+      },
+      {
+        "en": "Hip",
+        "pt": "Quadril"
+      },
+      {
+        "en": "Joint",
+        "pt": "Articulação"
+      },
+      {
+        "en": "Joint Replacement",
+        "pt": "Substituição articular"
+      },
+      {
+        "en": "Knee",
+        "pt": "Joelho"
+      },
+      {
+        "en": "Meniscus",
+        "pt": "Menisco"
+      },
+      {
+        "en": "Muscle",
+        "pt": "Músculo"
+      },
+      {
+        "en": "Musculoskeletal System",
+        "pt": "Sistema musculoesquelético"
+      },
+      {
+        "en": "Orthopedics",
+        "pt": "Ortopedia"
+      },
+      {
+        "en": "Orthotics",
+        "pt": "Órteses"
+      },
+      {
+        "en": "Osteoporosis",
+        "pt": "Osteoporose"
+      },
+      {
+        "en": "Physical Therapy",
+        "pt": "Fisioterapia"
+      },
+      {
+        "en": "Scoliosis",
+        "pt": "Escoliose"
+      },
+      {
+        "en": "Spine",
+        "pt": "Coluna vertebral"
+      },
+      {
+        "en": "Strain",
+        "pt": "Distensão"
+      },
+      {
+        "en": "Tendon / Ligament",
+        "pt": "Tendão / Ligamento"
+      },
+      {
+        "en": "Tibia",
+        "pt": "Tíbia"
+      },
+      {
+        "en": "Wrist",
+        "pt": "Punho"
+      },
+      {
+        "en": "ACE Inhibitor",
+        "pt": "Inibidor da ECA"
+      },
+      {
+        "en": "Angina (Angina Pectoris)",
+        "pt": "Angina (Angina de peito)"
+      },
+      {
+        "en": "Angiogram",
+        "pt": "Angiografia"
+      },
+      {
+        "en": "Angioplasty",
+        "pt": "Angioplastia"
+      },
+      {
+        "en": "Antiarrhythmic",
+        "pt": "Antiarrítmico"
+      },
+      {
+        "en": "Anticoagulant (Blood Thinner)",
+        "pt": "Anticoagulante"
+      },
+      {
+        "en": "Aorta",
+        "pt": "Aorta"
+      },
+      {
+        "en": "Aortic Stenosis",
+        "pt": "Estenose aórtica"
+      },
+      {
+        "en": "Arrhythmia",
+        "pt": "Arritmia"
+      },
+      {
+        "en": "Arterial Plaque",
+        "pt": "Placa arterial"
+      },
+      {
+        "en": "Arteriosclerosis",
+        "pt": "Arteriosclerose"
+      },
+      {
+        "en": "Artery",
+        "pt": "Artéria"
+      },
+      {
+        "en": "Atherosclerosis",
+        "pt": "Aterosclerose"
+      },
+      {
+        "en": "Atrial Fibrillation",
+        "pt": "Fibrilação atrial"
+      },
+      {
+        "en": "Atrium",
+        "pt": "Átrio"
+      },
+      {
+        "en": "Beta Blocker",
+        "pt": "Betabloqueador"
+      },
+      {
+        "en": "Blood Clot (Thrombosis)",
+        "pt": "Coágulo sanguíneo (trombose)"
+      },
+      {
+        "en": "Blood Vessel",
+        "pt": "Vaso sanguíneo"
+      },
+      {
+        "en": "Bradycardia",
+        "pt": "Bradicardia"
+      },
+      {
+        "en": "Cardiac Ablation",
+        "pt": "Ablação cardíaca"
+      },
+      {
+        "en": "Cardiac Arrest (Cardiopulmonary Arrest)",
+        "pt": "Parada cardíaca (Parada cardiorrespiratória)"
+      },
+      {
+        "en": "Cardiac Catheterization",
+        "pt": "Cateterismo cardíaco"
+      },
+      {
+        "en": "Cardiovascular",
+        "pt": "Cardiovascular"
+      },
+      {
+        "en": "Circulation",
+        "pt": "Circulação"
+      },
+      {
+        "en": "Circulatory Disease",
+        "pt": "Doença circulatória"
+      },
+      {
+        "en": "Coronary Artery Bypass Grafting (CABG)",
+        "pt": "Cirurgia de revascularização do miocárdio (CRM)"
+      },
+      {
+        "en": "Coronary Artery Disease (CAD)",
+        "pt": "Doença arterial coronariana (DAC)"
+      },
+      {
+        "en": "Deep Venous Thrombosis (DVT)",
+        "pt": "Trombose venosa profunda (TVP)"
+      },
+      {
+        "en": "Echocardiogram (ECHO)",
+        "pt": "Ecocardiograma"
+      },
+      {
+        "en": "Embolism",
+        "pt": "Embolia"
+      },
+      {
+        "en": "Exercise Stress Test",
+        "pt": "Teste ergométrico"
+      },
+      {
+        "en": "Graft",
+        "pt": "Enxerto"
+      },
+      {
+        "en": "Heart Failure",
+        "pt": "Insuficiência cardíaca"
+      },
+      {
+        "en": "Heart Murmur",
+        "pt": "Sopro cardíaco"
+      },
+      {
+        "en": "Heartbeat",
+        "pt": "Batimento cardíaco"
+      },
+      {
+        "en": "High Blood Pressure (Hypertension)",
+        "pt": "Pressão alta (Hipertensão)"
+      },
+      {
+        "en": "Implantable Cardioverter Defibrillator (ICD)",
+        "pt": "Cárdio-desfibrilador implantável (CDI)"
+      },
+      {
+        "en": "Low Blood Pressure (Hypotension)",
+        "pt": "Pressão baixa (Hipotensão)"
+      },
+      {
+        "en": "Mini-Stroke (Transient Ischaemic Attack - TIA)",
+        "pt": "Ataque isquêmico transitório (AIT)"
+      },
+      {
+        "en": "Nuclear Stress Test",
+        "pt": "Teste de estresse nuclear"
+      },
+      {
+        "en": "Pacemaker",
+        "pt": "Marcapasso"
+      },
+      {
+        "en": "Palpitations",
+        "pt": "Palpitações"
+      },
+      {
+        "en": "Resuscitate",
+        "pt": "Reanimar"
+      },
+      {
+        "en": "Shortness of Breath (Dyspnea)",
+        "pt": "Falta de ar (Dispneia)"
+      },
+      {
+        "en": "Stroke (Cerebral Vascular Accident - CVA)",
+        "pt": "Derrame (Acidente vascular cerebral - AVC)"
+      },
+      {
+        "en": "Tachycardia",
+        "pt": "Taquicardia"
+      },
+      {
+        "en": "Thrombolytic Drug/Therapy",
+        "pt": "Trombolítico/terapia trombolítica"
+      },
+      {
+        "en": "Valve",
+        "pt": "Válvula"
+      },
+      {
+        "en": "Varicose Veins",
+        "pt": "Varizes"
+      },
+      {
+        "en": "Vein",
+        "pt": "Veia"
+      },
+      {
+        "en": "Ventricle",
+        "pt": "Ventrículo"
+      },
+      {
+        "en": "Ventricular Fibrillation",
+        "pt": "Fibrilação ventricular"
+      },
+      {
+        "en": "Acquired Immune Deficiency Syndrome (AIDS)",
+        "pt": "Síndrome da imunodeficiência adquirida (AIDS)"
+      },
+      {
+        "en": "Buccal",
+        "pt": "Swab Swab bucal"
+      },
+      {
+        "en": "Chorionic Villus Sampling (CVS)",
+        "pt": "Amostragem de vilosidades coriônicas (AVC)"
+      },
+      {
+        "en": "Chromosome",
+        "pt": "Cromossomo"
+      },
+      {
+        "en": "Chromosome test / Karyotype Teste de cromossomos /",
+        "pt": "Cariótipo"
+      },
+      {
+        "en": "Congenital Disorder",
+        "pt": "Doença congênita"
+      },
+      {
+        "en": "Consanguinity",
+        "pt": "Consanguinidade"
+      },
+      {
+        "en": "Culture test",
+        "pt": "Teste cultural"
+      },
+      {
+        "en": "Cytology",
+        "pt": "Citologia"
+      },
+      {
+        "en": "Deleterious mutation / Disease-causing mutation",
+        "pt": "Mutação deletéria / Mutação causadora de doença"
+      },
+      {
+        "en": "Deletion",
+        "pt": "Deleção"
+      },
+      {
+        "en": "DNA (Deoxyribonucleic Acid)",
+        "pt": "DNA (Ácido desoxirribonucleico)"
+      },
+      {
+        "en": "DNA marker (also called a “Genetic marker”)",
+        "pt": "Marcador de DNA (também chamado “Marcador genético”)"
+      },
+      {
+        "en": "DNA mutation",
+        "pt": "Mutação de DNA"
+      },
+      {
+        "en": "DNA sequence",
+        "pt": "Sequência de DNA"
+      },
+      {
+        "en": "Dominant",
+        "pt": "Dominante"
+      },
+      {
+        "en": "Donor egg or sperm",
+        "pt": "Óvulo ou esperma doado"
+      },
+      {
+        "en": "Down syndrome (Trisomy 21)",
+        "pt": "Síndrome de Down (Trissomia 21)"
+      },
+      {
+        "en": "Edwards syndrome (Trisomy 18)",
+        "pt": "Síndrome de Edwards (Trissomia 18)"
+      },
+      {
+        "en": "False negative",
+        "pt": "Falso negativo"
+      },
+      {
+        "en": "False positive",
+        "pt": "Falso positivo"
+      },
+      {
+        "en": "Familial",
+        "pt": "Familiar"
+      },
+      {
+        "en": "Flip a coin",
+        "pt": "Cara ou coroa"
+      },
+      {
+        "en": "Fragile X syndrome",
+        "pt": "Síndrome do X Frágil"
+      },
+      {
+        "en": "Gene",
+        "pt": "Gene"
+      },
+      {
+        "en": "General population",
+        "pt": "População geral"
+      },
+      {
+        "en": "Generation",
+        "pt": "Geração"
+      },
+      {
+        "en": "Genetic counseling",
+        "pt": "Aconselhamento genético"
+      },
+      {
+        "en": "Genetic counseling intern",
+        "pt": "Estagiário de aconselhamento genético"
+      },
+      {
+        "en": "Genetic counselor",
+        "pt": "Conselheiro genético"
+      },
+      {
+        "en": "Genetic discrimination",
+        "pt": "Discriminação genética"
+      },
+      {
+        "en": "Genetic factors",
+        "pt": "Fatores genéticos"
+      },
+      {
+        "en": "Genetic information",
+        "pt": "Informações genéticas"
+      },
+      {
+        "en": "Genetic material",
+        "pt": "Material genético"
+      },
+      {
+        "en": "Genetic predisposition",
+        "pt": "Predisposição genética"
+      },
+      {
+        "en": "Genetic test",
+        "pt": "Teste genético"
+      },
+      {
+        "en": "Genetic testing",
+        "pt": "Testes genéticos"
+      },
+      {
+        "en": "Genetic trait",
+        "pt": "Traço genético"
+      },
+      {
+        "en": "Genetic variant",
+        "pt": "Variante genética"
+      },
+      {
+        "en": "Geneticist",
+        "pt": "Geneticista"
+      },
+      {
+        "en": "Genetics",
+        "pt": "Genética"
+      },
+      {
+        "en": "Hereditary",
+        "pt": "Hereditário"
+      },
+      {
+        "en": "Hereditary material",
+        "pt": "Material hereditário"
+      },
+      {
+        "en": "Informed consent",
+        "pt": "Consentimento informado"
+      },
+      {
+        "en": "Inheritance pattern",
+        "pt": "Padrão de herança"
+      },
+      {
+        "en": "Inherited",
+        "pt": "Herdado"
+      },
+      {
+        "en": "Insertion",
+        "pt": "Inserção"
+      },
+      {
+        "en": "Intellectual disability",
+        "pt": "Deficiência intelectual"
+      },
+      {
+        "en": "Klinefelter’s syndrome",
+        "pt": "Síndrome de Klinefelter"
+      },
+      {
+        "en": "Lead Test",
+        "pt": "Teste de chumbo"
+      },
+      {
+        "en": "Lung Cancer",
+        "pt": "Câncer de pulmão"
+      },
+      {
+        "en": "Marker chromosome",
+        "pt": "Cromossomo marcador"
+      },
+      {
+        "en": "Maternal Serum Screening (MSS or",
+        "pt": "Maternal serum alpha-fetoprotein test)"
+      },
+      {
+        "en": "Maternal Serum Screening (MSS or Maternal serum alpha-fetoprotein test)",
+        "pt": "Triagem de soro materno (teste de alfa-fetoproteína no soro materno)"
+      },
+      {
+        "en": "Medical record",
+        "pt": "Prontuário médico"
+      },
+      {
+        "en": "Microarray",
+        "pt": "Microarranjo"
+      },
+      {
+        "en": "Molecule",
+        "pt": "Molécula"
+      },
+      {
+        "en": "Mosaicism",
+        "pt": "Mosaicismo"
+      },
+      {
+        "en": "Multifactorial",
+        "pt": "Multifatorial"
+      },
+      {
+        "en": "Mutation",
+        "pt": "Mutação"
+      },
+      {
+        "en": "Penetrance",
+        "pt": "Penetrância"
+      },
+      {
+        "en": "Polymorphism",
+        "pt": "Polimorfismo"
+      },
+      {
+        "en": "Presymptomatic",
+        "pt": "Pré-sintomático"
+      },
+      {
+        "en": "Prognosis",
+        "pt": "Prognóstico"
+      },
+      {
+        "en": "Prolapse",
+        "pt": "Prolapso"
+      },
+      {
+        "en": "Protein",
+        "pt": "Proteína"
+      },
+      {
+        "en": "Random",
+        "pt": "Aleatório"
+      },
+      {
+        "en": "Recessive",
+        "pt": "Recessivo"
+      },
+      {
+        "en": "Red flag",
+        "pt": "Alerta"
+      },
+      {
+        "en": "Replicate",
+        "pt": "Replicar"
+      },
+      {
+        "en": "Reproductive history",
+        "pt": "Histórico reprodutivo"
+      },
+      {
+        "en": "Ring chromosome",
+        "pt": "Cromossomo em anel"
+      },
+      {
+        "en": "Runs in the family",
+        "pt": "Presente na família"
+      },
+      {
+        "en": "Screen",
+        "pt": "Examinar"
+      },
+      {
+        "en": "Semen",
+        "pt": "Sêmen"
+      },
+      {
+        "en": "Seminal fluid",
+        "pt": "Fluido seminal"
+      },
+      {
+        "en": "Sperm",
+        "pt": "Espermatozoide"
+      },
+      {
+        "en": "Sperm donation",
+        "pt": "Doação de esperma"
+      },
+      {
+        "en": "Spina bifida",
+        "pt": "Espinha bífida"
+      },
+      {
+        "en": "Statistically significant",
+        "pt": "Estatisticamente significativo"
+      },
+      {
+        "en": "Teratogen",
+        "pt": "Teratógeno"
+      },
+      {
+        "en": "Testes",
+        "pt": "Testículos"
+      },
+      {
+        "en": "Toxic exposure",
+        "pt": "Exposição tóxica"
+      },
+      {
+        "en": "Trait",
+        "pt": "Traço"
+      },
+      {
+        "en": "Translocation",
+        "pt": "Translocação"
+      },
+      {
+        "en": "Variant",
+        "pt": "Variante"
+      },
+      {
+        "en": "Variant of uncertain significance",
+        "pt": "Variante de significado incerto"
+      },
+      {
+        "en": "Vas deferens",
+        "pt": "Ducto deferente"
+      },
+      {
+        "en": "X-linked",
+        "pt": "Ligado ao X"
+      },
+      {
+        "en": "Anencephaly",
+        "pt": "Anencefalia"
+      },
+      {
+        "en": "Anorexia Nervosa",
+        "pt": "Anorexia nervosa"
+      },
+      {
+        "en": "Atopic Dermatitis",
+        "pt": "Dermatite atópica"
+      },
+      {
+        "en": "Attention-Deficit Disorder (ADD)",
+        "pt": "Transtorno do déficit de atenção"
+      },
+      {
+        "en": "Attention-Deficit/Hyperactivity Disorder (ADHD)",
+        "pt": "Transtorno do déficit de atenção com hiperatividade (TDAH)"
+      },
+      {
+        "en": "Bulimia",
+        "pt": "Nervosa Bulimia nervosa"
+      },
+      {
+        "en": "Cardiopulmonary Resuscitation (CPR)",
+        "pt": "Reanimação cardiopulmonar"
+      },
+      {
+        "en": "Chickenpox",
+        "pt": "Catapora"
+      },
+      {
+        "en": "Cleft lip",
+        "pt": "Lábio leporino"
+      },
+      {
+        "en": "Cleft palate",
+        "pt": "Fenda palatina"
+      },
+      {
+        "en": "Colic",
+        "pt": "Cólica"
+      },
+      {
+        "en": "Congenital",
+        "pt": "Congênito"
+      },
+      {
+        "en": "Conjunctivitis",
+        "pt": "Conjuntivite"
+      },
+      {
+        "en": "Deciduous Teeth (Baby Teeth)",
+        "pt": "Dentes decíduos (dentes de leite)"
+      },
+      {
+        "en": "Diaper Rash",
+        "pt": "Assadura"
+      },
+      {
+        "en": "Diphtheria",
+        "pt": "Difteria"
+      },
+      {
+        "en": "Enuresis",
+        "pt": "Enurese"
+      },
+      {
+        "en": "Fine Motor Skills",
+        "pt": "Coordenação motora fina"
+      },
+      {
+        "en": "Food Allergy",
+        "pt": "Alergia alimentar"
+      },
+      {
+        "en": "Food Intolerance",
+        "pt": "Intolerância alimentar"
+      },
+      {
+        "en": "Fractures",
+        "pt": "Fraturas"
+      },
+      {
+        "en": "Heat Exhaustion",
+        "pt": "Exaustão por calor"
+      },
+      {
+        "en": "Impetigo",
+        "pt": "Impetigo"
+      },
+      {
+        "en": "Influenza",
+        "pt": "(Flu) Gripe"
+      },
+      {
+        "en": "Intravenous Pyelogram",
+        "pt": "Pielografia intravenosa"
+      },
+      {
+        "en": "Kidney and Bladder Ultrasound",
+        "pt": "Ultrassom renal e da bexiga"
+      },
+      {
+        "en": "Measles",
+        "pt": "Sarampo"
+      },
+      {
+        "en": "Meningitis",
+        "pt": "Meningite"
+      },
+      {
+        "en": "MMR (Measles, Mumps, and Rubella)",
+        "pt": "Vacina tríplice viral (SCR) (sarampo, caxumba e rubéola)"
+      },
+      {
+        "en": "Molding",
+        "pt": "Moldagem"
+      },
+      {
+        "en": "Moro Reflex",
+        "pt": "Reflexo de Moro"
+      },
+      {
+        "en": "Mumps",
+        "pt": "Caxumba"
+      },
+      {
+        "en": "Myringotomy",
+        "pt": "Miringotomia"
+      },
+      {
+        "en": "Open Neural Tube Defect (ONTD)",
+        "pt": "Defeito aberto do tubo neural"
+      },
+      {
+        "en": "Otitis Externa",
+        "pt": "Otite externa"
+      },
+      {
+        "en": "Otitis Media",
+        "pt": "Otite média"
+      },
+      {
+        "en": "PKU Test",
+        "pt": "Teste de PKU (teste do pezinho)"
+      },
+      {
+        "en": "Pneumatic Otoscope",
+        "pt": "Otoscópio pneumático"
+      },
+      {
+        "en": "Polio Vaccine",
+        "pt": "Vacina contra poliomielite"
+      },
+      {
+        "en": "Puberty",
+        "pt": "Puberdade"
+      },
+      {
+        "en": "Pyelonephritis",
+        "pt": "Pielonefrite"
+      },
+      {
+        "en": "Rhinitis",
+        "pt": "Rinite"
+      },
+      {
+        "en": "Rubella",
+        "pt": "Rubéola"
+      },
+      {
+        "en": "Sinusitis",
+        "pt": "Sinusite"
+      },
+      {
+        "en": "Sudden Infant Death Syndrome (SIDS)",
+        "pt": "Síndrome da morte súbita infantil"
+      },
+      {
+        "en": "Sunburn",
+        "pt": "Queimadura solar"
+      },
+      {
+        "en": "T-dap vaccine",
+        "pt": "Vacina dTpa"
+      },
+      {
+        "en": "Tourette’s Syndrome",
+        "pt": "Síndrome de Tourette"
+      },
+      {
+        "en": "Tympanometry",
+        "pt": "Timpanometria"
+      },
+      {
+        "en": "Umbilical Hernia",
+        "pt": "Hérnia umbilical"
+      },
+      {
+        "en": "Urethritis",
+        "pt": "Uretrite"
+      },
+      {
+        "en": "Urticaria (Hives)",
+        "pt": "Urticária"
+      },
+      {
+        "en": "Agitation",
+        "pt": "Agitação"
+      },
+      {
+        "en": "Antidepressants",
+        "pt": "Antidepressivos"
+      },
+      {
+        "en": "Antipsychotics",
+        "pt": "Antipsicóticos"
+      },
+      {
+        "en": "Anxiety",
+        "pt": "Ansiedade"
+      },
+      {
+        "en": "Benzodiazepines",
+        "pt": "Benzodiazepínicos"
+      },
+      {
+        "en": "Bipolar Disorder",
+        "pt": "Transtorno bipolar"
+      },
+      {
+        "en": "Cognitive Behavioral Therapy (CBT)",
+        "pt": "Terapia cognitivo-comportamental (TCC)"
+      },
+      {
+        "en": "Coping Skills",
+        "pt": "Estratégias de enfrentamento"
+      },
+      {
+        "en": "Counseling",
+        "pt": "Aconselhamento"
+      },
+      {
+        "en": "Crisis Intervention",
+        "pt": "Intervenção em crise"
+      },
+      {
+        "en": "Delusions",
+        "pt": "Delírios"
+      },
+      {
+        "en": "Hallucinations",
+        "pt": "Alucinações"
+      },
+      {
+        "en": "Helplessness",
+        "pt": "Desamparo"
+      },
+      {
+        "en": "Hopelessness",
+        "pt": "Desespero"
+      },
+      {
+        "en": "Inpatient Care",
+        "pt": "Internação hospitalar"
+      },
+      {
+        "en": "Insomnia",
+        "pt": "Insônia"
+      },
+      {
+        "en": "Irritability",
+        "pt": "Irritabilidade"
+      },
+      {
+        "en": "Medication Management",
+        "pt": "Gerenciamento de medicação"
+      },
+      {
+        "en": "Mental Status Exam",
+        "pt": "Exame do estado mental"
+      },
+      {
+        "en": "Mood Disorder",
+        "pt": "Transtorno do humor"
+      },
+      {
+        "en": "Mood Stabilizers",
+        "pt": "Estabilizadores de humor"
+      },
+      {
+        "en": "Obsessive-Compulsive Disorder (OCD)",
+        "pt": "Transtorno obsessivo-compulsivo (TOC)"
+      },
+      {
+        "en": "Outpatient Care",
+        "pt": "Atendimento ambulatorial"
+      },
+      {
+        "en": "Panic Attack",
+        "pt": "Ataque de pânico"
+      },
+      {
+        "en": "Personality Disorder",
+        "pt": "Transtorno de personalidade"
+      },
+      {
+        "en": "Post-Traumatic Stress Disorder (PTSD)",
+        "pt": "Transtorno de estresse pós- traumático (TEPT)"
+      },
+      {
+        "en": "Psychiatric Evaluation",
+        "pt": "Avaliação psiquiátrica"
+      },
+      {
+        "en": "Psychosis",
+        "pt": "Psicose"
+      },
+      {
+        "en": "Psychotherapy",
+        "pt": "Psicoterapia"
+      },
+      {
+        "en": "Racing Thoughts",
+        "pt": "Pensamentos acelerados"
+      },
+      {
+        "en": "Recovery Plan",
+        "pt": "Plano de recuperação"
+      },
+      {
+        "en": "Relapse",
+        "pt": "Recaída"
+      },
+      {
+        "en": "Schizophrenia",
+        "pt": "Esquizofrenia"
+      },
+      {
+        "en": "Screening Tools (PHQ-9, GAD-7)",
+        "pt": "Ferramentas de triagem"
+      },
+      {
+        "en": "Self-Harm",
+        "pt": "Autoagressão"
+      },
+      {
+        "en": "SNRIs (Serotonin-Norepinephrine Reuptake Inhibitors)",
+        "pt": "Inibidores da recaptação de serotonina e noradrenalina (IRSNs)"
+      },
+      {
+        "en": "SSRIs (Selective Serotonin Reuptake Inhibitors)",
+        "pt": "Inibidores seletivos da recaptação de serotonina (ISRS)"
+      },
+      {
+        "en": "Stress Management",
+        "pt": "Gerenciamento do estresse"
+      },
+      {
+        "en": "Substance Use Disorder",
+        "pt": "Transtorno por uso de substâncias"
+      },
+      {
+        "en": "Suicidal Thoughts",
+        "pt": "Pensamentos suicidas"
+      },
+      {
+        "en": "Support Group",
+        "pt": "Grupo de apoio"
+      },
+      {
+        "en": "Therapy Session",
+        "pt": "Sessão de terapia"
+      },
+      {
+        "en": "Trigger",
+        "pt": "Gatilho"
+      },
+      {
+        "en": "Withdrawal",
+        "pt": "Abstinência"
+      },
+      {
+        "en": "Bridge",
+        "pt": "Ponte"
+      },
+      {
+        "en": "Bruxism",
+        "pt": "Bruxismo"
+      },
+      {
+        "en": "Caries",
+        "pt": "Cárie"
+      },
+      {
+        "en": "Cavities",
+        "pt": "Cáries"
+      },
+      {
+        "en": "Crown",
+        "pt": "Coroa"
+      },
+      {
+        "en": "Crown Placement",
+        "pt": "Colocação da coroa"
+      },
+      {
+        "en": "Dental Implant",
+        "pt": "Implante dentário"
+      },
+      {
+        "en": "Dentin",
+        "pt": "Dentina"
+      },
+      {
+        "en": "Enamel",
+        "pt": "Esmalte"
+      },
+      {
+        "en": "Endodontics",
+        "pt": "Endodontia"
+      },
+      {
+        "en": "Extraction",
+        "pt": "Extração"
+      },
+      {
+        "en": "Filling",
+        "pt": "Obturação"
+      },
+      {
+        "en": "Flossing",
+        "pt": "Uso do fio dental"
+      },
+      {
+        "en": "Gingivitis",
+        "pt": "Gengivite"
+      },
+      {
+        "en": "Impression",
+        "pt": "Impressão"
+      },
+      {
+        "en": "Intraoral Camera",
+        "pt": "Câmera intraoral"
+      },
+      {
+        "en": "Orthodontics",
+        "pt": "Ortodontia"
+      },
+      {
+        "en": "Pediatric Dentistry",
+        "pt": "Odontopediatria"
+      },
+      {
+        "en": "Periodontics",
+        "pt": "Periodontia"
+      },
+      {
+        "en": "Periodontitis",
+        "pt": "Periodontite"
+      },
+      {
+        "en": "Prosthodontics",
+        "pt": "Prostodontia"
+      },
+      {
+        "en": "Pulp",
+        "pt": "Polpa"
+      },
+      {
+        "en": "Root",
+        "pt": "Raiz"
+      },
+      {
+        "en": "Scaling and Root Planing",
+        "pt": "Raspagem e alisamento radicular"
+      },
+      {
+        "en": "Amblyopia",
+        "pt": "Ambliopia"
+      },
+      {
+        "en": "Aqueous",
+        "pt": "Humor Humor aquoso"
+      },
+      {
+        "en": "Astigmatism",
+        "pt": "Astigmatismo"
+      },
+      {
+        "en": "Cataract",
+        "pt": "Catarata"
+      },
+      {
+        "en": "Cornea",
+        "pt": "Córnea"
+      },
+      {
+        "en": "Corneal Transplant",
+        "pt": "Transplante de córnea"
+      },
+      {
+        "en": "Diabetic Retinopathy",
+        "pt": "Retinopatia diabética"
+      },
+      {
+        "en": "Eye crust",
+        "pt": "Remela"
+      },
+      {
+        "en": "Eye Drops",
+        "pt": "Colírio"
+      },
+      {
+        "en": "Eye lid",
+        "pt": "Pálpebra"
+      },
+      {
+        "en": "Glaucoma",
+        "pt": "Glaucoma"
+      },
+      {
+        "en": "Hyperopia",
+        "pt": "Hipermetropia"
+      },
+      {
+        "en": "Iris",
+        "pt": "Íris"
+      },
+      {
+        "en": "Lens",
+        "pt": "Lente"
+      },
+      {
+        "en": "Macula",
+        "pt": "Mácula"
+      },
+      {
+        "en": "Macular Degeneration",
+        "pt": "Degeneração macular"
+      },
+      {
+        "en": "Myopia",
+        "pt": "Miopia"
+      },
+      {
+        "en": "Ophthalmologist",
+        "pt": "Oftalmologista"
+      },
+      {
+        "en": "Ophthalmology",
+        "pt": "Oftalmologia"
+      },
+      {
+        "en": "Ophthalmoscopy",
+        "pt": "Oftalmoscopia"
+      },
+      {
+        "en": "Optic Nerve",
+        "pt": "Nervo óptico"
+      },
+      {
+        "en": "Optometrist",
+        "pt": "Optometrista"
+      },
+      {
+        "en": "Presbyopia",
+        "pt": "Presbiopia"
+      },
+      {
+        "en": "Pupil",
+        "pt": "Pupila"
+      },
+      {
+        "en": "Refraction Test",
+        "pt": "Teste de refração"
+      },
+      {
+        "en": "Retina",
+        "pt": "Retina"
+      },
+      {
+        "en": "Tonometry",
+        "pt": "Tonometria"
+      },
+      {
+        "en": "Visual Acuity Test",
+        "pt": "Teste de acuidade visual"
+      },
+      {
+        "en": "Vitreous",
+        "pt": "Humor Humor vítreo"
+      },
+      {
+        "en": "Activities of Daily Living (ADL)",
+        "pt": "Atividades da vida diária (AVD)"
+      },
+      {
+        "en": "Affected limb",
+        "pt": "Membro afetado"
+      },
+      {
+        "en": "Ambulation",
+        "pt": "Deambulação"
+      },
+      {
+        "en": "Ankle-Foot Orthosis (AFO)",
+        "pt": "Órtese tornozelo-pé"
+      },
+      {
+        "en": "Arm trough",
+        "pt": "Calha de braço"
+      },
+      {
+        "en": "Cognition",
+        "pt": "Cognição"
+      },
+      {
+        "en": "Contact Guard Assist Level",
+        "pt": "Nível de assistência com contato"
+      },
+      {
+        "en": "Contractures",
+        "pt": "Contraturas"
+      },
+      {
+        "en": "Dependent Level of Assist",
+        "pt": "Nível de assistência dependente"
+      },
+      {
+        "en": "Diastolic blood pressure",
+        "pt": "Pressão arterial diastólica"
+      },
+      {
+        "en": "Durable Medical Equipment (DME)",
+        "pt": "Equipamento médico durável (EMD)"
+      },
+      {
+        "en": "Elevated Walker",
+        "pt": "Andador elevado"
+      },
+      {
+        "en": "Exercise band",
+        "pt": "Faixa de exercícios"
+      },
+      {
+        "en": "Extension",
+        "pt": "Extensão"
+      },
+      {
+        "en": "Flexion",
+        "pt": "Flexão"
+      },
+      {
+        "en": "Foot Drop",
+        "pt": "Pé caído"
+      },
+      {
+        "en": "Gait",
+        "pt": "Marcha"
+      },
+      {
+        "en": "Gait Belt",
+        "pt": "Cinto de marcha"
+      },
+      {
+        "en": "Hamstring",
+        "pt": "Isquiotibial"
+      },
+      {
+        "en": "Hypotension",
+        "pt": "Hipotensão"
+      },
+      {
+        "en": "Incontinence",
+        "pt": "Incontinência"
+      },
+      {
+        "en": "Independent Level",
+        "pt": "Nível independente"
+      },
+      {
+        "en": "Intravenous Line",
+        "pt": "(IV) Acesso intravenoso"
+      },
+      {
+        "en": "Manual wheelchair",
+        "pt": "Cadeira de rodas manual"
+      },
+      {
+        "en": "Maximum Assist level",
+        "pt": "Nível máximo de assistência"
+      },
+      {
+        "en": "Minimal Assist level",
+        "pt": "Nível mínimo de assistência"
+      },
+      {
+        "en": "Moderate Assist level",
+        "pt": "Nível moderado de assistência"
+      },
+      {
+        "en": "Motor function",
+        "pt": "Função motora"
+      },
+      {
+        "en": "Neglect",
+        "pt": "Negligência"
+      },
+      {
+        "en": "Occupational Therapist",
+        "pt": "Terapeuta ocupacional"
+      },
+      {
+        "en": "Orthosis",
+        "pt": "Órtese"
+      },
+      {
+        "en": "Orthotist",
+        "pt": "Ortesista"
+      },
+      {
+        "en": "Physiatrist",
+        "pt": "Médico fisiatra"
+      },
+      {
+        "en": "Physical",
+        "pt": "Therapist Fisioterapeuta"
+      },
+      {
+        "en": "Power wheelchair",
+        "pt": "Cadeira de rodas motorizada"
+      },
+      {
+        "en": "Reflexes",
+        "pt": "Reflexos"
+      },
+      {
+        "en": "Skilled Nursing Facility",
+        "pt": "Instituição de enfermagem especializada"
+      },
+      {
+        "en": "Spinal column",
+        "pt": "Coluna vertebral"
+      },
+      {
+        "en": "Stand By Assist Level",
+        "pt": "Nível de assistência em espera"
+      },
+      {
+        "en": "Standing frame",
+        "pt": "Prancha ortostática"
+      },
+      {
+        "en": "Subluxation",
+        "pt": "Subluxação"
+      },
+      {
+        "en": "Systolic blood pressure",
+        "pt": "Pressão arterial sistólica"
+      },
+      {
+        "en": "TED Hose",
+        "pt": "Meias TED"
+      },
+      {
+        "en": "Trunk",
+        "pt": "Tronco"
+      },
+      {
+        "en": "Wheelchair armrest",
+        "pt": "Apoio de braço da cadeira de rodas"
+      },
+      {
+        "en": "Wheelchair tray",
+        "pt": "Bandeja para cadeira de rodas"
+      },
+      {
+        "en": "Apgar score",
+        "pt": "Escala de Apgar"
+      },
+      {
+        "en": "Apnea",
+        "pt": "Apneia"
+      },
+      {
+        "en": "Breast milk",
+        "pt": "Leite materno"
+      },
+      {
+        "en": "Cardiorespiratory monitor",
+        "pt": "Monitor cardiorrespiratório"
+      },
+      {
+        "en": "CPAP (Continuous Positive Airway Pressure)",
+        "pt": "CPAP (pressão positiva contínua nas vias aéreas)"
+      },
+      {
+        "en": "Desaturation",
+        "pt": "Dessaturação"
+      },
+      {
+        "en": "Developmental delay",
+        "pt": "Atraso no desenvolvimento"
+      },
+      {
+        "en": "Discharge Planning",
+        "pt": "Planejamento da alta"
+      },
+      {
+        "en": "Early Intervention (EI)",
+        "pt": "Intervenção precoce"
+      },
+      {
+        "en": "Feeding tube (NG/OG Tube)",
+        "pt": "Sonda alimentar (NG/OG)"
+      },
+      {
+        "en": "Follow-Up Clinic",
+        "pt": "Clínica de acompanhamento"
+      },
+      {
+        "en": "Formula",
+        "pt": "Fórmula"
+      },
+      {
+        "en": "Fortifier",
+        "pt": "Fortificante"
+      },
+      {
+        "en": "Full-term",
+        "pt": "A termo"
+      },
+      {
+        "en": "Gavage feeding",
+        "pt": "Alimentação por gavagem"
+      },
+      {
+        "en": "Gestational age (GA)",
+        "pt": "Idade gestacional"
+      },
+      {
+        "en": "Heel Stick Teste do pezinho",
+        "pt": "(Punção do calcanhar)"
+      },
+      {
+        "en": "High-flow nasal cannula (HFNC)",
+        "pt": "Cânula nasal de alto fluxo"
+      },
+      {
+        "en": "Home Oxygen",
+        "pt": "Oxigênio domiciliar"
+      },
+      {
+        "en": "Incubator",
+        "pt": "Incubadora"
+      },
+      {
+        "en": "Intraventricular hemorrhage",
+        "pt": "Hemorragia intraventricular"
+      },
+      {
+        "en": "Jaundice (Hyperbilirubinemia)",
+        "pt": "Icterícia (hiperbilirrubinemia)"
+      },
+      {
+        "en": "Kangaroo care",
+        "pt": "Método canguru"
+      },
+      {
+        "en": "Low birth weight (LBW)",
+        "pt": "Baixo peso ao nascer"
+      },
+      {
+        "en": "Lumbar Puncture",
+        "pt": "Punção lombar"
+      },
+      {
+        "en": "MMR (Measles, Mumps, and Rubella) SCR",
+        "pt": "(Tríplice viral) (sarampo, caxumba e rubéola)"
+      },
+      {
+        "en": "Necrotizing Enterocolitis (NEC)",
+        "pt": "Enterocolite necrosante (ECN)"
+      },
+      {
+        "en": "Neonatal Intensive Care Unit (NICU)",
+        "pt": "Unidade de Terapia Intensiva Neonatal (UTIN)"
+      },
+      {
+        "en": "Neonatal",
+        "pt": "(UTIN)"
+      },
+      {
+        "en": "Neurodevelopmental follow-up",
+        "pt": "Acompanhamento do neurodesenvolvimento"
+      },
+      {
+        "en": "Patent Ductus Arteriosus (PDA)",
+        "pt": "Persistência do ducto arterioso (PDA)"
+      },
+      {
+        "en": "Periventricular leukomalacia",
+        "pt": "Leucomalácia periventricular"
+      },
+      {
+        "en": "Premature (Preterm)",
+        "pt": "Prematuro"
+      },
+      {
+        "en": "Pulse oximeter",
+        "pt": "Oxímetro de pulso"
+      },
+      {
+        "en": "Radiant warmer",
+        "pt": "Aquecedor radiante"
+      },
+      {
+        "en": "Reflux",
+        "pt": "Refluxo"
+      },
+      {
+        "en": "Respiratory Distress Syndrome (RDS)",
+        "pt": "Síndrome do desconforto respiratório"
+      },
+      {
+        "en": "Retinopathy of Prematurity (ROP)",
+        "pt": "Retinopatia da prematuridade (ROP)"
+      },
+      {
+        "en": "Steroids (Antenatal/Postnatal)",
+        "pt": "Esteroides (pré-natais/pós-natais)"
+      },
+      {
+        "en": "Surfactant",
+        "pt": "Surfactante"
+      },
+      {
+        "en": "Total Parenteral Nutrition (TPN)",
+        "pt": "Nutrição parenteral total"
+      },
+      {
+        "en": "Umbilical line (UAC/UVC)",
+        "pt": "Cateter umbilical (UAC/UVC)"
+      },
+      {
+        "en": "alimony",
+        "pt": "pensão alimentícia conjugal"
+      },
+      {
+        "en": "curfew",
+        "pt": "toque de recolher"
+      },
+      {
+        "en": "domestic violence",
+        "pt": "violência doméstica"
+      },
+      {
+        "en": "enhanced toddler",
+        "pt": "criança pequena com necessidades ampliadas/especiais"
+      },
+      {
+        "en": "family size",
+        "pt": "tamanho da família"
+      },
+      {
+        "en": "foster care",
+        "pt": "acolhimento familiar / cuidado em lar substituto"
+      },
+      {
+        "en": "foster parent",
+        "pt": "pai/mãe de acolhimento / cuidador(a) de acolhimento"
+      },
+      {
+        "en": "head of household",
+        "pt": "chefe de família"
+      },
+      {
+        "en": "infant",
+        "pt": "bebê / lactente"
+      },
+      {
+        "en": "legal separation",
+        "pt": "separação legal / judicial"
+      },
+      {
+        "en": "preschooler",
+        "pt": "criança em idade pré-escolar"
+      },
+      {
+        "en": "school-age children",
+        "pt": "crianças em idade escolar"
+      },
+      {
+        "en": "spouse",
+        "pt": "cônjuge"
+      },
+      {
+        "en": "toddler",
+        "pt": "criança pequena"
+      },
+      {
+        "en": "visitation",
+        "pt": "visitação / direito de visita"
+      },
+      {
+        "en": "cane",
+        "pt": "bengala"
+      },
+      {
+        "en": "care manager",
+        "pt": "gerente de cuidados"
+      },
+      {
+        "en": "dependent (health insurance)",
+        "pt": "dependente (seguro de saúde)"
+      },
+      {
+        "en": "Disability",
+        "pt": "deficiência / incapacidade"
+      },
+      {
+        "en": "employer sponsored health coverage",
+        "pt": "cobertura de saúde patrocinada pelo empregador"
+      },
+      {
+        "en": "family planning",
+        "pt": "planejamento familiar"
+      },
+      {
+        "en": "Hardship",
+        "pt": "dificuldade financeira / situação de dificuldade"
+      },
+      {
+        "en": "home care agency",
+        "pt": "agência de cuidados domiciliares"
+      },
+      {
+        "en": "home-health",
+        "pt": "cuidados de saúde domiciliares / saúde domiciliar"
+      },
+      {
+        "en": "Medicaid",
+        "pt": "Medicaid"
+      },
+      {
+        "en": "Medicaid ID",
+        "pt": "número de identificação do Medicaid"
+      },
+      {
+        "en": "Medicare",
+        "pt": "Medicare"
+      },
+      {
+        "en": "nursing home",
+        "pt": "asilo / casa de repouso"
+      },
+      {
+        "en": "payor of last resort",
+        "pt": "pagador de último recurso"
+      },
+      {
+        "en": "rehab",
+        "pt": "reabilitação"
+      },
+      {
+        "en": "Waive (verb)",
+        "pt": "dispensar / isentar / renunciar"
+      },
+      {
+        "en": "wheelchair",
+        "pt": "cadeira de rodas"
+      },
+      {
+        "en": "WIC (Women, Infants, and Children)",
+        "pt": "WIC (Mulheres, Bebês e Crianças)"
+      },
+      {
+        "en": "allotment",
+        "pt": "cota / alocação / valor concedido"
+      },
+      {
+        "en": "annuities",
+        "pt": "anuidades / rendas vitalícias"
+      },
+      {
+        "en": "checkstubs",
+        "pt": "contracheques / holerites"
+      },
+      {
+        "en": "Dependents",
+        "pt": "dependentes"
+      },
+      {
+        "en": "Enrollment",
+        "pt": "inscrição"
+      },
+      {
+        "en": "household income",
+        "pt": "renda do agregado familiar / renda familiar"
+      },
+      {
+        "en": "Insurance company",
+        "pt": "seguradora"
+      },
+      {
+        "en": "lease",
+        "pt": "contrato de locação / arrendamento"
+      },
+      {
+        "en": "Monthly net income",
+        "pt": "renda líquida mensal"
+      },
+      {
+        "en": "Past due",
+        "pt": "em atraso"
+      },
+      {
+        "en": "paycheck",
+        "pt": "cheque de pagamento / salário"
+      },
+      {
+        "en": "payment agent",
+        "pt": "agente de pagamento"
+      },
+      {
+        "en": "payroll",
+        "pt": "folha de pagamento"
+      },
+      {
+        "en": "Proof of income",
+        "pt": "comprovante de renda"
+      },
+      {
+        "en": "real estate",
+        "pt": "bens imóveis"
+      },
+      {
+        "en": "seasonal work",
+        "pt": "trabalho sazonal"
+      },
+      {
+        "en": "Stocks",
+        "pt": "ações"
+      },
+      {
+        "en": "stop work verification",
+        "pt": "comprovação do término de emprego"
+      },
+      {
+        "en": "tax return",
+        "pt": "declaração de imposto de renda"
+      },
+      {
+        "en": "Time sheet",
+        "pt": "folha de ponto / registro de horas"
+      },
+      {
+        "en": "timesheet",
+        "pt": "folha de ponto / registro de horas"
+      },
+      {
+        "en": "unearned",
+        "pt": "não proveniente de trabalho / não auferido"
+      },
+      {
+        "en": "Unemployment",
+        "pt": "desemprego"
+      },
+      {
+        "en": "unemployment compensation",
+        "pt": "seguro-desemprego / compensação por desemprego"
+      },
+      {
+        "en": "utilities",
+        "pt": "serviços públicos"
+      },
+      {
+        "en": "wagestubs/checkstubs",
+        "pt": "contracheques / holerites"
+      },
+      {
+        "en": "Account holder",
+        "pt": "titular da conta"
+      },
+      {
+        "en": "alien registration card",
+        "pt": "cartão de registro de estrangeiro"
+      },
+      {
+        "en": "arrears",
+        "pt": "pagamentos em atraso / atrasados"
+      },
+      {
+        "en": "award letter",
+        "pt": "carta de concessão do benefício"
+      },
+      {
+        "en": "backdate",
+        "pt": "tornar retroativo"
+      },
+      {
+        "en": "basic food",
+        "pt": "Basic Food (Alimentação Básica)"
+      },
+      {
+        "en": "birth certificate",
+        "pt": "certidão de nascimento"
+      },
+      {
+        "en": "call center",
+        "pt": "central de atendimento"
+      },
+      {
+        "en": "Caseworker",
+        "pt": "assistente social do caso / técnico(a) do caso"
+      },
+      {
+        "en": "certification period",
+        "pt": "período de certificação"
+      },
+      {
+        "en": "Child care",
+        "pt": "cuidados infantis"
+      },
+      {
+        "en": "child care assistance",
+        "pt": "assistência para cuidados infantis"
+      },
+      {
+        "en": "client id",
+        "pt": "identificação do cliente / número do cliente"
+      },
+      {
+        "en": "CPS: Child Protective Service",
+        "pt": "CPS: Serviço de Proteção à Criança"
+      },
+      {
+        "en": "denial letter",
+        "pt": "carta de negação / indeferimento"
+      },
+      {
+        "en": "department of licensing",
+        "pt": "(DOL) Departamento de Licenciamento"
+      },
+      {
+        "en": "drop off",
+        "pt": "entregar / deixar"
+      },
+      {
+        "en": "electricity",
+        "pt": "eletricidade / luz"
+      },
+      {
+        "en": "Eligibility",
+        "pt": "elegibilidade"
+      },
+      {
+        "en": "employment related daycare",
+        "pt": "cuidados infantis relacionados ao emprego"
+      },
+      {
+        "en": "Eviction",
+        "pt": "despejo"
+      },
+      {
+        "en": "exemption (child support)",
+        "pt": "isenção/dispensa de pensão alimentícia infantil"
+      },
+      {
+        "en": "Families First",
+        "pt": "Families First (Famílias Primeiro)"
+      },
+      {
+        "en": "felony drug conviction",
+        "pt": "condenação por crime grave relacionado a drogas"
+      },
+      {
+        "en": "food stamps",
+        "pt": "cupons de alimentos / food stamps"
+      },
+      {
+        "en": "for your record",
+        "pt": "para seus registros"
+      },
+      {
+        "en": "full service MVA",
+        "pt": "MVA de serviço completo"
+      },
+      {
+        "en": "full-time units",
+        "pt": "unidades em tempo integral"
+      },
+      {
+        "en": "gap coverage",
+        "pt": "lacuna de cobertura"
+      },
+      {
+        "en": "general relief",
+        "pt": "assistência geral"
+      },
+      {
+        "en": "halftime units",
+        "pt": "unidades de meio período"
+      },
+      {
+        "en": "homeless coordinator",
+        "pt": "coordenador(a) de pessoas em situação de rua"
+      },
+      {
+        "en": "Household",
+        "pt": "agregado familiar / domicílio"
+      },
+      {
+        "en": "Housing assistance",
+        "pt": "assistência habitacional"
+      },
+      {
+        "en": "housing authority",
+        "pt": "autoridade habitacional"
+      },
+      {
+        "en": "immigration",
+        "pt": "imigração"
+      },
+      {
+        "en": "in written",
+        "pt": "por escrito"
+      },
+      {
+        "en": "in-home assistance",
+        "pt": "assistência domiciliar"
+      },
+      {
+        "en": "issue (verb)",
+        "pt": "emitir / conceder"
+      },
+      {
+        "en": "keep track",
+        "pt": "manter registro"
+      },
+      {
+        "en": "L&I (labor and industry)",
+        "pt": "Trabalho e Indústria (L&I)"
+      },
+      {
+        "en": "landlord",
+        "pt": "locador(a) / proprietário(a)"
+      },
+      {
+        "en": "landlord statement",
+        "pt": "declaração do locador/proprietário"
+      },
+      {
+        "en": "late pickup fee",
+        "pt": "taxa por retirada tardia"
+      },
+      {
+        "en": "lay off",
+        "pt": "dispensa por falta de trabalho"
+      },
+      {
+        "en": "Lease agreement",
+        "pt": "contrato de locação / arrendamento"
+      },
+      {
+        "en": "legally obligated child support",
+        "pt": "pensão alimentícia infantil obrigatória por lei"
+      },
+      {
+        "en": "mailing address",
+        "pt": "endereço para correspondência"
+      },
+      {
+        "en": "medical coupon",
+        "pt": "cupom médico"
+      },
+      {
+        "en": "medical support order",
+        "pt": "ordem de apoio médico"
+      },
+      {
+        "en": "mid certification review",
+        "pt": "revisão intermediária de certificação"
+      },
+      {
+        "en": "mid term review",
+        "pt": "revisão intermediária"
+      },
+      {
+        "en": "migration status",
+        "pt": "situação migratória"
+      },
+      {
+        "en": "non-cooperation",
+        "pt": "falta de cooperação"
+      },
+      {
+        "en": "office of financial recovery",
+        "pt": "Escritório de Recuperação Financeira"
+      },
+      {
+        "en": "overpayment",
+        "pt": "pagamento em excesso"
+      },
+      {
+        "en": "past support",
+        "pt": "pensão alimentícia em atraso"
+      },
+      {
+        "en": "pending letter",
+        "pt": "carta de pendência / carta de processo pendente"
+      },
+      {
+        "en": "placement agreement",
+        "pt": "acordo de colocação"
+      },
+      {
+        "en": "Protective custody",
+        "pt": "custódia protetiva"
+      },
+      {
+        "en": "put in (an application)",
+        "pt": "apresentar/enviar uma solicitação"
+      },
+      {
+        "en": "registration fee",
+        "pt": "taxa de inscrição"
+      },
+      {
+        "en": "release form",
+        "pt": "formulário de autorização/liberação de informações"
+      },
+      {
+        "en": "renewal package",
+        "pt": "pacote de renovação"
+      },
+      {
+        "en": "residential address",
+        "pt": "endereço residencial"
+      },
+      {
+        "en": "round trip",
+        "pt": "viagem de ida e volta"
+      },
+      {
+        "en": "severance letter",
+        "pt": "notificação de desligamento"
+      },
+      {
+        "en": "severance payment",
+        "pt": "verbas rescisórias"
+      },
+      {
+        "en": "sewer",
+        "pt": "esgoto"
+      },
+      {
+        "en": "SNAP benefits",
+        "pt": "benefícios do SNAP / benefícios de assistência alimentar"
+      },
+      {
+        "en": "SSN social security number",
+        "pt": "número do Seguro Social (SSN)"
+      },
+      {
+        "en": "support enforcement",
+        "pt": "cumprimento/execução da pensão alimentícia"
+      },
+      {
+        "en": "TANNF (cash benefit)",
+        "pt": "TANF (benefício em dinheiro / assistência monetária)"
+      },
+      {
+        "en": "Tenant",
+        "pt": "inquilino(a)"
+      },
+      {
+        "en": "Utility bill",
+        "pt": "conta de serviços públicos"
+      },
+      {
+        "en": "voucher",
+        "pt": "voucher / vale"
+      },
+      {
+        "en": "Working Connections child care",
+        "pt": "Working Connections Child Care (cuidados infantis Working Connections)"
+      },
+      {
+        "en": "year-to-date (n)",
+        "pt": "acumulado no ano / no ano até a data"
       }
     ],
     "en-it": [
