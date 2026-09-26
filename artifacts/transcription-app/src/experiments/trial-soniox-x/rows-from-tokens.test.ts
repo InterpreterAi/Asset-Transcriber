@@ -108,6 +108,31 @@ describe("rowsFromSonioxTokens", () => {
     expect(rows[1]?.transFinal).toBe("فهل يمكنكِ إرسالها لنا؟");
   });
 
+  it("keeps a mid-phrase English loanword inside the Arabic bubble (same speaker)", () => {
+    const rows = rowsFromSonioxTokens([
+      tok({ text: "ابعتيلي على ", speaker: "1", language: "ar", translation_status: "original" }),
+      tok({ text: "WhatsApp", speaker: "1", language: "en", translation_status: "original" }),
+      tok({ text: " دلوقتي.", speaker: "1", language: "ar", translation_status: "original" }),
+      tok({ text: "Send it to me on WhatsApp now.", speaker: "1", language: "en", translation_status: "translation" }),
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.origFinal).toBe("ابعتيلي على WhatsApp دلوقتي.");
+    expect(rows[0]?.origLang).toBe("ar");
+    expect(rows[0]?.transFinal).toBe("Send it to me on WhatsApp now.");
+  });
+
+  it("keeps brief EN code-switch inside ES bubble the same way (all EN pairs)", () => {
+    const rows = rowsFromSonioxTokens([
+      tok({ text: "Mándamelo por ", speaker: "1", language: "es", translation_status: "original" }),
+      tok({ text: "email", speaker: "1", language: "en", translation_status: "original" }),
+      tok({ text: " ahora.", speaker: "1", language: "es", translation_status: "original" }),
+      tok({ text: "Send it to me by email now.", speaker: "1", language: "en", translation_status: "translation" }),
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.origFinal).toContain("email");
+    expect(rows[0]?.origLang).toBe("es");
+  });
+
   it("does not rewind later speech onto an older bubble after a speaker change", () => {
     const rows = rowsFromSonioxTokens([
       tok({ text: "I forgot how to write code.", speaker: "1", language: "en", translation_status: "original" }),

@@ -4,6 +4,16 @@ import { applyFaithfulMeaningFixes } from "./meaning-locks";
 /** Same speaker, 10s audio gap → new bubble. */
 const SAME_SPEAKER_PAUSE_MS = 10000;
 
+/**
+ * Mid-utterance loanwords / code-switches (e.g. Arabic sentence with "WhatsApp"
+ * tagged `en`) must stay on the same bubble. Soniox LID tags every token; we only
+ * open a new row for a real language *turn*, not a brief foreign run that returns
+ * to the home language (or a tiny trailing loanword).
+ * https://soniox.com/docs/stt/concepts/language-identification
+ */
+const MAX_CODE_SWITCH_TOKENS = 4;
+const MAX_CODE_SWITCH_CHARS = 28;
+
 export type SonioxXRow = {
   id: string;
   speaker?: string;
@@ -141,14 +151,68 @@ function effectiveSpokenSpeakers(tokens: Token[]): (string | undefined)[] {
  *
  * A new bubble opens only for:
  * - a new speaker
- * - a spoken-language change (EN vs AR, EN vs ES, any pair)
+ * - a real spoken-language *turn* (EN sentence after AR sentence, any pair) —
+ *   NOT a brief mid-phrase code-switch / loanword (same speaker, short foreign run)
  * - the same speaker after a 10s pause
+ *
+ * Applies to every English↔X pair the same way (AR, ES, PT, FR, …).
  */
 function rowHasVisibleText(row: SonioxXRow): boolean {
   return Boolean(row.origFinal || row.origPartial || row.transFinal || row.transPartial);
 }
 
-function shouldOpenNewRow(current: SonioxXRow, next: SonioxXRow, nextOrigMs?: number): boolean {
+/**
+ * True when tokens[startIdx…] is a short foreign-language run that returns to
+ * `homeLang` (or ends quickly) without a translation boundary — i.e. code-switch
+ * inside one utterance, not a new turn.
+ */
+function isBriefCodeSwitch(
+  tokens: Token[],
+  startIdx: number,
+  speakers: (string | undefined)[],
+  homeLang: string,
+  speaker: string | undefined,
+): boolean {
+  if (!homeLang) return false;
+  let foreignTokens = 0;
+  let foreignChars = 0;
+
+  for (let j = startIdx; j < tokens.length; j++) {
+    const t = tokens[j]!;
+    if (!t.text || t.text === "<end>") continue;
+    if (isTranslationToken(t)) {
+      // Translation block = utterance boundary → not a mid-phrase switch.
+      return false;
+    }
+    if (!isSpokenToken(t)) continue;
+
+    const sp = speakers[j];
+    if (speaker && sp && sp !== speaker) return false;
+
+    const lang = langBase(t.language);
+    if (!lang) continue;
+
+    if (lang === homeLang) {
+      return foreignTokens > 0 && foreignTokens <= MAX_CODE_SWITCH_TOKENS && foreignChars <= MAX_CODE_SWITCH_CHARS;
+    }
+
+    foreignTokens += 1;
+    foreignChars += (t.text ?? "").replace(/\s/g, "").length;
+    if (foreignTokens > MAX_CODE_SWITCH_TOKENS || foreignChars > MAX_CODE_SWITCH_CHARS) {
+      return false;
+    }
+  }
+
+  // Stream ended still on the foreign side — only keep if tiny (loanword at end).
+  return foreignTokens > 0 && foreignTokens <= 2 && foreignChars <= 16;
+}
+
+function shouldOpenNewRow(
+  current: SonioxXRow,
+  next: SonioxXRow,
+  nextOrigMs?: number,
+  opts?: { treatLanguageChangeAsCodeSwitch?: boolean },
+): boolean {
   const speakerChanged = Boolean(current.speaker && next.speaker && current.speaker !== next.speaker);
   const languageChanged = Boolean(
     current.origLang && next.origLang && langBase(current.origLang) !== langBase(next.origLang),
@@ -158,7 +222,9 @@ function shouldOpenNewRow(current: SonioxXRow, next: SonioxXRow, nextOrigMs?: nu
       typeof current.lastOrigMs === "number" &&
       nextOrigMs - current.lastOrigMs >= SAME_SPEAKER_PAUSE_MS,
   );
-  return speakerChanged || languageChanged || longPause;
+  if (speakerChanged || longPause) return true;
+  if (languageChanged && !opts?.treatLanguageChangeAsCodeSwitch) return true;
+  return false;
 }
 
 function mergeLiveRow(base: SonioxXRow, live: SonioxXRow): SonioxXRow {
@@ -184,7 +250,12 @@ export function attachNonFinalRows(finalized: SonioxXRow[], nonFinalTokens: Toke
   if (finalized.length === 0) return live;
   const last = finalized[finalized.length - 1]!;
   const firstLive = live[0]!;
-  if (shouldOpenNewRow(last, firstLive, firstLive.lastOrigMs)) {
+  const codeSwitch =
+    Boolean(last.origLang && firstLive.origLang) &&
+    langBase(last.origLang) !== langBase(firstLive.origLang) &&
+    Boolean(last.speaker && firstLive.speaker && last.speaker === firstLive.speaker) &&
+    `${firstLive.origFinal}${firstLive.origPartial}`.replace(/\s/g, "").length <= MAX_CODE_SWITCH_CHARS;
+  if (shouldOpenNewRow(last, firstLive, firstLive.lastOrigMs, { treatLanguageChangeAsCodeSwitch: codeSwitch })) {
     return [...finalized, ...live];
   }
   return [...finalized.slice(0, -1), mergeLiveRow(last, firstLive), ...live.slice(1)];
@@ -212,9 +283,8 @@ export function rowsFromSonioxTokens(tokens: Token[]): SonioxXRow[] {
       const speaker = speakers[i];
       const speakerChanged = Boolean(current && speaker && current.speaker && speaker !== current.speaker);
       const spokenLang = langBase(token.language);
-      const languageChanged = Boolean(
-        current?.origLang && spokenLang && spokenLang !== langBase(current.origLang),
-      );
+      const homeLang = langBase(current?.origLang);
+      let languageChanged = Boolean(current?.origLang && spokenLang && spokenLang !== homeLang);
       const ms = tokenAudioMs(token);
       const longPause = Boolean(
         current &&
@@ -223,11 +293,23 @@ export function rowsFromSonioxTokens(tokens: Token[]): SonioxXRow[] {
           ms - current.lastOrigMs >= SAME_SPEAKER_PAUSE_MS,
       );
 
+      // Same speaker saying an English word mid-Arabic (or any pair): keep one bubble.
+      if (
+        languageChanged &&
+        current &&
+        !speakerChanged &&
+        !longPause &&
+        isBriefCodeSwitch(tokens, i, speakers, homeLang, speaker ?? current.speaker)
+      ) {
+        languageChanged = false;
+      }
+
       if (!current || speakerChanged || longPause || languageChanged) {
         current = openRow(speaker);
       } else if (!current.speaker && speaker) {
         current.speaker = speaker;
       }
+      // Keep the row's home language; do not flip origLang on a brief code-switch token.
       if (token.language && !current.origLang) current.origLang = token.language;
       if (typeof ms === "number") current.lastOrigMs = ms;
       const next = appendToken(
