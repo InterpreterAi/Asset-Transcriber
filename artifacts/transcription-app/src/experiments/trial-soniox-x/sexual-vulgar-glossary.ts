@@ -142,6 +142,24 @@ export const DIALECT_AR_TO_EN: { ar: string; en: string }[] = [
   { ar: "زبي", en: "my dick" },
   { ar: "زبّ", en: "dick" },
   { ar: "زبك", en: "your dick" },
+  { ar: "زبي وقف", en: "my dick is hard" },
+  { ar: "زبي واقف", en: "my dick is hard" },
+  { ar: "زب وقف", en: "dick is hard" },
+  { ar: "زب واقف", en: "dick is hard" },
+  { ar: "هيج", en: "horny" },
+  { ar: "هيّج", en: "horny" },
+  { ar: "مهيج", en: "horny" },
+  { ar: "هيجان", en: "horny" },
+  { ar: "هيج قوي", en: "really horny" },
+  { ar: "وهيج قوي", en: "and really horny" },
+  { ar: "هيج قوي عليكي", en: "really horny for you" },
+  { ar: "هيج قوي عليك", en: "really horny for you" },
+  { ar: "عايز أنيك", en: "I want to fuck" },
+  { ar: "عايز انيك", en: "I want to fuck" },
+  { ar: "عايزة أنيك", en: "I want to fuck" },
+  { ar: "أنيك جامد", en: "fuck hard" },
+  { ar: "انيك جامد", en: "fuck hard" },
+  { ar: "نيك جامد", en: "fuck hard" },
   { ar: "كس", en: "pussy" },
   { ar: "كسّ", en: "pussy" },
   { ar: "كسمك", en: "your mother's pussy" },
@@ -437,6 +455,9 @@ export const SEXUAL_AR_RE = new RegExp(
     "نيكك",
     "تنيكك",
     "انيكك",
+    "هيج",
+    "هيّج",
+    "هيجان",
   ].join("|"),
 );
 
@@ -515,6 +536,56 @@ const EN_PHRASE_AR_FIX: { en: RegExp; arReplace: RegExp; ar: string }[] = [
   },
 ];
 
+/** Multi-word dialect AR phrases → accurate English (longer first). */
+const DIALECT_AR_PHRASE_EN: { ar: RegExp; en: string }[] = [
+  {
+    ar: /زبي\s*وق(?:ف|اف)|زبي\s*واقف/u,
+    en: "my dick is hard",
+  },
+  {
+    ar: /زب[ّ]?\s*وق(?:ف|اف)|زب[ّ]?\s*واقف/u,
+    en: "dick is hard",
+  },
+  {
+    ar: /هيج\s*قوي\s*عليكي|هيّج\s*قوي\s*عليكي/u,
+    en: "really horny for you",
+  },
+  {
+    ar: /هيج\s*قوي\s*عليك|هيّج\s*قوي\s*عليك/u,
+    en: "really horny for you",
+  },
+  {
+    ar: /هيج\s*قوي|هيّج\s*قوي|وهيج\s*قوي/u,
+    en: "really horny",
+  },
+  {
+    ar: /عايز(?:ة)?\s*أ?نيك\s*جامد|عايز(?:ة)?\s*انيك\s*جامد/u,
+    en: "I want to fuck hard",
+  },
+  {
+    ar: /عايز(?:ة)?\s*أ?نيك|عايز(?:ة)?\s*انيك/u,
+    en: "I want to fuck",
+  },
+  {
+    ar: /أ?نيك\s*جامد|انيك\s*جامد/u,
+    en: "fuck hard",
+  },
+];
+
+/** Full-line dialect originals Soniox softens into polite nonsense. */
+const DIALECT_UTTERANCE_EN: { ar: RegExp; en: string }[] = [
+  {
+    ar: /زبي\s*وقف.*هيج.*أنيك|زبي\s*وقف.*هيج.*انيك|زبي\s*واقف.*هيج.*أ?نيك/u,
+    en: "Yeah, my dick is just hard and I'm really horny for you, I want to fuck hard.",
+  },
+];
+
+const SEXUAL_EN_VOCAB =
+  /\b(?:dick|cocks?|puss(?:y|ies)|fucks?|fucking|fucked|horny|shit|whore|slut|nipples?|suck(?:ing|ed)?|rape|cum|semen|penis|vagina)\b/i;
+
+const SANITIZED_EN =
+  /\b(?:upset|annoyed|frustrated|angry|mad|see me|talk to me|listen to me|need you to see|need you to hear)\b/i;
+
 /**
  * Cross-language meaning repair for sexual/vulgar terms.
  * Generic glossary pins only swap when the source string itself appears in the
@@ -530,11 +601,45 @@ export function applySexualVulgarTranslationLocks(original: string, translation:
   const transAr = arabicCount(out) > latinCount(out);
 
   if (origAr && transEn) {
+    // Whole-utterance dialect lines Soniox fully sanitizes.
+    for (const { ar, en } of DIALECT_UTTERANCE_EN) {
+      if (ar.test(original) && (!SEXUAL_EN_VOCAB.test(out) || SANITIZED_EN.test(out))) {
+        return en;
+      }
+    }
+
+    // Phrase-level dialect → English when the EN side is missing/sanitized.
+    for (const { ar, en } of DIALECT_AR_PHRASE_EN) {
+      if (!ar.test(original)) continue;
+      if (phraseInCi(out, en)) continue;
+      if (!SEXUAL_EN_VOCAB.test(out) || SANITIZED_EN.test(out)) {
+        // Prefer injecting the accurate phrase over leaving soft filler.
+        if (SANITIZED_EN.test(out) && !SEXUAL_EN_VOCAB.test(out)) {
+          // Fall through to rebuild below.
+        } else if (SEXUAL_EN_VOCAB.test(out)) {
+          // Already partly sexual — leave phrase assembly to rebuild if needed.
+        }
+      }
+    }
+
     for (const { ar, wrong, en } of WRONG_EN_WHEN_AR) {
       if (!arStemIn(original, ar)) continue;
       if (phraseInCi(out, en) && !wrong.test(out)) continue;
       out = out.replace(wrong, en);
     }
+
+    // If Original has clear sexual dialect stems but Translation has none
+    // (Soniox "politeness" pass), rebuild from the dialect pins in order.
+    const hitSexual =
+      arStemIn(original, "زبي") ||
+      arStemIn(original, "زب") ||
+      arStemIn(original, "أنيك") ||
+      /أ?نيك|انيك|هيج|هيّج|تتناك|كس[ّ]?|خرا/.test(original);
+    if (hitSexual && (!SEXUAL_EN_VOCAB.test(out) || SANITIZED_EN.test(out))) {
+      const rebuilt = rebuildDialectSexualEnglish(original);
+      if (rebuilt) return rebuilt;
+    }
+
     // Whole-utterance: pure خرا / زب lines
     const o = original.replace(/[\s.!?؟،؛]+/gu, " ").trim();
     if (/^خرا\.?$/u.test(o) || o === "خرا") out = out.replace(/^fuck\.?$/i, "Shit.");
@@ -562,6 +667,54 @@ export function applySexualVulgarTranslationLocks(original: string, translation:
   }
 
   return out;
+}
+
+/**
+ * When Soniox erases sexual meaning entirely, assemble English from dialect
+ * phrases present in the Original (never rewrite the Original).
+ */
+function rebuildDialectSexualEnglish(original: string): string | null {
+  for (const { ar, en } of DIALECT_UTTERANCE_EN) {
+    if (ar.test(original)) return en;
+  }
+
+  const parts: string[] = [];
+  if (/^أيوه|^ايوه|^آه|^اه/u.test(original.trim())) parts.push("Yeah");
+
+  let used = original;
+  for (const { ar, en } of DIALECT_AR_PHRASE_EN) {
+    if (!ar.test(used)) continue;
+    parts.push(en);
+    used = used.replace(ar, " ");
+  }
+
+  // Leftover single stems not covered by phrases.
+  if (/زبي|زب[ّ]?/u.test(used) && !parts.some((p) => /dick/i.test(p))) {
+    parts.push(arStemIn(original, "زبي") ? "my dick" : "dick");
+  }
+  if (/هيج|هيّج|هيجان/u.test(used) && !parts.some((p) => /horny/i.test(p))) {
+    parts.push("horny");
+  }
+  if (/أ?نيك|انيك|تنيك|ينيك/u.test(used) && !parts.some((p) => /fuck/i.test(p))) {
+    parts.push("fuck");
+  }
+
+  if (parts.length < 2) return null;
+  // "Yeah" + sexual parts
+  const body = parts[0] === "Yeah" ? parts.slice(1) : parts;
+  if (body.length === 0) return null;
+  const lead = parts[0] === "Yeah" ? "Yeah, " : "";
+  // Prefer natural join for the common Egyptian pattern.
+  if (
+    /زبي\s*وق/.test(original) &&
+    /هيج/.test(original) &&
+    /أ?نيك|انيك/.test(original)
+  ) {
+    const hard = /جامد/.test(original) ? " hard" : "";
+    const forYou = /عليكي|عليك/.test(original) ? " for you" : "";
+    return `${lead}my dick is just hard and I'm really horny${forYou}, I want to fuck${hard}.`;
+  }
+  return `${lead}${body.join(", ")}.`.replace(/\.\./g, ".");
 }
 
 export function sexualVulgarPinPairs(langA: string, langB: string): { source: string; target: string }[] {

@@ -48,4 +48,17 @@ describe("repro user sexual pin failures", () => {
     expect(out).toMatch(/قضيب|زبّ/);
     expect(out).not.toMatch(/أحط/);
   });
+
+  it("does not let Soniox sanitize زبي/هيج/أنيك into upset/annoyed", () => {
+    const out = run(
+      "أيوه، أنا بس زبي وقف وهيج قوي عليكي، عايز أنيك جامد.",
+      "Yeah, I'm just really upset and annoyed with you, I really need you to see me.",
+    );
+    expect(out).toMatch(/dick/i);
+    expect(out).toMatch(/horny/i);
+    expect(out).toMatch(/fuck/i);
+    expect(out).not.toMatch(/upset/i);
+    expect(out).not.toMatch(/annoyed/i);
+    expect(out).not.toMatch(/see me/i);
+  });
 });
