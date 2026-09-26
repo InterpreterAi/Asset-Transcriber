@@ -4,16 +4,6 @@ import { applyFaithfulMeaningFixes } from "./meaning-locks";
 /** Same speaker, 10s audio gap → new bubble. */
 const SAME_SPEAKER_PAUSE_MS = 10000;
 
-/**
- * Mid-utterance loanwords / code-switches (e.g. Arabic sentence with "WhatsApp"
- * tagged `en`) must stay on the same bubble. Soniox LID tags every token; we only
- * open a new row for a real language *turn*, not a brief foreign run that returns
- * to the home language (or a tiny trailing loanword).
- * https://soniox.com/docs/stt/concepts/language-identification
- */
-const MAX_CODE_SWITCH_TOKENS = 4;
-const MAX_CODE_SWITCH_CHARS = 28;
-
 export type SonioxXRow = {
   id: string;
   speaker?: string;
@@ -77,8 +67,10 @@ function appendTranslation(row: SonioxXRow, token: Token): void {
 /**
  * Soniox RT diarization often omits `speaker` on the first words of a new talker,
  * then labels the rest. Look ahead so those unlabeled words join the new bubble
- * instead of sticking to the previous speaker. Collapse only 1-token A→B→A flicker
- * so real speaker turns still open a row.
+ * instead of sticking to the previous speaker.
+ *
+ * Also collapse short A→B→A flicker (1 letter, or a tiny backchannel like "Okay")
+ * so "Okay" mid-monologue does not steal a bubble / stripe color.
  */
 function effectiveSpokenSpeakers(tokens: Token[]): (string | undefined)[] {
   const n = tokens.length;
@@ -128,6 +120,36 @@ function effectiveSpokenSpeakers(tokens: Token[]): (string | undefined)[] {
         changed = true;
       }
     }
+
+    // Short backchannel run B between A … A (e.g. "Okay.") — keep on A.
+    // Do NOT collapse real short turns ("Hi.", "Hi everyone.").
+    for (let k = 1; k < assigned.length; ) {
+      const prev = assigned[k - 1];
+      const sp = assigned[k];
+      if (!prev || !sp || sp === prev) {
+        k += 1;
+        continue;
+      }
+      let end = k;
+      while (end < assigned.length && assigned[end] === sp) end += 1;
+      const next = end < assigned.length ? assigned[end] : undefined;
+      if (next !== prev) {
+        k = end;
+        continue;
+      }
+      const runText = Array.from({ length: end - k }, (_, j) => tokens[orig[k + j]!]!.text ?? "")
+        .join("")
+        .trim();
+      if (
+        end - k <= 2 &&
+        /^(ok(ay)?|yes|yeah|yep|yup|no|nope|nah|hmm+|uh+|um+|mhm|aha|ah|oh)\.?!?$/i.test(runText)
+      ) {
+        for (let j = k; j < end; j++) assigned[j] = prev;
+        changed = true;
+      }
+      k = end;
+    }
+
     if (!changed) break;
   }
 
@@ -150,81 +172,27 @@ function effectiveSpokenSpeakers(tokens: Token[]): (string | undefined)[] {
  * https://github.com/soniox/soniox_examples/tree/master/speech_to_text
  *
  * A new bubble opens only for:
- * - a new speaker
- * - a real spoken-language *turn* (EN sentence after AR sentence, any pair) —
- *   NOT a brief mid-phrase code-switch / loanword (same speaker, short foreign run)
+ * - a new speaker (real diarization turn)
  * - the same speaker after a 10s pause
  *
- * Applies to every English↔X pair the same way (AR, ES, PT, FR, …).
+ * Same speaker + language tag change does NOT open a bubble. Soniox LID tags
+ * every token (https://soniox.com/docs/stt/concepts/language-identification), so
+ * "Okay" / "WhatsApp" mid-Arabic used to split into extra rows and rotate the
+ * stripe. Keep one bubble for that speaker; loanwords stay inline.
+ * Same rule for every English↔X pair.
  */
 function rowHasVisibleText(row: SonioxXRow): boolean {
   return Boolean(row.origFinal || row.origPartial || row.transFinal || row.transPartial);
 }
 
-/**
- * True when tokens[startIdx…] is a short foreign-language run that returns to
- * `homeLang` (or ends quickly) without a translation boundary — i.e. code-switch
- * inside one utterance, not a new turn.
- */
-function isBriefCodeSwitch(
-  tokens: Token[],
-  startIdx: number,
-  speakers: (string | undefined)[],
-  homeLang: string,
-  speaker: string | undefined,
-): boolean {
-  if (!homeLang) return false;
-  let foreignTokens = 0;
-  let foreignChars = 0;
-
-  for (let j = startIdx; j < tokens.length; j++) {
-    const t = tokens[j]!;
-    if (!t.text || t.text === "<end>") continue;
-    if (isTranslationToken(t)) {
-      // Translation block = utterance boundary → not a mid-phrase switch.
-      return false;
-    }
-    if (!isSpokenToken(t)) continue;
-
-    const sp = speakers[j];
-    if (speaker && sp && sp !== speaker) return false;
-
-    const lang = langBase(t.language);
-    if (!lang) continue;
-
-    if (lang === homeLang) {
-      return foreignTokens > 0 && foreignTokens <= MAX_CODE_SWITCH_TOKENS && foreignChars <= MAX_CODE_SWITCH_CHARS;
-    }
-
-    foreignTokens += 1;
-    foreignChars += (t.text ?? "").replace(/\s/g, "").length;
-    if (foreignTokens > MAX_CODE_SWITCH_TOKENS || foreignChars > MAX_CODE_SWITCH_CHARS) {
-      return false;
-    }
-  }
-
-  // Stream ended still on the foreign side — only keep if tiny (loanword at end).
-  return foreignTokens > 0 && foreignTokens <= 2 && foreignChars <= 16;
-}
-
-function shouldOpenNewRow(
-  current: SonioxXRow,
-  next: SonioxXRow,
-  nextOrigMs?: number,
-  opts?: { treatLanguageChangeAsCodeSwitch?: boolean },
-): boolean {
+function shouldOpenNewRow(current: SonioxXRow, next: SonioxXRow, nextOrigMs?: number): boolean {
   const speakerChanged = Boolean(current.speaker && next.speaker && current.speaker !== next.speaker);
-  const languageChanged = Boolean(
-    current.origLang && next.origLang && langBase(current.origLang) !== langBase(next.origLang),
-  );
   const longPause = Boolean(
     typeof nextOrigMs === "number" &&
       typeof current.lastOrigMs === "number" &&
       nextOrigMs - current.lastOrigMs >= SAME_SPEAKER_PAUSE_MS,
   );
-  if (speakerChanged || longPause) return true;
-  if (languageChanged && !opts?.treatLanguageChangeAsCodeSwitch) return true;
-  return false;
+  return speakerChanged || longPause;
 }
 
 function mergeLiveRow(base: SonioxXRow, live: SonioxXRow): SonioxXRow {
@@ -250,12 +218,7 @@ export function attachNonFinalRows(finalized: SonioxXRow[], nonFinalTokens: Toke
   if (finalized.length === 0) return live;
   const last = finalized[finalized.length - 1]!;
   const firstLive = live[0]!;
-  const codeSwitch =
-    Boolean(last.origLang && firstLive.origLang) &&
-    langBase(last.origLang) !== langBase(firstLive.origLang) &&
-    Boolean(last.speaker && firstLive.speaker && last.speaker === firstLive.speaker) &&
-    `${firstLive.origFinal}${firstLive.origPartial}`.replace(/\s/g, "").length <= MAX_CODE_SWITCH_CHARS;
-  if (shouldOpenNewRow(last, firstLive, firstLive.lastOrigMs, { treatLanguageChangeAsCodeSwitch: codeSwitch })) {
+  if (shouldOpenNewRow(last, firstLive, firstLive.lastOrigMs)) {
     return [...finalized, ...live];
   }
   return [...finalized.slice(0, -1), mergeLiveRow(last, firstLive), ...live.slice(1)];
@@ -282,9 +245,6 @@ export function rowsFromSonioxTokens(tokens: Token[]): SonioxXRow[] {
     if (!isTranslationToken(token)) {
       const speaker = speakers[i];
       const speakerChanged = Boolean(current && speaker && current.speaker && speaker !== current.speaker);
-      const spokenLang = langBase(token.language);
-      const homeLang = langBase(current?.origLang);
-      let languageChanged = Boolean(current?.origLang && spokenLang && spokenLang !== homeLang);
       const ms = tokenAudioMs(token);
       const longPause = Boolean(
         current &&
@@ -293,23 +253,14 @@ export function rowsFromSonioxTokens(tokens: Token[]): SonioxXRow[] {
           ms - current.lastOrigMs >= SAME_SPEAKER_PAUSE_MS,
       );
 
-      // Same speaker saying an English word mid-Arabic (or any pair): keep one bubble.
-      if (
-        languageChanged &&
-        current &&
-        !speakerChanged &&
-        !longPause &&
-        isBriefCodeSwitch(tokens, i, speakers, homeLang, speaker ?? current.speaker)
-      ) {
-        languageChanged = false;
-      }
-
-      if (!current || speakerChanged || longPause || languageChanged) {
+      // Language tag changes never open a row for the same speaker (code-switch /
+      // "Okay" after Arabic / loanwords). Only speaker change or 10s pause does.
+      if (!current || speakerChanged || longPause) {
         current = openRow(speaker);
       } else if (!current.speaker && speaker) {
         current.speaker = speaker;
       }
-      // Keep the row's home language; do not flip origLang on a brief code-switch token.
+      // Keep the row's first spoken language for stripe stability.
       if (token.language && !current.origLang) current.origLang = token.language;
       if (typeof ms === "number") current.lastOrigMs = ms;
       const next = appendToken(
@@ -365,20 +316,18 @@ export function snapshotLinesFromSonioxXRows(rows: SonioxXRow[]): {
 }
 
 /**
- * Stripe key: speaker id + spoken language.
- * EN↔ES (and other same-script pairs) often keep Soniox speaker "1" across
- * talkers / language turns — language must participate so stripes still rotate
- * like EN↔AR when the spoken language changes.
+ * Stripe key: speaker id only.
+ * Same speaker keeps one stripe color even when they code-switch (AR↔EN).
+ * Different speakers still rotate. (EN↔ES false-same speaker-id across talkers
+ * is handled by diarization + the short backchannel collapse above.)
  */
-export function stripeSlotKey(speaker: string | undefined, origLang: string | undefined): string {
-  const sp = (speaker ?? "").trim() || "unknown";
-  const lang = langBase(origLang) || "und";
-  return `${sp}:${lang}`;
+export function stripeSlotKey(speaker: string | undefined, _origLang?: string | undefined): string {
+  return (speaker ?? "").trim() || "unknown";
 }
 
 /**
- * Stable palette slot per first-seen speaker+language in this transcript.
- * Falls back to row index when speaker/lang are missing.
+ * Stable palette slot per first-seen speaker in this transcript.
+ * Falls back to row index when speaker is missing.
  */
 export function stripeClassForSpeaker(
   speaker: string | undefined,
@@ -397,11 +346,7 @@ export function stripeClassForSpeaker(
   if (speaker) {
     const n = Number.parseInt(speaker, 10);
     if (Number.isFinite(n) && n > 0) {
-      // Mix language into the numeric speaker so same speaker-id + different
-      // spoken language does not stay stuck on blue for every pair.
-      const lang = langBase(origLang);
-      const langBump = lang ? [...lang].reduce((a, c) => a + c.charCodeAt(0), 0) : 0;
-      return ROW_STRIPE_COLOR_CLASSES[(n - 1 + langBump) % ROW_STRIPE_COLOR_CLASSES.length]!;
+      return ROW_STRIPE_COLOR_CLASSES[(n - 1) % ROW_STRIPE_COLOR_CLASSES.length]!;
     }
   }
   return ROW_STRIPE_COLOR_CLASSES[index % ROW_STRIPE_COLOR_CLASSES.length]!;

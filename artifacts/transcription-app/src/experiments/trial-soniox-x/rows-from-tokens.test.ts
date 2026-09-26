@@ -94,18 +94,47 @@ describe("rowsFromSonioxTokens", () => {
     expect(longPause[1]?.origFinal).toBe("Next clip");
   });
 
-  it("opens a new row when the original language switches, instead of mixing EN and AR on one line", () => {
+  it("keeps same-speaker Arabic then English on one bubble (no language split)", () => {
     const rows = rowsFromSonioxTokens([
       tok({ text: "لازم زوجي لسه هنا. ", speaker: "1", language: "ar", translation_status: "original" }),
       tok({ text: "My husband still has to be here. ", speaker: "1", language: "en", translation_status: "translation" }),
       tok({ text: "So can you send it to us?", speaker: "1", language: "en", translation_status: "original" }),
       tok({ text: "فهل يمكنكِ إرسالها لنا؟", speaker: "1", language: "ar", translation_status: "translation" }),
     ]);
-    expect(rows).toHaveLength(2);
-    expect(rows[0]?.origFinal).toBe("لازم زوجي لسه هنا. ");
-    expect(rows[0]?.transFinal).toBe("My husband still has to be here. ");
-    expect(rows[1]?.origFinal).toBe("So can you send it to us?");
-    expect(rows[1]?.transFinal).toBe("فهل يمكنكِ إرسالها لنا؟");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.origFinal).toBe("لازم زوجي لسه هنا. So can you send it to us?");
+    expect(rows[0]?.origLang).toBe("ar");
+  });
+
+  it("keeps Okay between Arabic turns on the same bubble (screenshot case)", () => {
+    const rows = rowsFromSonioxTokens([
+      tok({ text: "أنا هترجم كل حاجة. ", speaker: "1", language: "ar", translation_status: "original" }),
+      tok({ text: "I will translate everything. ", speaker: "1", language: "en", translation_status: "translation" }),
+      tok({ text: "<end>", speaker: "1" }),
+      tok({ text: "Okay.", speaker: "1", language: "en", translation_status: "original" }),
+      tok({ text: "حسنًا.", speaker: "1", language: "ar", translation_status: "translation" }),
+      tok({ text: "<end>", speaker: "1" }),
+      tok({ text: "بس أنتم اتكلموا عادي.", speaker: "1", language: "ar", translation_status: "original" }),
+      tok({ text: "But you guys speak normally.", speaker: "1", language: "en", translation_status: "translation" }),
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.origFinal).toContain("Okay.");
+    expect(rows[0]?.origFinal).toContain("أنا هترجم");
+    expect(rows[0]?.origFinal).toContain("بس أنتم");
+    expect(rows[0]?.origLang).toBe("ar");
+    const stripes = stripeClassesForRows(rows);
+    expect(stripes).toHaveLength(1);
+  });
+
+  it("collapses a mis-diarized short Okay onto the surrounding speaker", () => {
+    const rows = rowsFromSonioxTokens([
+      tok({ text: "أنا هترجم كل حاجة. ", speaker: "1", language: "ar", translation_status: "original" }),
+      tok({ text: "Okay.", speaker: "2", language: "en", translation_status: "original" }),
+      tok({ text: " بس أنتم اتكلموا عادي.", speaker: "1", language: "ar", translation_status: "original" }),
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.speaker).toBe("1");
+    expect(rows[0]?.origFinal).toContain("Okay.");
   });
 
   it("keeps a mid-phrase English loanword inside the Arabic bubble (same speaker)", () => {
@@ -293,7 +322,7 @@ describe("attachNonFinalRows", () => {
 });
 
 describe("stripeClassesForRows", () => {
-  it("rotates stripe color when the same speaker id changes spoken language (EN↔ES)", () => {
+  it("keeps the same stripe when the same speaker code-switches language", () => {
     const rows = rowsFromSonioxTokens([
       tok({ text: "Hello", speaker: "1", language: "en", translation_status: "original" }),
       tok({ text: "Hola", speaker: "1", language: "es", translation_status: "translation" }),
@@ -301,16 +330,15 @@ describe("stripeClassesForRows", () => {
       tok({ text: "Buenos días", speaker: "1", language: "es", translation_status: "original" }),
       tok({ text: "Good morning", speaker: "1", language: "en", translation_status: "translation" }),
     ]);
-    expect(rows.length).toBeGreaterThanOrEqual(2);
+    expect(rows).toHaveLength(1);
     expect(rows[0]?.origLang).toBe("en");
-    expect(rows[1]?.origLang).toBe("es");
     const stripes = stripeClassesForRows(rows);
-    expect(stripes[0]).not.toBe(stripes[1]);
-    expect(stripeSlotKey("1", "en")).toBe("1:en");
-    expect(stripeSlotKey("1", "es")).toBe("1:es");
+    expect(stripes).toHaveLength(1);
+    expect(stripeSlotKey("1", "en")).toBe("1");
+    expect(stripeSlotKey("1", "es")).toBe("1");
   });
 
-  it("keeps the same stripe for the same speaker+language across rows", () => {
+  it("keeps the same stripe for the same speaker across long-pause rows", () => {
     const rows = rowsFromSonioxTokens([
       tok({
         text: "One",
@@ -335,7 +363,7 @@ describe("stripeClassesForRows", () => {
     expect(stripes[0]).toBe(stripes[1]);
   });
 
-  it("uses distinct slots for EN↔AR language turns with the same speaker id", () => {
+  it("uses distinct slots for different speakers", () => {
     const rows = [
       {
         id: "a",
@@ -348,7 +376,7 @@ describe("stripeClassesForRows", () => {
       },
       {
         id: "b",
-        speaker: "1",
+        speaker: "2",
         origLang: "ar",
         origFinal: "مرحبا",
         origPartial: "",
