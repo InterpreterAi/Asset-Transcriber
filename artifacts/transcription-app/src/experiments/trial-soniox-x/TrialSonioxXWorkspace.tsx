@@ -63,6 +63,7 @@ import {
   type ScriptReadingMode,
 } from "./script-reading";
 import { applyFaithfulMeaningFixes } from "./meaning-locks";
+import { repairSpokenOriginalAsr } from "./asr-original-repair";
 import { langDir, attachNonFinalRows, rowsFromSonioxTokens, snapshotLinesFromSonioxXRows, stripeClassesForRows, type SonioxXRow } from "./rows-from-tokens";
 import { BidiText } from "./BidiText";
 import { buildStableDialectContext } from "./stable-dialect-context";
@@ -213,7 +214,10 @@ const SonioxXTranscriptRow = memo(function SonioxXTranscriptRow({
   readingReady: boolean;
   readingFailed: boolean;
 }) {
-  const orig = `${row.origFinal}${row.origPartial}`;
+  const origRaw = `${row.origFinal}${row.origPartial}`;
+  // Soniox often swaps lookalikes in the ORIGINAL (هايج→هاجي). Restore spoken form
+  // before pinning so both columns match what was said.
+  const orig = repairSpokenOriginalAsr(origRaw);
   const transRaw = `${row.transFinal}${row.transPartial}`;
   // Option A: pin against the FULL local glossary (not just the 9.6k Soniox
   // session slice). Apply on live partials too so glossary wording shows as
@@ -261,11 +265,13 @@ const SonioxXTranscriptRow = memo(function SonioxXTranscriptRow({
                 dir={origDir}
                 style={{ textAlign: origDir === "rtl" ? "right" : "left", unicodeBidi: "isolate" }}
               >
-                <BidiText text={row.origFinal} baseDir={origDir} className="workspace-selectable-text" />
                 <BidiText
-                  text={row.origPartial}
+                  text={orig}
                   baseDir={origDir}
-                  className="text-muted-foreground/70 italic workspace-selectable-text"
+                  className={cn(
+                    "workspace-selectable-text",
+                    row.origPartial && !row.origFinal ? "text-muted-foreground/70 italic" : undefined,
+                  )}
                 />
               </p>
             ) : null}

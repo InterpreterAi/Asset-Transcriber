@@ -116,6 +116,18 @@ const AR_DIALECT_RECOGNITION_TERMS = [
   "علاش",
   "هلق",
   "كده",
+  // Sexual / arousal dialect — STT must not substitute lookalikes (هايج≠هاجي).
+  "هايج",
+  "هيج",
+  "هيّج",
+  "هيجان",
+  "زبي",
+  "زب",
+  "أنيك",
+  "أتنك",
+  "تتناك",
+  "كس",
+  "خرا",
 ];
 
 /** Extra translation-only guidance when the pair includes a high-drift language. */
@@ -256,7 +268,8 @@ export function buildStableDialectContext(langA: string, langB: string): SonioxS
     general.push({
       key: "instructions",
       value:
-        `Arabic will be spoken in any dialect (${AR_SPOKEN_DIALECTS}). Transcribe that original as dialect Arabic. Translation into Arabic is الفصحى only.`,
+        `Arabic will be spoken in any dialect (${AR_SPOKEN_DIALECTS}). Transcribe that original as dialect Arabic. Translation into Arabic is الفصحى only.` +
+        " CRITICAL recognition: Egyptian/Levantine arousal slang هايج / هيج / هيّج means horny — write هايج exactly. NEVER substitute هاجي (I will come). Never substitute أتنك/تتناك with food or truncated أتنى. Write vulgar dialect as heard.",
     });
   }
   if (japanesePair) {

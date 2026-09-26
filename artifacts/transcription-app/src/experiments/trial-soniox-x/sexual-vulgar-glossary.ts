@@ -148,12 +148,16 @@ export const DIALECT_AR_TO_EN: { ar: string; en: string }[] = [
   { ar: "زب واقف", en: "dick is hard" },
   { ar: "هيج", en: "horny" },
   { ar: "هيّج", en: "horny" },
+  { ar: "هايج", en: "horny" },
   { ar: "مهيج", en: "horny" },
   { ar: "هيجان", en: "horny" },
   { ar: "هيج قوي", en: "really horny" },
   { ar: "وهيج قوي", en: "and really horny" },
   { ar: "هيج قوي عليكي", en: "really horny for you" },
   { ar: "هيج قوي عليك", en: "really horny for you" },
+  { ar: "هايج هنا", en: "horny here" },
+  { ar: "هايج جدا", en: "really horny" },
+  { ar: "هايج جدًا", en: "really horny" },
   { ar: "عايز أنيك", en: "I want to fuck" },
   { ar: "عايز انيك", en: "I want to fuck" },
   { ar: "عايزة أنيك", en: "I want to fuck" },
@@ -457,6 +461,7 @@ export const SEXUAL_AR_RE = new RegExp(
     "انيكك",
     "هيج",
     "هيّج",
+    "هايج",
     "هيجان",
   ].join("|"),
 );
@@ -502,6 +507,11 @@ const WRONG_EN_WHEN_AR: { ar: string; wrong: RegExp; en: string }[] = [
   { ar: "قص امك", wrong: /\bcut your mouth\b/gi, en: "your mother's pussy" },
   { ar: "كس", wrong: /\bcuts?\b/gi, en: "pussy" },
   { ar: "كسّ", wrong: /\bcuts?\b/gi, en: "pussy" },
+  { ar: "هايج", wrong: /\bgoing to come(?:\s+here)?\b/gi, en: "horny" },
+  { ar: "هايج", wrong: /\bcome here\b/gi, en: "horny" },
+  { ar: "هايج", wrong: /\bcomes?\b/gi, en: "horny" },
+  { ar: "هيج", wrong: /\bgoing to come(?:\s+here)?\b/gi, en: "horny" },
+  { ar: "هيج", wrong: /\bcomes?\b/gi, en: "horny" },
 ];
 
 const WRONG_AR_WHEN_EN: { en: string; wrong: RegExp; ar: string }[] = [
