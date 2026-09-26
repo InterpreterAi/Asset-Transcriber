@@ -5,9 +5,17 @@
  * rewritten. Fixes two Soniox two-way failures:
  * - dialect sexual Arabic rendered as food ("تتناك" → "eat")
  * - informal English rendered as dialect Arabic instead of فصحى
+ *
+ * Sexual / vulgar pins: see `sexual-vulgar-glossary.ts` (EN↔فصحى bidirectional;
+ * dialect Arabic → accurate English only).
  */
 
 import { lockArabicTranslationToMsa } from "./lock-arabic-translation-msa";
+import {
+  EN_TO_MSA,
+  SEXUAL_AR_RE,
+  sexualVulgarPinPairs,
+} from "./sexual-vulgar-glossary";
 
 function lettersOnly(s: string): string {
   return (s ?? "")
@@ -35,11 +43,9 @@ function withEndPunct(body: string, from: string): string {
   return punct && !endPunct(body) ? `${body}${punct}` : body;
 }
 
-const SEXUAL_AR_RE = /تتناك|يتناك|اتناك|تنتاك|تنيك|ينيك|أنيك/;
-
 /**
  * English originals whose Arabic translation must be فصحى (whole-utterance swap).
- * Longer phrases first.
+ * Longer phrases first. Includes curated sexual/vulgar lines from EN_TO_MSA.
  */
 const EN_UTTERANCE_TO_MSA: { source: string; target: string }[] = [
   { source: "What the fuck do you mean, bro", target: "ماذا تقصد بحق الجحيم يا رجل" },
@@ -47,6 +53,11 @@ const EN_UTTERANCE_TO_MSA: { source: string; target: string }[] = [
   { source: "What the fuck do you mean", target: "ماذا تقصد بحق الجحيم" },
   { source: "What do you mean, bro", target: "ماذا تقصد يا رجل" },
   { source: "What do you mean bro", target: "ماذا تقصد يا رجل" },
+  // Multi-word sexual/vulgar EN → فصحى (longer first so phrase pins win).
+  ...[...EN_TO_MSA]
+    .filter((r) => r.en.includes(" "))
+    .sort((a, b) => b.en.length - a.en.length)
+    .map((r) => ({ source: r.en, target: r.ar })),
 ];
 
 function englishDominant(text: string): boolean {
@@ -81,7 +92,8 @@ function lockSexualArabicToEnglish(original: string, translation: string): strin
     .replace(/\bwanted to eat\b/gi, "wanted to get fucked")
     .replace(/\bwants to eat\b/gi, "wants to get fucked")
     .replace(/\bgoing to eat\b/gi, "going to get fucked")
-    .replace(/\bto eat\b/gi, "to get fucked");
+    .replace(/\bto eat\b/gi, "to get fucked")
+    .replace(/\beat\b/gi, "get fucked");
 }
 
 /**
@@ -96,17 +108,11 @@ export function applyFaithfulMeaningFixes(original: string, translation: string)
   return out;
 }
 
-/** One-way display pins: dialect/vulgar original → standard target. Never the reverse. */
+/**
+ * Display pins for sexual/vulgar + legacy AR locks.
+ * AR pairs: EN↔فصحى both ways; dialect AR → English only (never EN → dialect).
+ * Other priority langs: EN↔target both ways from the curated list.
+ */
 export function meaningLockPinPairs(langA: string, langB: string): { source: string; target: string }[] {
-  const a = (langA || "").split("-")[0]?.toLowerCase() ?? "";
-  const b = (langB || "").split("-")[0]?.toLowerCase() ?? "";
-  if (a !== "ar" && b !== "ar") return [];
-  return [
-    { source: "تتناك", target: "to get fucked" },
-    { source: "يتناك", target: "to get fucked" },
-    { source: "عايزة تتناك", target: "wanted to get fucked" },
-    { source: "عايز تتناك", target: "wanted to get fucked" },
-    { source: "What the fuck do you mean, bro", target: "ماذا تقصد بحق الجحيم يا رجل" },
-    { source: "What the fuck do you mean", target: "ماذا تقصد بحق الجحيم" },
-  ];
+  return sexualVulgarPinPairs(langA, langB);
 }

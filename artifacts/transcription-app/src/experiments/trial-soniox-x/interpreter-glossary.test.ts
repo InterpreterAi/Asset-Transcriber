@@ -112,13 +112,25 @@ describe("interpreter glossary", () => {
     );
     expect(pt.translationTerms.some((t) => t.source === "alimony" && /pensão/i.test(t.target))).toBe(true);
     expect(pt.translationTerms.some((t) => t.source === "Accident claim")).toBe(true);
-    // Other pairs must stay at their prior catalog sizes (PT-only merge).
+    // Other pairs must stay in their catalog ballpark (PT-only Excel merge + safe cross-fill).
     expect(packTermsForPair("en", "es").glossaryLines.length).toBeGreaterThan(400);
-    expect(packTermsForPair("en", "es").glossaryLines.length).toBeLessThan(900);
+    expect(packTermsForPair("en", "es").glossaryLines.length).toBeLessThan(1200);
     expect(packTermsForPair("en", "ar").glossaryLines.length).toBeGreaterThan(400);
-    expect(packTermsForPair("en", "ar").glossaryLines.length).toBeLessThan(900);
+    expect(packTermsForPair("en", "ar").glossaryLines.length).toBeLessThan(1200);
     expect(packTermsForPair("en", "ja").glossaryLines.length).toBeGreaterThan(400);
-    expect(packTermsForPair("en", "ja").glossaryLines.length).toBeLessThan(900);
+    expect(packTermsForPair("en", "ja").glossaryLines.length).toBeLessThan(1200);
+  });
+
+  it("loads the en-fr pack both directions like other priority pairs", () => {
+    const pack = packTermsForPair("en", "fr");
+    expect(pack.glossaryLines.length).toBeGreaterThan(400);
+    expect(pack.translationTerms.some((t) => t.source === "CPR" && t.target === "RCP")).toBe(true);
+    expect(pack.translationTerms.some((t) => t.source === "RCP" && t.target === "CPR")).toBe(true);
+    expect(pack.translationTerms.some((t) => t.source === "MRI" && t.target === "IRM")).toBe(true);
+    expect(
+      pack.translationTerms.some((t) => t.source === "Immigration status" && /statut migratoire/i.test(t.target)),
+    ).toBe(true);
+    expect(pack.translationTerms.some((t) => t.source === "Car insurance" && /assurance/i.test(t.target))).toBe(true);
   });
 
   it("keeps en-pt Soniox context inside the non-JA budget", () => {
@@ -287,7 +299,7 @@ describe("interpreter glossary", () => {
     expect(ctx.terms?.some((t) => /you're through to the Japanese interpreter/i.test(t))).toBe(true);
   });
 
-  it("pins high-value legal terms for Arabic/Spanish/Portuguese/Polish/German/Italian/Japanese", () => {
+  it("pins high-value legal terms for Arabic/Spanish/Portuguese/Polish/German/Italian/Japanese/French", () => {
     for (const [a, b] of [
       ["en", "ar"],
       ["en", "es"],
@@ -296,6 +308,7 @@ describe("interpreter glossary", () => {
       ["en", "de"],
       ["en", "it"],
       ["en", "ja"],
+      ["en", "fr"],
     ] as const) {
       const pack = packTermsForPair(a, b);
       expect(pack.translationTerms.some((t) => t.source === "Immigration status")).toBe(true);
@@ -337,7 +350,7 @@ describe("interpreter glossary", () => {
     }
   });
 
-  it("pins high-value auto insurance terms for Arabic/Spanish/Portuguese/Polish/German/Italian/Japanese", () => {
+  it("pins high-value auto insurance terms for Arabic/Spanish/Portuguese/Polish/German/Italian/Japanese/French", () => {
     for (const [a, b] of [
       ["en", "ar"],
       ["en", "es"],
@@ -346,6 +359,7 @@ describe("interpreter glossary", () => {
       ["en", "de"],
       ["en", "it"],
       ["en", "ja"],
+      ["en", "fr"],
     ] as const) {
       const pack = packTermsForPair(a, b);
       expect(pack.translationTerms.some((t) => t.source === "Car insurance")).toBe(true);
