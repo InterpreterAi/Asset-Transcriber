@@ -86,13 +86,15 @@ function lockSexualArabicToEnglish(original: string, translation: string): strin
 
 /**
  * Fix translation meaning without touching the original column.
- * Safe on live and final rows.
+ * Safe on live and final rows. Arabic translations are always forced to فصحى
+ * regardless of spoken dialect in the Original.
  */
 export function applyFaithfulMeaningFixes(original: string, translation: string): string {
   if (!original.trim() || !translation.trim()) return translation;
   let out = lockSexualArabicToEnglish(original, translation);
   out = lockEnglishToMsa(original, out);
-  if (arabicDominant(out)) out = lockArabicTranslationToMsa(out);
+  // Any Arabic in the translation column → فصحى (not only "arabicDominant").
+  if (/[\u0600-\u06FF]/.test(out)) out = lockArabicTranslationToMsa(out);
   return out;
 }
 

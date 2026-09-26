@@ -256,7 +256,7 @@ export function buildStableDialectContext(langA: string, langB: string): SonioxS
     general.push({
       key: "instructions",
       value:
-        `Arabic will be spoken in any dialect (${AR_SPOKEN_DIALECTS}). Transcribe that original as dialect Arabic. Translation into Arabic is الفصحى only.`,
+        `Arabic will be spoken in any dialect (${AR_SPOKEN_DIALECTS}). Transcribe that original as dialect Arabic. Translation into Arabic is الفصحى only — NEVER Gulf/Levantine/Egyptian particles (الحين، بس، ما أقدر، فاهم، دلوقتي، هلق). Use الآن، لكن، لا أستطيع، أفهم، etc.`,
     });
   }
   if (japanesePair) {
