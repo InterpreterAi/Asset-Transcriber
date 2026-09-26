@@ -67,18 +67,10 @@ describe("applyFaithfulMeaningFixes", () => {
 });
 
 describe("meaningLockPinPairs", () => {
-  it("pins dialect Arabic to English and EN to فصحى, never EN to dialect", () => {
+  it("is one-way on Arabic pairs and empty otherwise", () => {
     const ar = meaningLockPinPairs("en", "ar");
     expect(ar.some((p) => p.source === "تتناك" && p.target.includes("fuck"))).toBe(true);
     expect(ar.some((p) => p.source.includes("fuck") && p.target === "تتناك")).toBe(false);
-    expect(ar.some((p) => p.source === "fuck" && p.target === "نيك")).toBe(true);
-    expect(ar.some((p) => p.source === "نيك" && p.target === "fuck")).toBe(true);
-  });
-
-  it("also pins vulgar terms on other priority pairs", () => {
-    expect(meaningLockPinPairs("en", "de").some((p) => p.source === "fuck" && p.target === "ficken")).toBe(
-      true,
-    );
-    expect(meaningLockPinPairs("en", "nl")).toEqual([]);
+    expect(meaningLockPinPairs("en", "de")).toEqual([]);
   });
 });

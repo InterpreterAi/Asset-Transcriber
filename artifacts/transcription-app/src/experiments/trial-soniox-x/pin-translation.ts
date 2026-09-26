@@ -22,29 +22,10 @@ function normalizeSurface(s: string): string {
     .trim();
 }
 
-/** Arabic possessive / object clitics often glued to glossary stems (كسّكِ, زبي, …). */
-const ARABIC_CLITIC_TAIL = "(?:[ككههاهمهننيوا]|كِ|كي|كم|كن|ها|هم|هن|نا|ني|ي)?";
-
-function isMostlyArabic(phrase: string): boolean {
-  const ar = (phrase.match(/[\u0600-\u06FF]/g) ?? []).length;
-  const latin = (phrase.match(/[A-Za-z]/g) ?? []).length;
-  return ar > 0 && ar >= latin;
-}
-
 function phrasePattern(phrase: string): RegExp {
   const words = phrase.trim().split(/\s+/).filter(Boolean);
   if (words.length === 0) return /(?!)/u;
-  const arabic = isMostlyArabic(phrase);
-  const body = words
-    .map((w) => {
-      const esc = escapeRegex(w);
-      // Allow optional shadda / tatweel drift on Arabic stems.
-      return arabic ? esc.replace(/ّ/g, "ّ?") : esc;
-    })
-    .join("\\s+");
-  if (arabic) {
-    return new RegExp(`(?<![\\p{L}\\p{M}])${body}${ARABIC_CLITIC_TAIL}(?![\\p{L}\\p{M}])`, "iu");
-  }
+  const body = words.map(escapeRegex).join("\\s+");
   return new RegExp(`(?<![\\p{L}\\p{M}])${body}(?![\\p{L}\\p{M}])`, "iu");
 }
 
@@ -65,17 +46,7 @@ function lettersOnly(s: string): string {
 function originalIsOnlyPhrase(original: string, source: string): boolean {
   const o = lettersOnly(original);
   const s = lettersOnly(source);
-  if (!s || o.length < 2) return false;
-  if (o === s) return true;
-  // Arabic: "كسّك" / "زبي" count as the stem alone for whole-utterance pins.
-  if (isMostlyArabic(source)) {
-    const esc = escapeRegex(s).replace(/ّ/g, "ّ?");
-    return new RegExp(
-      `^${esc}(?:[ككههاهمهننيوا]|كِ|كي|كم|كن|ها|هم|هن|نا|ني|ي)?$`,
-      "u",
-    ).test(o);
-  }
-  return false;
+  return o.length >= 2 && o === s;
 }
 
 function originalEndsWithPhrase(original: string, source: string): boolean {
@@ -102,12 +73,8 @@ function replaceTrailingGuess(translation: string, preferred: string): string {
 
 function shouldPinSource(source: string): boolean {
   const t = source.trim();
-  if (!t) return false;
-  // Arabic vulgar/medical stems are often 2–3 letters (زب، كس، خرا، نيك).
-  if (isMostlyArabic(t) && t.length >= 2) return true;
-  // Latin: allow 3+ so sex/ass/cum pin; keep short ALL-CAPS acronyms (CT, IV, MRI).
-  if (t.length >= 3) return true;
-  if (/^[A-Z]{2,8}$/.test(t) || t === "D&C") return true;
+  if (t.length >= 4) return true;
+  if (/^[A-Z]{3,8}$/.test(t) || t === "D&C") return true;
   return false;
 }
 
@@ -137,7 +104,7 @@ function replaceCompetingGlossaryTargets(
   const competitors = pairs
     .map((p) => p.target.trim())
     .filter((t) => {
-      if (t.length < 3) return false;
+      if (t.length < 4) return false;
       if (t.toLowerCase() === pref.toLowerCase()) return false;
       if (!phraseIn(translation, t)) return false;
       // Keep B only if its own source was also spoken (both terms said).
