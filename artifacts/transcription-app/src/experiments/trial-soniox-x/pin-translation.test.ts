@@ -108,4 +108,18 @@ describe("exact glossary pins", () => {
     expect(out).toMatch(/esophagus/i);
     expect(out).toMatch(/appendix/i);
   });
+
+  it("pins short Arabic glossary stems (2–3 letters)", () => {
+    expect(applyExactGlossaryPins("زب", "Zip.", [{ source: "زب", target: "dick" }])).toBe("dick");
+    expect(applyExactGlossaryPins("خرا", "Fuck.", [{ source: "خرا", target: "shit" }])).toBe("shit");
+  });
+
+  it("matches Arabic stems with possessive clitics on the original", () => {
+    const pairs = [
+      { source: "كسّ", target: "pussy" },
+      { source: "pussy", target: "كسّ" },
+    ];
+    const out = applyExactGlossaryPins("كسّك", "your cut", pairs);
+    expect(out).toMatch(/pussy/i);
+  });
 });

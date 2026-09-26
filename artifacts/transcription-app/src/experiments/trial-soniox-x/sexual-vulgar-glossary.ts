@@ -172,6 +172,19 @@ export const DIALECT_AR_TO_EN: { ar: string; en: string }[] = [
   { ar: "خرا", en: "shit" },
   { ar: "طيز", en: "ass" },
   { ar: "طيزك", en: "your ass" },
+  // Soniox ASR confusions (كس → قص, أتناك → أتنك)
+  { ar: "قصك", en: "your pussy" },
+  { ar: "قصها", en: "her pussy" },
+  { ar: "قصه", en: "his pussy" },
+  { ar: "قص أمك", en: "your mother's pussy" },
+  { ar: "قص امك", en: "your mother's pussy" },
+  { ar: "قص اختك", en: "your sister's pussy" },
+  { ar: "أتنك", en: "get fucked" },
+  { ar: "اتنك", en: "get fucked" },
+  { ar: "أتناك", en: "get fucked" },
+  { ar: "بحب أتنك", en: "love to get fucked" },
+  { ar: "بحب اتناك", en: "love to get fucked" },
+  { ar: "أنا بحب أتنك", en: "I love to get fucked" },
   // Levantine (Syrian / Lebanese / Palestinian / Jordanian)
   { ar: "ينيكك", en: "fuck you" },
   { ar: "نيكك", en: "fuck you" },
@@ -404,6 +417,9 @@ export const SEXUAL_AR_RE = new RegExp(
     "تتناك",
     "يتناك",
     "اتناك",
+    "أتناك",
+    "أتنك",
+    "اتنك",
     "تنتاك",
     "تنيك",
     "ينيك",
@@ -423,6 +439,130 @@ export const SEXUAL_AR_RE = new RegExp(
     "انيكك",
   ].join("|"),
 );
+
+function latinCount(s: string): number {
+  return (s.match(/[A-Za-z]/g) ?? []).length;
+}
+
+function arabicCount(s: string): number {
+  return (s.match(/[\u0600-\u06FF]/g) ?? []).length;
+}
+
+function phraseInCi(text: string, phrase: string): boolean {
+  const p = phrase.trim();
+  if (p.length < 2) return false;
+  const esc = p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+  return new RegExp(`(?<![\\p{L}\\p{M}])${esc}(?![\\p{L}\\p{M}])`, "iu").test(text);
+}
+
+function arStemIn(text: string, stem: string): boolean {
+  const s = stem.trim();
+  if (s.length < 2) return false;
+  const esc = s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ّ/g, "ّ?");
+  return new RegExp(`(?<![\\p{L}\\p{M}])${esc}(?:[ككههاهمهننيوا]|كِ|كي|كم|كن|ها|هم|هن|نا|ني|ي)?(?![\\p{L}\\p{M}])`, "u").test(
+    text,
+  );
+}
+
+/**
+ * Known wrong Soniox renderings when the Original already said the sexual term.
+ * Applied after generic glossary pins — fixes Zip/Butter/cut/أقضم/أمسك drift.
+ */
+const WRONG_EN_WHEN_AR: { ar: string; wrong: RegExp; en: string }[] = [
+  { ar: "زب", wrong: /\bzip(?:py|ped|ping)?\b/gi, en: "dick" },
+  { ar: "زبّ", wrong: /\bzip(?:py|ped|ping)?\b/gi, en: "dick" },
+  { ar: "زبي", wrong: /\bzip(?:py|ped|ping)?\b/gi, en: "my dick" },
+  { ar: "زبك", wrong: /\bzip(?:py|ped|ping)?\b/gi, en: "your dick" },
+  { ar: "خرا", wrong: /\bfucks?\b/gi, en: "shit" },
+  { ar: "خراء", wrong: /\bfucks?\b/gi, en: "shit" },
+  { ar: "قصك", wrong: /\b(?:your\s+)?cuts?\b/gi, en: "your pussy" },
+  { ar: "قصها", wrong: /\b(?:cut it|her cut|cuts?)\b/gi, en: "her pussy" },
+  { ar: "قص أمك", wrong: /\bcut your mouth\b/gi, en: "your mother's pussy" },
+  { ar: "قص امك", wrong: /\bcut your mouth\b/gi, en: "your mother's pussy" },
+  { ar: "كس", wrong: /\bcuts?\b/gi, en: "pussy" },
+  { ar: "كسّ", wrong: /\bcuts?\b/gi, en: "pussy" },
+];
+
+const WRONG_AR_WHEN_EN: { en: string; wrong: RegExp; ar: string }[] = [
+  { en: "fuck", wrong: /أقضم|أعض|أَقضم/gu, ar: "أنيك" },
+  { en: "fuck", wrong: /نكاح/gu, ar: "نيك" },
+  { en: "suck", wrong: /أمسك|أَمسك|امسك/gu, ar: "امتص" },
+  { en: "nipple", wrong: /ثدي(?![اان])/gu, ar: "حلمة" },
+  { en: "nipples", wrong: /ثديَ?ي?[نك]?|ثدييك|ثديَك/gu, ar: "حلمتيك" },
+  { en: "dick", wrong: /زبدة/gu, ar: "زبّ" },
+  { en: "jerking off", wrong: /تصرخي|تصرخ|يصرخ/gu, ar: "تستمني" },
+  { en: "jerk off", wrong: /تصرخي|تصرخ|يصرخ/gu, ar: "تستمني" },
+  { en: "nude", wrong: /عارية حسناًا|عاري حسنا/gu, ar: "عارية تماماً" },
+  { en: "naked", wrong: /عارية حسناًا|عاري حسنا/gu, ar: "عارية تماماً" },
+];
+
+/** Multi-word EN → فصحى forced rewrites when the bad phrase appears. */
+const EN_PHRASE_AR_FIX: { en: RegExp; arReplace: RegExp; ar: string }[] = [
+  {
+    en: /\bfuck(?:ing)?\s+your\s+pussy\b/i,
+    arReplace: /أقضم\s*كس[ّ]?كِ?|أعض\s*كس[ّ]?كِ?/gu,
+    ar: "أنيك كسّكِ",
+  },
+  {
+    en: /\bsuck(?:ing)?\s+your\s+nipples?\b/i,
+    arReplace: /أمسك\s*ثدي[َ]?كِ?|امسك\s*ثدي[َ]?كِ?/gu,
+    ar: "امتص حلمتيك",
+  },
+  {
+    en: /\bput\s+my\s+dick\s+inside\s+(?:of\s+)?your\s+pussy\b/i,
+    arReplace: /أحط[ّ]?\s*(?:قضيبي|زبّ|زبي)\s*داخل\s*كس[ّ]?كِ?|احط\s*(?:قضيبي|زبّ|زبي)\s*داخل\s*كس[ّ]?كِ?/gu,
+    ar: "أُدخل قضيبي داخل كسّكِ",
+  },
+];
+
+/**
+ * Cross-language meaning repair for sexual/vulgar terms.
+ * Generic glossary pins only swap when the source string itself appears in the
+ * translation (echo) — Soniox usually substitutes a wrong word instead.
+ */
+export function applySexualVulgarTranslationLocks(original: string, translation: string): string {
+  if (!original.trim() || !translation.trim()) return translation;
+  let out = translation;
+
+  const origAr = arabicCount(original) > latinCount(original);
+  const origEn = latinCount(original) > arabicCount(original);
+  const transEn = latinCount(out) >= arabicCount(out);
+  const transAr = arabicCount(out) > latinCount(out);
+
+  if (origAr && transEn) {
+    for (const { ar, wrong, en } of WRONG_EN_WHEN_AR) {
+      if (!arStemIn(original, ar)) continue;
+      if (phraseInCi(out, en) && !wrong.test(out)) continue;
+      out = out.replace(wrong, en);
+    }
+    // Whole-utterance: pure خرا / زب lines
+    const o = original.replace(/[\s.!?؟،؛]+/gu, " ").trim();
+    if (/^خرا\.?$/u.test(o) || o === "خرا") out = out.replace(/^fuck\.?$/i, "Shit.");
+    if (/^زب\.?$/u.test(o) || o === "زب" || o === "زبّ") {
+      if (/\bzip\b/i.test(out) || out.trim().length < 12) out = "Dick.";
+    }
+  }
+
+  if (origEn && transAr) {
+    for (const { en, arReplace, ar } of EN_PHRASE_AR_FIX) {
+      if (!en.test(original)) continue;
+      out = out.replace(arReplace, ar);
+    }
+    for (const { en, wrong, ar } of WRONG_AR_WHEN_EN) {
+      if (!phraseInCi(original, en)) continue;
+      out = out.replace(wrong, ar);
+    }
+    // If original said fuck and Arabic still has no نيك/ينيك/أنيك, swap soft verbs.
+    if (/\bfuck(?:s|ing|ed)?\b/i.test(original) && !/نيك|يُناك|منكوح/.test(out)) {
+      out = out.replace(/أقضم|أعض/gu, "أنيك");
+    }
+    if (/\bsuck(?:s|ing|ed)?\b/i.test(original) && !/امتص|مص[ّ]?/.test(out)) {
+      out = out.replace(/أمسك|امسك/gu, "امتص");
+    }
+  }
+
+  return out;
+}
 
 export function sexualVulgarPinPairs(langA: string, langB: string): { source: string; target: string }[] {
   const a = (langA || "").split("-")[0]?.toLowerCase() ?? "";

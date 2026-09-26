@@ -14,6 +14,7 @@ import { lockArabicTranslationToMsa } from "./lock-arabic-translation-msa";
 import {
   EN_TO_MSA,
   SEXUAL_AR_RE,
+  applySexualVulgarTranslationLocks,
   sexualVulgarPinPairs,
 } from "./sexual-vulgar-glossary";
 
@@ -103,6 +104,7 @@ function lockSexualArabicToEnglish(original: string, translation: string): strin
 export function applyFaithfulMeaningFixes(original: string, translation: string): string {
   if (!original.trim() || !translation.trim()) return translation;
   let out = lockSexualArabicToEnglish(original, translation);
+  out = applySexualVulgarTranslationLocks(original, out);
   out = lockEnglishToMsa(original, out);
   if (arabicDominant(out)) out = lockArabicTranslationToMsa(out);
   return out;
