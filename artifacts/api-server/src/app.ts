@@ -44,6 +44,7 @@ import { securityHeadersMiddleware } from "./middlewares/securityHeaders.js";
 import { createProductionCorsMiddleware } from "./middlewares/corsPolicy.js";
 import { blockSensitivePathMiddleware } from "./middlewares/blockSensitivePaths.js";
 import { blockDebugInProductionMiddleware } from "./middlewares/blockDebugInProduction.js";
+import { securitySightingsMiddleware } from "./middlewares/securitySightings.js";
 
 // Per-user debounce: only write last_activity to DB once per 60 s per user.
 const activityDebounce = new Map<number, number>();
@@ -353,6 +354,7 @@ app.use("/api", (req, res, next) => {
   }
   next();
 });
+app.use("/api", securitySightingsMiddleware);
 
 app.use("/api/auth/login", loginLimiter);
 app.use("/api/auth/2fa/verify", loginLimiter);

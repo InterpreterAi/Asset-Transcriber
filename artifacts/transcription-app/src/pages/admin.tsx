@@ -27,10 +27,11 @@ import {
   Timer, Banknote, LifeBuoy, Send, CheckCircle, ChevronDown, Lock,
   Monitor, LogIn, LogOut, Play, ShieldAlert, Server, Zap, XCircle, Mail,
   Pencil, Gift, Share2, UserPlus, AlertCircle, Bluetooth, Usb, Sun, Moon, ReceiptText,
-  Clapperboard,
+  Clapperboard, Fingerprint,
 } from "lucide-react";
 import { Button, Card, Input } from "@/components/ui-components";
 import AdminAnalytics from "@/components/AdminAnalytics";
+import AdminSecurity from "@/components/AdminSecurity";
 import {
   cn,
   displayMinutesUsedToday,
@@ -681,7 +682,7 @@ export default function Admin() {
 
   // ── Main tabs (persisted in ?tab= so refresh stays on the same section) ──
   const ADMIN_MAIN_TABS = [
-    "overview", "analytics", "users", "ipWatch", "languages", "feedback", "support", "errors", "monitor", "referrals", "invoices",
+    "overview", "analytics", "users", "ipWatch", "security", "languages", "feedback", "support", "errors", "monitor", "referrals", "invoices",
   ] as const;
   type AdminMainTab = (typeof ADMIN_MAIN_TABS)[number];
   const [mainTab, setMainTab] = useUrlEnumState<AdminMainTab>("tab", ADMIN_MAIN_TABS, "overview");
@@ -752,6 +753,18 @@ export default function Admin() {
     refetchInterval: mainTab === "ipWatch" ? 10_000 : false,
     refetchIntervalInBackground: true,
     staleTime: 5_000,
+  });
+
+  const { data: securityCounts } = useQuery({
+    queryKey: ["admin-security-counts"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/security/counts", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch security counts");
+      return res.json() as Promise<{ openHigh: number; openMedium: number }>;
+    },
+    enabled: !!me?.isAdmin,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
   });
 
   const { data: statsData, refetch: refetchStats } = useQuery({
@@ -1607,6 +1620,12 @@ export default function Admin() {
         : sharedLoginIpIndex.length > 0
           ? sharedLoginIpIndex.length
           : null,
+    },
+    {
+      id: "security",
+      label: "Security",
+      icon: <Fingerprint className="w-4 h-4" />,
+      badge: (securityCounts?.openHigh ?? 0) + (securityCounts?.openMedium ?? 0) || null,
     },
     { id: "languages",  label: "Languages",  icon: <Languages className="w-4 h-4" />,       badge: null },
     { id: "feedback",   label: "Feedback",   icon: <MessageSquare className="w-4 h-4" />,   badge: feedback.length > 0 ? feedback.length : null },
@@ -2791,6 +2810,16 @@ export default function Admin() {
               </div>
             </div>
           </Card>
+        )}
+
+        {/* ── SECURITY TAB ─────────────────────────────────────────────────── */}
+        {mainTab === "security" && (
+          <AdminSecurity
+            onOpenUser={(id) => {
+              const u = allUsers.find((x) => x.id === id);
+              if (u) openEditUser(u);
+            }}
+          />
         )}
 
         {/* ── IP WATCH TAB ─────────────────────────────────────────────────── */}

@@ -16,6 +16,7 @@ import { isResendConfigured } from "./lib/resend-mail.js";
 import { scheduleTrialReminderJob } from "./lib/trial-reminder-job.js";
 import { scheduleOnboardingEmailJob } from "./lib/onboarding-email-job.js";
 import { scheduleTrialActiveReminderJob } from "./lib/trial-active-reminder-job.js";
+import { scheduleSecurityWatchJob } from "./lib/security-watch/job.js";
 import { initInterpreterGlossaries } from "./lib/interpreter-glossary.js";
 import { initProtectedTerms } from "./lib/protected-terms.js";
 import { isTrialLoginBlocked } from "./lib/trial-login-block.js";
@@ -406,6 +407,57 @@ async function migrateSchemaOnce() {
       CREATE INDEX IF NOT EXISTS idx_share_events_user ON share_events (user_id)
     `);
 
+      // Security Watch — no FKs to users so first boot never locks the live users table.
+      await run(`
+      CREATE TABLE IF NOT EXISTS security_ip_sightings (
+        id         SERIAL PRIMARY KEY,
+        user_id    INTEGER NOT NULL,
+        ip_address TEXT NOT NULL,
+        user_agent TEXT,
+        ua_hash    TEXT NOT NULL,
+        first_seen TIMESTAMP NOT NULL DEFAULT NOW(),
+        last_seen  TIMESTAMP NOT NULL DEFAULT NOW(),
+        hits       INTEGER NOT NULL DEFAULT 1
+      )
+    `);
+      await run(`
+      CREATE UNIQUE INDEX IF NOT EXISTS security_ip_sightings_user_ip_ua_uidx
+        ON security_ip_sightings (user_id, ip_address, ua_hash)
+    `);
+      await run(`
+      CREATE INDEX IF NOT EXISTS security_ip_sightings_last_seen_idx ON security_ip_sightings (last_seen)
+    `);
+      await run(`
+      CREATE TABLE IF NOT EXISTS security_ip_geo (
+        ip           TEXT PRIMARY KEY,
+        city         TEXT,
+        region       TEXT,
+        country      TEXT,
+        org          TEXT,
+        is_vpn       BOOLEAN NOT NULL DEFAULT FALSE,
+        looked_up_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+      await run(`
+      CREATE TABLE IF NOT EXISTS security_alerts (
+        id                SERIAL PRIMARY KEY,
+        pair_key          TEXT NOT NULL,
+        older_user_id     INTEGER NOT NULL,
+        newer_user_id     INTEGER NOT NULL,
+        score             INTEGER NOT NULL,
+        confidence        TEXT NOT NULL,
+        status            TEXT NOT NULL DEFAULT 'open',
+        report            JSONB NOT NULL,
+        first_detected_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at        TIMESTAMP NOT NULL DEFAULT NOW(),
+        emailed_at        TIMESTAMP,
+        resolved_at       TIMESTAMP
+      )
+    `);
+      await run(`
+      CREATE UNIQUE INDEX IF NOT EXISTS security_alerts_pair_key_uidx ON security_alerts (pair_key)
+    `);
+
       // SET DEFAULT also takes AccessExclusiveLock — skip when already correct.
       const dailyDefault = await client.query<{ column_default: string | null }>(
         `SELECT column_default FROM information_schema.columns
@@ -683,6 +735,7 @@ async function main() {
     }
     logHetznerMachineTranslationStartupHint();
     logHetznerCoreRouterStartupHint();
+    scheduleSecurityWatchJob();
     // Scheduled Resend jobs — skip when key missing/placeholder so local boot stays quiet.
     if (!isResendConfigured()) {
       if (process.env.NODE_ENV === "production") {

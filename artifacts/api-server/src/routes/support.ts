@@ -3,7 +3,7 @@ import { db, supportTicketsTable, supportRepliesTable, usersTable } from "@works
 import { eq, desc, and } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { sendTelegramNotification } from "../lib/telegram.js";
-import { sendSupportConfirmationEmail } from "../lib/email.js";
+import { sendAdminSupportTicketAlert, sendSupportConfirmationEmail } from "../lib/email.js";
 import { logger } from "../lib/logger.js";
 
 const router = Router();
@@ -44,6 +44,14 @@ router.post("/", requireAuth, async (req, res) => {
 
   // Confirmation email (non-blocking)
   void sendSupportConfirmationEmail(email, ticket.id, subject, req.session.userId!);
+  void sendAdminSupportTicketAlert({
+    ticketId: ticket.id,
+    username: user?.username ?? null,
+    userEmail: ticket.email,
+    subject: ticket.subject,
+    message: ticket.message,
+    kind: "new",
+  }).catch((err) => logger.warn({ err, ticketId: ticket.id }, "Admin support alert email failed"));
 
   logger.info({ ticketId: ticket.id }, "Support ticket created");
   res.status(201).json({ ticket: { id: ticket.id, subject: ticket.subject, status: ticket.status } });
@@ -132,6 +140,15 @@ router.post("/:id/reply", requireAuth, async (req, res) => {
     (wasClosed ? `⚠️ Ticket was closed/resolved — now reopened\n` : "") +
     `Message: ${message.trim().substring(0, 300)}${message.trim().length > 300 ? "..." : ""}`,
   );
+  void sendAdminSupportTicketAlert({
+    ticketId,
+    username: user?.username ?? null,
+    userEmail: ticket.email,
+    subject: ticket.subject,
+    message: message.trim(),
+    kind: "reply",
+    reopened: wasClosed,
+  }).catch((err) => logger.warn({ err, ticketId }, "Admin support alert email failed"));
 
   logger.info({ ticketId, userId: req.session.userId }, "User reply added to ticket");
   res.status(201).json({ reply, reopened: wasClosed });

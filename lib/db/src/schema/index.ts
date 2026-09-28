@@ -12,3 +12,4 @@ export * from "./referrals";
 export * from "./share-events";
 export * from "./trial-consumed-emails";
 export * from "./admin-activity-events";
+export * from "./security";

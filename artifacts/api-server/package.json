@@ -10,6 +10,7 @@
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "tsx --test src/lib/paddle-verify.test.ts src/lib/official-translation-register.test.ts src/lib/session-translation-continuity.test.ts src/middlewares/securityHeaders.test.ts src/middlewares/apiRateLimits.test.ts",
+    "security:scan": "tsx ./scripts/security-watch-scan.ts",
     "glossary:generate": "node ./scripts/generate-interpreter-glossaries.mjs",
     "glossary:verify": "tsx ./scripts/verify-interpreter-glossary.ts",
     "glossary:audit": "tsx ./scripts/audit-interpreter-glossary.ts",

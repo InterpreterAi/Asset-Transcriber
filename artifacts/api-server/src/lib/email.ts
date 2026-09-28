@@ -1,4 +1,5 @@
 import { getStaticPublicBaseUrl } from "./authEnv.js";
+import { adminAlertEmail, formatAdminAlertTime } from "./admin-alert-email.js";
 import {
   emailCallout,
   emailParagraph,
@@ -138,6 +139,52 @@ export async function sendTicketResolvedEmail(
     from: RESEND_FROM_SUPPORT,
     to: toEmail,
     subject: `[Ticket #${ticketId}] Your request has been resolved`,
+    html,
+  });
+}
+
+/** Operator alert: a user opened a ticket or replied on one. */
+export async function sendAdminSupportTicketAlert(opts: {
+  ticketId: number;
+  username: string | null;
+  userEmail: string;
+  subject: string;
+  message: string;
+  kind: "new" | "reply";
+  reopened?: boolean;
+}): Promise<void> {
+  const to = adminAlertEmail();
+  if (!to) return;
+  const base = appBaseUrl();
+  const who = opts.username ? `@${opts.username}` : opts.userEmail;
+  const heading =
+    opts.kind === "new" ? `New support ticket #${opts.ticketId}` : `New reply on ticket #${opts.ticketId}`;
+  const html = renderInterpreterAiEmail({
+    appBaseUrl: base,
+    appendReferralAndUnsubscribe: false,
+    footerMode: "legal-only",
+    heading,
+    bodyHtml: [
+      emailParagraph(
+        opts.kind === "new"
+          ? `${who} just opened a support ticket.`
+          : `${who} replied on their ticket${opts.reopened ? " (it was closed and is now reopened)" : ""}.`,
+      ),
+      emailCallout("From", `${who} · ${opts.userEmail}`),
+      emailCallout("Subject", opts.subject),
+      emailPreformattedBlock(opts.message),
+      emailParagraph(`Received ${formatAdminAlertTime(new Date())}.`),
+    ].join(""),
+    primaryButton: { href: `${base}/admin?tab=support`, label: "Open in admin" },
+  });
+
+  await sendEmail({
+    from: RESEND_FROM_SUPPORT,
+    to,
+    subject:
+      opts.kind === "new"
+        ? `[Support] New ticket #${opts.ticketId} from ${who}: ${opts.subject}`
+        : `[Support] Reply on ticket #${opts.ticketId} from ${who}: ${opts.subject}`,
     html,
   });
 }
