@@ -5,7 +5,7 @@
  * (final **or** live partial), pin the translation column to the exact glossary
  * wording when that source phrase is already present in the Original.
  * Does not rewrite the original column. Uses the full local pack + user glossary
- * (`displayPinPairs`), not the 9.6k Soniox session slice.
+ * (`displayPinPairs`), not the small Soniox session slice.
  */
 import type { GlossaryTerm } from "./interpreter-glossary";
 

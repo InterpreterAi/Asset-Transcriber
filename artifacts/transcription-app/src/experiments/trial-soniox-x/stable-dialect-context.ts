@@ -1,11 +1,12 @@
 /**
  * Trial · Soniox X only.
  *
- * Soniox has a single `ar` code (no dialect IDs). Context applies to BOTH
- * recognition and translation, so فصحى belongs only in translation-labeled
- * keys. Originals must keep every spoken Arabic dialect.
- *
+ * Short, pair-scoped Soniox context following the official guidance:
  * https://soniox.com/docs/stt/concepts/context
+ * - `general`: a few short key/value lines (domain, language, instructions, translation).
+ * - Language detection: `language` + `instructions` keys and `terms` in the spoken language.
+ * - No long rule text and no dialect lists: Soniox has one code per language
+ *   (e.g. a single `ar` for every Arabic dialect) and recognizes dialects natively.
  */
 import { languages } from "./languages";
 
@@ -16,141 +17,76 @@ export type SonioxStartContext = {
   translation_terms?: { source: string; target: string }[];
 };
 
-/** Stable written variety for the TRANSLATION column only. Originals stay as spoken. */
-export const STABLE_WRITTEN_DIALECT: Record<string, string> = {
-  af: "Standard Afrikaans (translation only)",
-  sq: "Standard Albanian / Tosk (translation only)",
-  ar: "Modern Standard Arabic (فصحى / fuṣḥā) for the TRANSLATION column only.",
-  az: "Standard Azerbaijani (translation only)",
-  eu: "Standard Basque / Euskara Batua (translation only)",
-  be: "Standard Belarusian (translation only)",
-  bn: "Standard written Bengali (translation only)",
-  bs: "Standard Bosnian (translation only)",
-  bg: "Standard Bulgarian (translation only)",
-  ca: "Standard Catalan (translation only)",
-  zh: "Standard Mandarin / Putonghua, simplified characters (translation only). Cantonese and other topolects still go in the original if spoken.",
-  hr: "Standard Croatian (translation only)",
-  cs: "Standard Czech (translation only)",
-  da: "Standard Danish / rigsdansk (translation only)",
-  nl: "Standard Dutch / Algemeen Nederlands (translation only). Flemish dialect still goes in the original if spoken.",
-  en: "Standard English, general American spelling (translation only). Regional slang still goes in the original if spoken.",
-  et: "Standard Estonian (translation only)",
-  fi: "Standard Finnish (translation only)",
-  fr: "Standard French / français de France (translation only). Québec joual and Maghrebi slang still go in the original if spoken.",
-  gl: "Standard Galician (translation only)",
-  de: "Standard High German / Hochdeutsch (translation only). Swiss German, Bavarian, and Austrian dialect still go in the original if spoken.",
-  el: "Standard Modern Greek (translation only)",
-  gu: "Standard Gujarati (translation only)",
-  he: "Standard Modern Hebrew (translation only)",
-  hi: "Standard Hindi / Khari Boli, Devanagari (translation only)",
-  hu: "Standard Hungarian (translation only)",
-  id: "Standard Indonesian / Bahasa Indonesia baku (translation only). Jakartan slang still goes in the original if spoken.",
-  it: "Standard Italian (translation only). Regional dialects still go in the original if spoken.",
-  ja: "Standard Japanese / hyōjungo (translation only). Kansai-ben and other dialects still go in the original if spoken.",
-  kn: "Standard Kannada (translation only)",
-  kk: "Standard Kazakh (translation only)",
-  ko: "Standard Korean / Seoul (translation only). Regional dialects still go in the original if spoken.",
-  lv: "Standard Latvian (translation only)",
-  lt: "Standard Lithuanian (translation only)",
-  mk: "Standard Macedonian (translation only)",
-  ms: "Standard Malay / Bahasa Melayu baku (translation only)",
-  ml: "Standard Malayalam (translation only)",
-  mr: "Standard Marathi (translation only)",
-  no: "Standard Norwegian Bokmål (translation only)",
-  fa: "Standard Iranian Persian / Farsi (translation only). Dari or Tajik still go in the original if spoken.",
-  pl: "Standard Polish / język ogólnopolski (translation only). Regional dialect and slang still go in the original if spoken.",
-  pt: "Standard Portuguese / norma culta (translation only). Regional slang still goes in the original if spoken.",
-  pa: "Standard Punjabi (translation only)",
-  ro: "Standard Romanian (translation only)",
-  ru: "Standard Russian (translation only)",
-  sr: "Standard Serbian (translation only)",
-  sk: "Standard Slovak (translation only)",
-  sl: "Standard Slovenian (translation only)",
-  es: "Neutral standard Spanish / español estándar (translation only). Rioplatense, Caribbean, and Mexican slang still go in the original if spoken.",
-  sw: "Standard Swahili (translation only)",
-  sv: "Standard Swedish (translation only)",
-  tl: "Standard Filipino / Tagalog (translation only)",
-  ta: "Standard Tamil (translation only)",
-  te: "Standard Telugu (translation only)",
-  th: "Standard Thai (translation only)",
-  tr: "Standard Turkish / İstanbul (translation only). Regional dialect still goes in the original if spoken.",
-  uk: "Standard Ukrainian (translation only)",
-  ur: "Standard Urdu (translation only)",
-  vi: "Standard Vietnamese / Hanoi (translation only). Regional dialect still goes in the original if spoken.",
-  cy: "Standard Welsh (translation only)",
+/** Professional standard written variety used when translating INTO each language. */
+const STANDARD_OVERRIDES: Record<string, string> = {
+  ar: "Modern Standard Arabic (الفصحى) only, never dialect",
+  en: "standard professional English, American spelling",
+  es: "neutral standard Spanish (español estándar)",
+  fr: "standard French (français de France)",
+  de: "Standard High German (Hochdeutsch)",
+  pl: "standard Polish (język ogólnopolski)",
+  pt: "standard Portuguese (norma culta)",
+  it: "standard Italian",
+  ja: "standard Japanese (標準語 / hyōjungo)",
+  zh: "Standard Mandarin, simplified characters",
+  nl: "standard Dutch (Algemeen Nederlands)",
+  no: "Norwegian Bokmål",
+  fa: "standard Iranian Persian",
+  hi: "standard Hindi (Devanagari)",
+  id: "standard Indonesian (bahasa baku)",
+  ms: "standard Malay (bahasa baku)",
+  tl: "standard Filipino (Tagalog)",
+  eu: "standard Basque (Euskara Batua)",
 };
 
-const LANG_NAME: Record<string, string> = Object.fromEntries(
-  languages.map((lang) => [lang.code, lang.name]),
+export const STABLE_WRITTEN_DIALECT: Record<string, string> = Object.fromEntries(
+  languages.map((lang) => [lang.code, STANDARD_OVERRIDES[lang.code] ?? `standard ${lang.name}`]),
 );
 
-function langBase(code: string): string {
-  return (code || "").split("-")[0]?.toLowerCase() ?? "";
-}
-
-function pinFor(code: string): string {
-  const base = langBase(code);
-  return STABLE_WRITTEN_DIALECT[base] ?? `Standard written ${base || "target language"}`;
-}
-
-function registerKey(code: string): string {
-  const name = (LANG_NAME[langBase(code)] ?? langBase(code)).toLowerCase().replace(/\s+/g, "_");
-  return `${name}_translation_register`;
-}
-
-/** Spoken Arabic the original column must keep. Not a ban list — STT must write these. */
-const AR_SPOKEN_DIALECTS =
-  "Yemeni, Iraqi, Gulf, Hijazi, Najdi, Levantine, Egyptian, Sudanese, Moroccan Darija, Algerian, Tunisian, Libyan, Hassaniya, and every other Maghrebi or Arabian variety";
-
-/** High-frequency dialect particles so Soniox treats them as Arabic, not noise or French. */
-const AR_DIALECT_RECOGNITION_TERMS = [
-  "شلون",
-  "وين",
-  "واش",
-  "بزاف",
-  "برشا",
-  "قديش",
-  "هسه",
-  "ازاي",
-  "يعني",
-  "علاش",
-  "هلق",
-  "كده",
-];
-
-/** Extra translation-only guidance when the pair includes a high-drift language. */
-const PAIR_TRANSLATION_TEXT: Record<string, string> = {
-  ar:
-    "TRANSLATION COLUMN into Arabic: Modern Standard Arabic only (الفصحى), like news/subtitles. " +
-    `Do not copy dialect morphology into the translation even if the audio is ${AR_SPOKEN_DIALECTS}; still translate the exact meaning, including vulgar/sexual/slang sense, into فصحى — never euphemize into a different meaning. ` +
-    "Informal English still becomes فصحى, never dialect. " +
-    "Never repeat English words or Latin abbreviations in the Arabic translation (Sonogram → تصوير بالموجات فوق الصوتية). " +
-    `ORIGINAL COLUMN: write every Arabic dialect as spoken (${AR_SPOKEN_DIALECTS}). ` +
-    "Maghrebi, Algerian, Tunisian, and Darija are Arabic, not French. Never skip or silence Arabic speech.",
-  es:
-    "TRANSLATION COLUMN into Spanish: neutral standard Spanish (español estándar), like news/subtitles. " +
-    "Do not copy Rioplatense, Caribbean, Mexican slang forms, or voseo into the translation; still translate their exact meaning. " +
-    "Never repeat English words or Latin abbreviations in the Spanish translation (Sonogram → ecografía). " +
-    "ORIGINAL COLUMN: transcribe spoken Spanish exactly, including dialect.",
-  fr:
-    "TRANSLATION COLUMN into French: standard French (français de France). Not Québec joual or Maghrebi slang forms in the translation; still translate their exact meaning. " +
-    "ORIGINAL COLUMN: transcribe spoken French exactly, including dialect.",
-  de:
-    "TRANSLATION COLUMN into German: Standard High German (Hochdeutsch). Not Swiss German or Bavarian forms in the translation; still translate their exact meaning. " +
-    "Never repeat English words or Latin abbreviations in the German translation (Sonogram → Sonogramm). " +
-    "ORIGINAL COLUMN: transcribe spoken German exactly, including dialect.",
-  pl:
-    "TRANSLATION COLUMN into Polish: standard Polish (język ogólnopolski), like news/subtitles. " +
-    "Do not copy regional dialect forms into the translation; still translate their exact meaning, including slang. " +
-    "Never repeat English words or Latin abbreviations in the Polish translation (Sonogram → ultrasonografia). " +
-    "ORIGINAL COLUMN: transcribe spoken Polish exactly, including dialect.",
-  ja:
-    "TRANSLATION COLUMN into Japanese: standard Japanese (標準語 / hyōjungo). " +
-    "Do not copy Kansai-ben or other dialects into the translation; still translate their exact meaning. " +
-    "Never repeat English words or Latin abbreviations in the Japanese translation (Sonogram → 超音波画像). " +
-    "ORIGINAL COLUMN: transcribe spoken Japanese in Japanese script, including dialect.",
+/** Non-Latin scripts, so each side is written in its own alphabet (not transliterated). */
+const SCRIPT_NAME: Record<string, string> = {
+  ar: "Arabic script",
+  fa: "Persian script",
+  ur: "Urdu script",
+  he: "Hebrew script",
+  ja: "Japanese script",
+  zh: "Chinese characters",
+  ko: "Hangul",
+  ru: "Cyrillic",
+  uk: "Cyrillic",
+  bg: "Cyrillic",
+  mk: "Cyrillic",
+  be: "Cyrillic",
+  kk: "Cyrillic",
+  el: "Greek script",
+  hi: "Devanagari",
+  mr: "Devanagari",
+  bn: "Bengali script",
+  gu: "Gujarati script",
+  pa: "Gurmukhi",
+  ta: "Tamil script",
+  te: "Telugu script",
+  kn: "Kannada script",
+  ml: "Malayalam script",
+  th: "Thai script",
 };
 
+/**
+ * Everyday call words in the non-English language. Soniox: adding `terms` in the
+ * correct language helps detection. Words used across all regional varieties only;
+ * no words that are also English.
+ */
+const COMMON_CALL_WORDS: Record<string, string[]> = {
+  ar: ["نعم", "لا", "طيب", "تمام", "يعني", "الحمد لله", "إن شاء الله", "دكتور", "موعد", "مستشفى", "تأمين", "محامي"],
+  es: ["sí", "bueno", "pues", "entonces", "gracias", "médico", "cita", "seguro", "abogado"],
+  pt: ["sim", "não", "então", "obrigado", "obrigada", "médico", "consulta", "seguro", "advogado"],
+  fr: ["oui", "d'accord", "alors", "merci", "s'il vous plaît", "médecin", "rendez-vous", "avocat"],
+  pl: ["tak", "nie", "dobrze", "dziękuję", "lekarz", "wizyta", "ubezpieczenie", "prawnik"],
+  de: ["ja", "nein", "genau", "danke", "bitte", "Arzt", "Termin", "Versicherung", "Anwalt"],
+  it: ["sì", "allora", "grazie", "prego", "medico", "appuntamento", "assicurazione", "avvocato"],
+};
+
+/** Everyday English phrases pinned to the standard target wording (translation only). */
 const AR_EN_MSA_TERMS: { source: string; target: string }[] = [
   { source: "next time", target: "المرة القادمة" },
   { source: "that's why", target: "لذلك" },
@@ -160,8 +96,6 @@ const AR_EN_MSA_TERMS: { source: string; target: string }[] = [
   { source: "I get you", target: "أفهمك" },
   { source: "no one", target: "لا أحد" },
   { source: "nobody", target: "لا أحد" },
-  { source: "family bucket", target: "وجبة العائلة" },
-  { source: "What the fuck do you mean", target: "ماذا تقصد بحق الجحيم" },
 ];
 
 const ES_EN_STANDARD_TERMS: { source: string; target: string }[] = [
@@ -208,90 +142,91 @@ const PL_EN_STANDARD_TERMS: { source: string; target: string }[] = [
   { source: "nobody", target: "nikt" },
 ];
 
-/** Pair-scoped Soniox context. Short `general` keys; no 60-language dump. */
+const STANDARD_PHRASE_TERMS: Record<string, { source: string; target: string }[]> = {
+  ar: AR_EN_MSA_TERMS,
+  es: ES_EN_STANDARD_TERMS,
+  de: DE_EN_STANDARD_TERMS,
+  ja: JA_EN_STANDARD_TERMS,
+  pl: PL_EN_STANDARD_TERMS,
+};
+
+const LANG_NAME: Record<string, string> = Object.fromEntries(
+  languages.map((lang) => [lang.code, lang.name]),
+);
+
+function langBase(code: string): string {
+  return (code || "").split("-")[0]?.toLowerCase() ?? "";
+}
+
+function nameOf(code: string): string {
+  return LANG_NAME[code] ?? code;
+}
+
+function standardFor(code: string): string {
+  return STABLE_WRITTEN_DIALECT[code] ?? `standard ${nameOf(code)}`;
+}
+
+function spokenAs(code: string): string {
+  const script = SCRIPT_NAME[code];
+  return `${nameOf(code)} speech in ${nameOf(code)}${script ? ` (${script})` : ""}`;
+}
+
+/** Pair-scoped Soniox context: four short `general` lines, call words, standard-phrase pins. */
 export function buildStableDialectContext(langA: string, langB: string): SonioxStartContext {
   const a = langBase(langA);
   const b = langBase(langB);
-  const pinA = pinFor(a);
-  const pinB = pinFor(b);
+  const nameA = nameOf(a);
+  const nameB = nameOf(b);
   const arabicPair = a === "ar" || b === "ar";
-  const japanesePair = a === "ja" || b === "ja";
-  const general: { key: string; value: string }[] = [
-    { key: "domain", value: "Live two-way interpretation" },
-    {
-      key: "languages",
-      value: arabicPair
-        ? `Two-way ${LANG_NAME[a] ?? a} and ${LANG_NAME[b] ?? b}. Both languages will be spoken. Arabic includes ${AR_SPOKEN_DIALECTS}. Transcribe whichever is spoken; Maghrebi/Darija is Arabic, not French; do not ignore Arabic dialect as silence.`
-        : japanesePair
-          ? `Two-way ${LANG_NAME[a] ?? a} and ${LANG_NAME[b] ?? b}. Both languages will be spoken. Always transcribe Japanese speech in Japanese script when Japanese is spoken; never treat Japanese as silence, background, or English.`
-          : `Two-way ${LANG_NAME[a] ?? a} and ${LANG_NAME[b] ?? b}. Both languages will be spoken. Transcribe whichever is spoken; do not ignore one side.`,
-    },
-    {
-      key: "transcription",
-      value:
-        "Original column: transcribe everything spoken in either pair language, exactly as spoken — dialect, slang, and code-switching included. Never drop one side. Do not rewrite originals into the standard written variety." +
-        (arabicPair
-          ? ` Arabic originals MUST include ${AR_SPOKEN_DIALECTS}. Write them in Arabic script as heard. Do not skip dialect. Do not treat Maghrebi/Darija/Algerian/Tunisian as French or as silence.`
-          : japanesePair
-            ? " When Japanese is spoken, write Japanese script (kanji/kana) as heard. Never skip Japanese turns. Never wait for English. Never leave the original blank for Japanese speech."
-            : ""),
-    },
-    {
-      key: "translation",
-      value:
-        "Translation column: translate the FULL meaning of each original utterance into the stable standard written variety of the TARGET language. Be complete and literal to meaning — including slang, vulgar, sexual, insulting, and dialect wording. Never soften, euphemize, censor, or replace with an unrelated word. Never invent words, topics, or clauses that were not spoken. Never drop part of the utterance. Do not copy the spoken dialect form into the translation; render its meaning in the target standard. For medical/glossary phrases listed in translation_terms, use those exact target wordings; for everything else, translate normally." +
-        (arabicPair
-          ? " When the target is Arabic, use الفصحى only — even if the English is slang. Never dialect particles in the translation. Carry vulgar/slang meaning into فصحى, not a polite substitute."
-          : " English target uses standard international English with the same meaning, including vulgar/sexual sense — never food."),
-    },
-    {
-      key: "accuracy",
-      value:
-        "Interpreter accuracy first: translation must match what was said. No added stories, no omitted clauses, no polite rewrites. If the speaker says a vulgar or sexual word, translate that meaning; do not substitute food words, cheating, or other unrelated senses. Dialect sexual Arabic is sexual, not eating.",
-    },
-    { key: registerKey(a), value: `TRANSLATION into ${LANG_NAME[a] ?? a} uses: ${pinA}` },
-    { key: registerKey(b), value: `TRANSLATION into ${LANG_NAME[b] ?? b} uses: ${pinB}` },
-  ];
+  const englishPair = a === "en" || b === "en";
+  const other = a === "en" ? b : a;
+
+  let instructions =
+    `Speakers alternate between ${nameA} and ${nameB}. ` +
+    `Write each utterance in the language actually spoken: ${spokenAs(a)}, ${spokenAs(b)}.`;
   if (arabicPair) {
-    general.push({
-      key: "instructions",
-      value:
-        `Arabic will be spoken in any dialect (${AR_SPOKEN_DIALECTS}). Transcribe that original as dialect Arabic. Translation into Arabic is الفصحى only — NEVER Gulf/Levantine/Egyptian particles (الحين، بس، ما أقدر، فاهم، دلوقتي، هلق). Use الآن، لكن، لا أستطيع، أفهم، etc.`,
-    });
-  }
-  if (japanesePair) {
-    general.push({
-      key: "instructions",
-      value:
-        "Japanese and English alternate on this call. Capture every Japanese utterance in Japanese script. Do not ignore Japanese because English glossary terms are present.",
-    });
+    instructions += englishPair
+      ? " اكتب الكلام العربي بالحروف العربية كما قيل، والكلام الإنجليزي بالإنجليزية."
+      : " اكتب الكلام العربي بالحروف العربية كما قيل.";
   }
 
-  const textParts = [a, b]
-    .map((code) => PAIR_TRANSLATION_TEXT[code])
-    .filter((part): part is string => Boolean(part));
+  let translation =
+    "Professional interpreter translation of the full meaning, nothing added or dropped. " +
+    `Into ${nameA}: ${standardFor(a)}. Into ${nameB}: ${standardFor(b)}.`;
+  if (englishPair && other !== "en") {
+    translation += ` Do not copy English words or abbreviations into the ${nameOf(other)} translation.`;
+  }
+
+  const general: { key: string; value: string }[] = [
+    { key: "domain", value: "Live telephone and video interpreting (medical, legal, insurance)" },
+    { key: "language", value: `${nameA} and ${nameB}` },
+    { key: "instructions", value: instructions },
+    { key: "translation", value: translation },
+  ];
+
+  const terms: string[] = [];
+  const seenTerm = new Set<string>();
+  const addTerm = (t: string) => {
+    const k = t.toLowerCase();
+    if (seenTerm.has(k)) return;
+    seenTerm.add(k);
+    terms.push(t);
+  };
+  for (const code of [a, b]) {
+    if (LANG_NAME[code]) addTerm(`you're through to the ${nameOf(code)} interpreter`);
+  }
+  for (const code of [a, b]) {
+    for (const word of COMMON_CALL_WORDS[code] ?? []) addTerm(word);
+  }
 
   const translation_terms: { source: string; target: string }[] = [];
-  if (arabicPair) {
-    translation_terms.push(...AR_EN_MSA_TERMS);
-  }
-  if (a === "es" || b === "es") {
-    translation_terms.push(...ES_EN_STANDARD_TERMS);
-  }
-  if (a === "pl" || b === "pl") {
-    translation_terms.push(...PL_EN_STANDARD_TERMS);
-  }
-  if (a === "de" || b === "de") {
-    translation_terms.push(...DE_EN_STANDARD_TERMS);
-  }
-  if (a === "ja" || b === "ja") {
-    translation_terms.push(...JA_EN_STANDARD_TERMS);
+  if (englishPair) {
+    translation_terms.push(...(STANDARD_PHRASE_TERMS[other] ?? []));
   }
 
   const ctx: SonioxStartContext = { general };
-  if (textParts.length > 0) ctx.text = textParts.join(" ");
+  if (terms.length > 0) ctx.terms = terms;
   if (translation_terms.length > 0) ctx.translation_terms = translation_terms;
-  if (arabicPair) ctx.terms = [...AR_DIALECT_RECOGNITION_TERMS];
   return ctx;
 }
 

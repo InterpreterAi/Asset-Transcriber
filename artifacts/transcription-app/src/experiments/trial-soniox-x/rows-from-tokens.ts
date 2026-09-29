@@ -1,5 +1,6 @@
 import type { Token } from "@soniox/speech-to-text-web";
 import { applyFaithfulMeaningFixes } from "./meaning-locks";
+import { joinPhoneNumberSeparators } from "./phone-digits";
 
 /** Same speaker, 10s audio gap → new bubble. */
 const SAME_SPEAKER_PAUSE_MS = 10000;
@@ -306,7 +307,7 @@ export function snapshotLinesFromSonioxXRows(rows: SonioxXRow[]): {
   transcriptLines: string[];
   translationLines: string[];
 } {
-  const transcriptLines = rows.map((r) => `${r.origFinal}${r.origPartial}`);
+  const transcriptLines = rows.map((r) => `${joinPhoneNumberSeparators(r.origFinal)}${r.origPartial}`);
   const translationLines = rows.map((r) =>
     applyFaithfulMeaningFixes(`${r.origFinal}${r.origPartial}`, `${r.transFinal}${r.transPartial}`),
   );
