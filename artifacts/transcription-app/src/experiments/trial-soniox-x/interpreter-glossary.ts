@@ -6,21 +6,34 @@
  * https://github.com/soniox/soniox_examples/tree/master/speech_to_text
  *
  * English is the pivot. Each pair is `en-<lang>` with `{ "en", "<lang>" }`.
- * Soniox receives only a small core slice as translation_terms (user glossary
- * first, then a fixed medical/legal/insurance core). The full pack is applied
- * on screen by `displayPinPairs`. Large English glossary dumps in `text`/`terms`
- * pull live language detection onto English, so none are sent.
+ * We emit both directions as translation_terms (highest-value first) and
+ * remaining pairs as compact `text` glossary lines. Hard limit ~10,000 chars.
  */
 import type { SonioxStartContext } from "./stable-dialect-context";
 import pack from "./interpreter-glossary.json";
 import { meaningLockPinPairs } from "./meaning-locks";
 
-/** Soniox hard limit is ~10,000 chars; only a very large personal glossary can approach it. */
 export const SONIOX_X_CONTEXT_SAFE_CHARS = 9_600;
-/** Budget for everything except the personal glossary, which is never trimmed for budget. */
-export const SONIOX_X_CONTEXT_TARGET_CHARS = 4_000;
-/** Max shared-pack pairs (each sent both directions). */
-export const SONIOX_X_MAX_PACK_PAIRS = 30;
+/**
+ * English↔Japanese must stay lean. Dumping the full ~9k English medical glossary
+ * into Soniox `text` locks LID onto English so Japanese speech is dropped.
+ * Keep priority translation_terms + intro only — no bulk glossary line dump.
+ * Romaji is client-side display only.
+ */
+export const SONIOX_X_JA_CONTEXT_SAFE_CHARS = 6_000;
+
+export function sonioxContextCharLimit(langA: string, langB: string): number {
+  const a = (langA || "").split("-")[0]?.toLowerCase() ?? "";
+  const b = (langB || "").split("-")[0]?.toLowerCase() ?? "";
+  if (a === "ja" || b === "ja") return SONIOX_X_JA_CONTEXT_SAFE_CHARS;
+  return SONIOX_X_CONTEXT_SAFE_CHARS;
+}
+
+export function isJapaneseSonioxPair(langA: string, langB: string): boolean {
+  const a = (langA || "").split("-")[0]?.toLowerCase() ?? "";
+  const b = (langB || "").split("-")[0]?.toLowerCase() ?? "";
+  return a === "ja" || b === "ja";
+}
 
 export type GlossaryTerm = { source: string; target: string };
 type PackEntry = Record<string, string>;
@@ -146,8 +159,8 @@ const LEGAL_SINGLE = new Set(
 );
 
 /**
- * Tiny auto-insurance / accident priority set used to order the on-screen pin list.
- * Screenshot-critical claim language only.
+ * Tiny auto-insurance / accident priority set — must stay small so medical + legal
+ * still fit under the ~9.6k Soniox budget. Screenshot-critical claim language only.
  */
 const AUTO_PRIORITY = new Set(
   [
@@ -452,110 +465,363 @@ function cloneContext(dialect: SonioxStartContext): SonioxStartContext {
   };
 }
 
-function fits(ctx: SonioxStartContext, limit: number): boolean {
-  return contextChars(ctx) <= limit;
+/** English demonyms for interpreter handoff lines (same idea as chunk-v2 STT bias). */
+const DEMONYM_BY_BASE: Record<string, string> = {
+  ar: "Arabic",
+  es: "Spanish",
+  en: "English",
+  fr: "French",
+  de: "German",
+  pl: "Polish",
+  pt: "Portuguese",
+  ru: "Russian",
+  zh: "Chinese",
+  ja: "Japanese",
+  ko: "Korean",
+  hi: "Hindi",
+  he: "Hebrew",
+  fa: "Persian",
+  so: "Somali",
+  it: "Italian",
+  nl: "Dutch",
+  tr: "Turkish",
+  uk: "Ukrainian",
+  ur: "Urdu",
+  vi: "Vietnamese",
+};
+
+/**
+ * Call-opening phrases Soniox X was missing (chunk-v2 has these). Without them,
+ * STT latches onto "thank you for calling our…" / "UR3" instead of
+ * "you're through to the … interpreter".
+ *
+ * Deliberately omit "thank you for calling…" terms — those pull Soniox toward
+ * the wrong handoff line the user keeps seeing.
+ */
+export function buildInterpreterIntroTerms(langA: string, langB: string): string[] {
+  const demonyms = [
+    ...new Set(
+      [langBase(langA), langBase(langB), "ar", "es"]
+        .map((c) => DEMONYM_BY_BASE[c])
+        .filter((d): d is string => Boolean(d)),
+    ),
+  ];
+  const terms: string[] = [];
+  for (const d of demonyms) {
+    terms.push(
+      `you're through to the ${d} interpreter`,
+      `you are through to the ${d} interpreter`,
+      `through to the ${d} interpreter`,
+      `${d} interpreter`,
+    );
+  }
+  terms.push(
+    "you're through to the interpreter",
+    "you are through to the interpreter",
+    "you're through",
+    "you are through",
+    "interpreter",
+  );
+  return terms;
+}
+
+function withInterpreterCallFraming(ctx: SonioxStartContext, langA: string, langB: string): void {
+  if (!ctx.general) ctx.general = [];
+  const domain = ctx.general.find((kv) => kv.key === "domain");
+  if (domain) {
+    domain.value = "Telephone and video interpreting (including medical)";
+  } else {
+    ctx.general.unshift({
+      key: "domain",
+      value: "Telephone and video interpreting (including medical)",
+    });
+  }
+
+  const opening = ctx.general.find((kv) => kv.key === "call_opening");
+  const openingValue =
+    "Handoff line: you're through to the [language] interpreter (or you are through). " +
+    "Never write UR3 or thank you for calling our crew/team for that line. " +
+    "Each utterance is independent — do not reuse a previous wrong transcript.";
+  if (opening) opening.value = openingValue;
+  else ctx.general.push({ key: "call_opening", value: openingValue });
+
+  const intro = buildInterpreterIntroTerms(langA, langB);
+  const terms: string[] = [];
+  const seen = new Set<string>();
+  for (const t of [...intro, ...(ctx.terms ?? [])]) {
+    const k = t.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    terms.push(t);
+  }
+  if (terms.length > 0) ctx.terms = terms;
+}
+
+function withHealthcareTopic(ctx: SonioxStartContext): void {
+  if (!ctx.general) ctx.general = [];
+  // Keep telephone-interpreting domain; only add clinical topic if missing.
+  if (!ctx.general.some((kv) => kv.key === "topic")) {
+    ctx.general.push({
+      key: "topic",
+      value:
+        "Live interpreter call — introductions first; medical, legal, and auto-insurance terms when spoken",
+    });
+  }
+}
+
+function fits(ctx: SonioxStartContext, limit: number, reserve = 0): boolean {
+  return contextChars(ctx) <= limit - reserve;
+}
+
+/** Chars reserved so intro handoff terms still fit after the medical pack. */
+const INTRO_CONTEXT_RESERVE = 500;
+
+function isPriorityPairStart(term: GlossaryTerm): boolean {
+  const src = term.source.trim();
+  return (
+    LEGAL_PRIORITY.has(src.toLowerCase()) ||
+    AUTO_PRIORITY.has(src.toLowerCase()) ||
+    isRecognitionPin(src) ||
+    /^(sonogram|ultrasound|mammogram|mammography|stroke)$/i.test(src)
+  );
+}
+
+/** Tight abbr set for English↔Japanese only — must not change other pairs' pin flood. */
+const JA_PRIORITY_ABBR = new Set(
+  ["CPR", "MRI", "ECG", "EEG", "ER", "CT", "IUD", "CBC", "IVF", "D&C"].map((w) => w.toLowerCase()),
+);
+
+function isJapanesePriorityPin(en: string): boolean {
+  return JA_PRIORITY_ABBR.has(en.trim().toLowerCase());
+}
+
+function isJapanesePriorityPairStart(term: GlossaryTerm): boolean {
+  const src = term.source.trim();
+  if (!/^[A-Za-z0-9]/.test(src)) return false;
+  if (LEGAL_PRIORITY.has(src.toLowerCase()) || AUTO_PRIORITY.has(src.toLowerCase())) return true;
+  if (/^(sonogram|ultrasound|mammogram|mammography|stroke)$/i.test(src)) return true;
+  return isJapanesePriorityPin(src);
+}
+
+function addPackPairs(
+  ctx: SonioxStartContext,
+  packTerms: GlossaryTerm[],
+  seen: Set<string>,
+  includedSources: Set<string>,
+  userSources: Set<string>,
+  predicate: (start: GlossaryTerm) => boolean,
+  limit: number,
+  reserve = 0,
+): void {
+  ctx.translation_terms = ctx.translation_terms ?? [];
+  for (let i = 0; i < packTerms.length; i += 2) {
+    const start = packTerms[i];
+    if (!start || !predicate(start)) continue;
+    const batch = packTerms
+      .slice(i, i + 2)
+      .filter((t) => !seen.has(`${t.source}->${t.target}`) && !userSources.has(t.source));
+    if (batch.length === 0) continue;
+    const before = ctx.translation_terms.length;
+    ctx.translation_terms.push(...batch);
+    if (!fits(ctx, limit, reserve)) {
+      // Skip this pair and keep trying — a longer term must not block shorter priority pins.
+      ctx.translation_terms.length = before;
+      continue;
+    }
+    for (const t of batch) {
+      seen.add(`${t.source}->${t.target}`);
+      includedSources.add(t.source);
+    }
+  }
+}
+
+const PROTECTED_TRIM_SOURCES = new Set(
+  [
+    ...LEGAL_PRIORITY,
+    ...AUTO_PRIORITY,
+    "sonogram",
+    "ultrasound",
+    "mammogram",
+    "mammography",
+    "stroke",
+    "cpr",
+    "mri",
+    "ecg",
+    "iud",
+  ],
+);
+
+function trimContextToLimit(
+  ctx: SonioxStartContext,
+  limit: number,
+  userTermCount: number,
+  langA: string,
+  langB: string,
+): void {
+  while (!fits(ctx, limit) && (ctx.translation_terms?.length ?? 0) > userTermCount) {
+    const terms = ctx.translation_terms!;
+    let idx = terms.length - 1;
+    while (idx >= 0 && PROTECTED_TRIM_SOURCES.has(terms[idx]!.source.trim().toLowerCase())) {
+      idx -= 1;
+    }
+    if (idx < 0) break;
+    terms.splice(idx, 1);
+  }
+  while (!fits(ctx, limit) && (ctx.terms?.length ?? 0) > buildInterpreterIntroTerms(langA, langB).length) {
+    ctx.terms!.pop();
+  }
+  if (ctx.translation_terms && ctx.translation_terms.length === 0) delete ctx.translation_terms;
 }
 
 /**
- * Core shared-pack slice sent to Soniox, interleaved medical / legal / insurance so
- * the budget trims every domain evenly. Matched case-insensitively on the English side.
+ * English↔Japanese only. Lean context so Soniox still hears Japanese.
+ * Must not be used for any other pair.
  */
-const CORE_PACK_ORDER = [
-  "CPR",
-  "MRI",
-  "ER",
-  "sonogram",
-  "stroke",
-  "immigration status",
-  "felony",
-  "pro bono",
-  "attorney",
-  "car insurance",
-  "car accident",
-  "insurance claim",
-  "CT",
-  "ECG",
-  "IUD",
-  "asylum",
-  "deportation",
-  "police report",
-  "deductible",
-  "EEG",
-  "CBC",
-  "ultrasound",
-  "mammogram",
-  "misdemeanor",
-  "green card",
-  "restraining order",
-  "at fault",
-  "policy number",
-  "DUI",
-  "DMV",
-  "power of attorney",
-  "VIN",
-].map((w) => w.toLowerCase());
-
-/** `[en→tgt, tgt→en]` batches from the pack, in CORE_PACK_ORDER. */
-function corePackBatches(packTerms: readonly GlossaryTerm[]): GlossaryTerm[][] {
-  const byEnglish = new Map<string, number>();
-  for (let i = 0; i + 1 < packTerms.length; i += 2) {
-    const k = packTerms[i]!.source.trim().toLowerCase();
-    if (!byEnglish.has(k)) byEnglish.set(k, i);
-  }
-  const batches: GlossaryTerm[][] = [];
-  for (const en of CORE_PACK_ORDER) {
-    const i = byEnglish.get(en);
-    if (i === undefined) continue;
-    batches.push([packTerms[i]!, packTerms[i + 1]!]);
-  }
-  return batches;
-}
-
-/**
- * Short pair context + translation_terms: personal glossary first (never trimmed for
- * budget), then standard-phrase pins, then the core pack slice. A source is sent once,
- * so Soniox never sees two targets for the same wording.
- */
-export function mergeSonioxXInterpreterContext(args: {
+function mergeJapaneseLeanInterpreterContext(args: {
   dialect: SonioxStartContext;
   packTerms: GlossaryTerm[];
+  packPins: string[];
   userTerms: GlossaryTerm[];
   langA: string;
   langB: string;
 }): SonioxStartContext {
+  const limit = SONIOX_X_JA_CONTEXT_SAFE_CHARS;
+  const packReserve = 200;
   const ctx = cloneContext(args.dialect);
-  const phraseTerms = ctx.translation_terms ?? [];
-  const out: GlossaryTerm[] = [];
-  const sources = new Set<string>();
-  ctx.translation_terms = out;
-
-  const tryAdd = (batch: readonly GlossaryTerm[], limit: number): boolean => {
-    const fresh: GlossaryTerm[] = [];
-    const batchSources = new Set<string>();
-    for (const t of batch) {
-      const k = t.source.trim().toLowerCase();
-      if (!k || !t.target.trim() || sources.has(k) || batchSources.has(k)) continue;
-      batchSources.add(k);
-      fresh.push(t);
-    }
-    if (fresh.length === 0) return false;
-    out.push(...fresh);
-    if (!fits(ctx, limit)) {
-      out.length -= fresh.length;
-      return false;
-    }
-    for (const t of fresh) sources.add(t.source.trim().toLowerCase());
-    return true;
-  };
-
-  for (const t of args.userTerms) tryAdd([t], SONIOX_X_CONTEXT_SAFE_CHARS);
-  for (const t of phraseTerms) tryAdd([t], SONIOX_X_CONTEXT_TARGET_CHARS);
-  let packPairs = 0;
-  for (const batch of corePackBatches(args.packTerms)) {
-    if (packPairs >= SONIOX_X_MAX_PACK_PAIRS) break;
-    if (tryAdd(batch, SONIOX_X_CONTEXT_TARGET_CHARS)) packPairs += 1;
+  delete ctx.text;
+  if (!ctx.general) ctx.general = [];
+  if (!ctx.general.some((kv) => kv.key === "topic")) {
+    ctx.general.push({
+      key: "topic",
+      value: "Live interpreter call — English and Japanese both spoken; transcribe both",
+    });
   }
 
-  if (out.length === 0) delete ctx.translation_terms;
+  ctx.translation_terms = [...(ctx.translation_terms ?? []), ...args.userTerms];
+  if (!fits(ctx, limit, packReserve)) ctx.translation_terms = [...args.userTerms];
+
+  const seen = new Set((ctx.translation_terms ?? []).map((t) => `${t.source}->${t.target}`));
+  const includedSources = new Set((ctx.translation_terms ?? []).map((t) => t.source));
+  const userSources = new Set(args.userTerms.map((t) => t.source));
+
+  addPackPairs(
+    ctx,
+    args.packTerms,
+    seen,
+    includedSources,
+    userSources,
+    isJapanesePriorityPairStart,
+    limit,
+    packReserve,
+  );
+
+  const terms: string[] = [...(ctx.terms ?? [])];
+  const seenTerm = new Set(terms.map((t) => t.toLowerCase()));
+  for (const pin of args.packPins) {
+    if (!includedSources.has(pin) && !isJapanesePriorityPin(pin)) continue;
+    if (seenTerm.has(pin.toLowerCase())) continue;
+    seenTerm.add(pin.toLowerCase());
+    terms.push(pin);
+    ctx.terms = terms;
+    if (!fits(ctx, limit, packReserve)) {
+      terms.pop();
+      break;
+    }
+  }
+  if (terms.length > 0) ctx.terms = terms;
+  else delete ctx.terms;
+
+  withInterpreterCallFraming(ctx, args.langA, args.langB);
+  trimContextToLimit(ctx, limit, args.userTerms.length, args.langA, args.langB);
+  return ctx;
+}
+
+/** Dialect first, then medical pack (with reserve), then interpreter intro handoff bias. */
+export function mergeSonioxXInterpreterContext(args: {
+  dialect: SonioxStartContext;
+  packTerms: GlossaryTerm[];
+  packPins: string[];
+  packLines?: string[];
+  userTerms: GlossaryTerm[];
+  langA: string;
+  langB: string;
+}): SonioxStartContext {
+  // Only EN↔JA is special-cased. Every other pair uses the original full merge path.
+  if (isJapaneseSonioxPair(args.langA, args.langB)) {
+    return mergeJapaneseLeanInterpreterContext(args);
+  }
+
+  const limit = sonioxContextCharLimit(args.langA, args.langB);
+  const ctx = cloneContext(args.dialect);
+  if (args.packTerms.length > 0) withHealthcareTopic(ctx);
+
+  ctx.translation_terms = [...(ctx.translation_terms ?? []), ...args.userTerms];
+  if (!fits(ctx, limit, INTRO_CONTEXT_RESERVE)) ctx.translation_terms = [...args.userTerms];
+
+  const seen = new Set((ctx.translation_terms ?? []).map((t) => `${t.source}->${t.target}`));
+  const includedSources = new Set((ctx.translation_terms ?? []).map((t) => t.source));
+  const userSources = new Set(args.userTerms.map((t) => t.source));
+
+  addPackPairs(
+    ctx,
+    args.packTerms,
+    seen,
+    includedSources,
+    userSources,
+    isPriorityPairStart,
+    limit,
+    INTRO_CONTEXT_RESERVE,
+  );
+
+  const terms: string[] = [...(ctx.terms ?? [])];
+  const seenTerm = new Set(terms.map((t) => t.toLowerCase()));
+  for (const pin of args.packPins) {
+    if (!includedSources.has(pin) && !isRecognitionPin(pin)) continue;
+    if (seenTerm.has(pin.toLowerCase())) continue;
+    seenTerm.add(pin.toLowerCase());
+    terms.push(pin);
+    ctx.terms = terms;
+    if (!fits(ctx, limit, INTRO_CONTEXT_RESERVE)) {
+      terms.pop();
+      break;
+    }
+  }
+  if (terms.length > 0) ctx.terms = terms;
+  else delete ctx.terms;
+
+  const baseText = ctx.text ?? "";
+  const header =
+    "Bidirectional medical glossary (either side is source). Use the paired wording only; never keep the English word in the non-English translation.";
+  const extra: string[] = [];
+  for (const line of args.packLines ?? []) {
+    const en = line.split("=")[0] ?? "";
+    if (!en || includedSources.has(en)) continue;
+    const lead = /^([A-Z]{2,8}|D&C)\s+/.exec(en);
+    if (lead && includedSources.has(lead[1])) continue;
+    extra.push(line);
+    ctx.text = [baseText, header, extra.join("\n")].filter(Boolean).join("\n");
+    if (!fits(ctx, limit, INTRO_CONTEXT_RESERVE)) {
+      extra.pop();
+      ctx.text = extra.length > 0 ? [baseText, header, extra.join("\n")].filter(Boolean).join("\n") : baseText || undefined;
+      break;
+    }
+  }
+  if (!ctx.text) delete ctx.text;
+
+  addPackPairs(
+    ctx,
+    args.packTerms,
+    seen,
+    includedSources,
+    userSources,
+    (start) => !isPriorityPairStart(start),
+    limit,
+    INTRO_CONTEXT_RESERVE,
+  );
+
+  // Intro handoff bias last so medical pack keeps its slot — still prepended in terms.
+  withInterpreterCallFraming(ctx, args.langA, args.langB);
+  trimContextToLimit(ctx, limit, args.userTerms.length, args.langA, args.langB);
+
   return ctx;
 }

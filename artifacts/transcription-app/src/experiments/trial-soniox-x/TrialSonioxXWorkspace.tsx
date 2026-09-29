@@ -66,7 +66,6 @@ import { applyFaithfulMeaningFixes } from "./meaning-locks";
 import { langDir, attachNonFinalRows, rowsFromSonioxTokens, snapshotLinesFromSonioxXRows, stripeClassesForRows, type SonioxXRow } from "./rows-from-tokens";
 import { BidiText } from "./BidiText";
 import { buildStableDialectContext } from "./stable-dialect-context";
-import { joinPhoneNumberSeparators } from "./phone-digits";
 import {
   displayPinPairs,
   mergeSonioxXInterpreterContext,
@@ -215,10 +214,8 @@ const SonioxXTranscriptRow = memo(function SonioxXTranscriptRow({
   readingFailed: boolean;
 }) {
   const orig = `${row.origFinal}${row.origPartial}`;
-  const origFinalShown = joinPhoneNumberSeparators(row.origFinal);
-  const origShown = `${origFinalShown}${row.origPartial}`;
   const transRaw = `${row.transFinal}${row.transPartial}`;
-  // Option A: pin against the FULL local glossary (not just the small Soniox
+  // Option A: pin against the FULL local glossary (not just the 9.6k Soniox
   // session slice). Apply on live partials too so glossary wording shows as
   // soon as the original phrase is present — not only after finalize.
   const transPinned = applyExactGlossaryPins(orig, transRaw, pinPairs);
@@ -264,7 +261,7 @@ const SonioxXTranscriptRow = memo(function SonioxXTranscriptRow({
                 dir={origDir}
                 style={{ textAlign: origDir === "rtl" ? "right" : "left", unicodeBidi: "isolate" }}
               >
-                <BidiText text={origFinalShown} baseDir={origDir} className="workspace-selectable-text" />
+                <BidiText text={row.origFinal} baseDir={origDir} className="workspace-selectable-text" />
                 <BidiText
                   text={row.origPartial}
                   baseDir={origDir}
@@ -284,8 +281,8 @@ const SonioxXTranscriptRow = memo(function SonioxXTranscriptRow({
             ) : null}
           </div>
           <CopyBtn text={latinOnly && shouldShowScriptReading(orig, readingMode, readingFamily)
-            ? (textToLatinReading(orig, readingFamily) || origShown)
-            : origShown} />
+            ? (textToLatinReading(orig, readingFamily) || orig)
+            : orig} />
         </div>
       </div>
       <div className={cn("min-w-0", layoutStacked ? "pl-4 border-l border-border/30 ml-3 mt-1.5" : "pt-0.5")}>
@@ -597,6 +594,8 @@ export default function TrialSonioxXWorkspace() {
     return mergeSonioxXInterpreterContext({
       dialect: dialectContext,
       packTerms: pack.translationTerms,
+      packPins: pack.recognitionPins,
+      packLines: pack.glossaryLines,
       userTerms: userGlossaryToTerms(glossaryRows, languageA.code, languageB.code),
       langA: languageA.code,
       langB: languageB.code,
