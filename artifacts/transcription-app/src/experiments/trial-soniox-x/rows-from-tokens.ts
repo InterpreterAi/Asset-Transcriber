@@ -171,18 +171,45 @@ function effectiveSpokenSpeakers(tokens: Token[]): (string | undefined)[] {
  * a name or a phone number must not chop the same speaker into tiny bubbles.
  * https://github.com/soniox/soniox_examples/tree/master/speech_to_text
  *
- * A new bubble opens only for:
+ * A new bubble opens for:
  * - a new speaker (real diarization turn)
  * - the same speaker after a 10s pause
+ * - a spoken-language change (Soniox LID tags every token:
+ *   https://soniox.com/docs/stt/concepts/language-identification). Phone audio
+ *   often gives both talkers one speaker id, so language is the reliable turn signal.
+ *   Tokens without letters (digits, punctuation) never switch the language.
  *
- * Same speaker + language tag change does NOT open a bubble. Soniox LID tags
- * every token (https://soniox.com/docs/stt/concepts/language-identification), so
- * "Okay" / "WhatsApp" mid-Arabic used to split into extra rows and rotate the
- * stripe. Keep one bubble for that speaker; loanwords stay inline.
- * Same rule for every English↔X pair.
+ * Translation tokens trail their originals, so each one goes to the latest row
+ * spoken in the other language, not blindly to the newest row.
  */
 function rowHasVisibleText(row: SonioxXRow): boolean {
   return Boolean(row.origFinal || row.origPartial || row.transFinal || row.transPartial);
+}
+
+function rowHasOriginal(row: SonioxXRow): boolean {
+  return Boolean(row.origFinal || row.origPartial);
+}
+
+/** Spoken language of an original token; undefined when it carries no letters. */
+function spokenLang(token: Token): string | undefined {
+  if (!/\p{L}/u.test(token.text ?? "")) return undefined;
+  return langBase(token.language) || undefined;
+}
+
+function languageChanged(rowLang: string | undefined, nextLang: string | undefined): boolean {
+  return Boolean(rowLang && nextLang && langBase(rowLang) !== langBase(nextLang));
+}
+
+/** Latest row whose original is in a different language than this translation. */
+function translationTargetIndex(rows: readonly SonioxXRow[], transLang: string | undefined): number {
+  const lang = langBase(transLang);
+  if (lang) {
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const orig = langBase(rows[i]!.origLang);
+      if (orig && orig !== lang) return i;
+    }
+  }
+  return rows.length - 1;
 }
 
 function shouldOpenNewRow(current: SonioxXRow, next: SonioxXRow, nextOrigMs?: number): boolean {
@@ -192,7 +219,7 @@ function shouldOpenNewRow(current: SonioxXRow, next: SonioxXRow, nextOrigMs?: nu
       typeof current.lastOrigMs === "number" &&
       nextOrigMs - current.lastOrigMs >= SAME_SPEAKER_PAUSE_MS,
   );
-  return speakerChanged || longPause;
+  return speakerChanged || longPause || languageChanged(current.origLang, next.origLang);
 }
 
 function mergeLiveRow(base: SonioxXRow, live: SonioxXRow): SonioxXRow {
@@ -213,15 +240,24 @@ function mergeLiveRow(base: SonioxXRow, live: SonioxXRow): SonioxXRow {
  */
 export function attachNonFinalRows(finalized: SonioxXRow[], nonFinalTokens: Token[]): SonioxXRow[] {
   if (nonFinalTokens.length === 0) return finalized;
-  const live = rowsFromSonioxTokens(nonFinalTokens).filter(rowHasVisibleText);
+  let live = rowsFromSonioxTokens(nonFinalTokens).filter(rowHasVisibleText);
   if (live.length === 0) return finalized;
-  if (finalized.length === 0) return live;
-  const last = finalized[finalized.length - 1]!;
+  const out = finalized.slice();
+  // A live translation with no original belongs to an already-final original.
+  const lead = live[0]!;
+  if (!rowHasOriginal(lead) && out.length > 0) {
+    const idx = translationTargetIndex(out, lead.transLang);
+    out[idx] = mergeLiveRow(out[idx]!, lead);
+    live = live.slice(1);
+  }
+  if (live.length === 0) return out;
+  if (out.length === 0) return live;
+  const last = out[out.length - 1]!;
   const firstLive = live[0]!;
   if (shouldOpenNewRow(last, firstLive, firstLive.lastOrigMs)) {
-    return [...finalized, ...live];
+    return [...out, ...live];
   }
-  return [...finalized.slice(0, -1), mergeLiveRow(last, firstLive), ...live.slice(1)];
+  return [...out.slice(0, -1), mergeLiveRow(last, firstLive), ...live.slice(1)];
 }
 
 export function rowsFromSonioxTokens(tokens: Token[]): SonioxXRow[] {
@@ -253,15 +289,15 @@ export function rowsFromSonioxTokens(tokens: Token[]): SonioxXRow[] {
           ms - current.lastOrigMs >= SAME_SPEAKER_PAUSE_MS,
       );
 
-      // Language tag changes never open a row for the same speaker (code-switch /
-      // "Okay" after Arabic / loanwords). Only speaker change or 10s pause does.
-      if (!current || speakerChanged || longPause) {
+      const lang = spokenLang(token);
+      const langChanged = Boolean(current && languageChanged(current.origLang, lang));
+      const translationOnly = Boolean(current && !rowHasOriginal(current) && rowHasVisibleText(current));
+      if (!current || speakerChanged || longPause || langChanged || translationOnly) {
         current = openRow(speaker);
       } else if (!current.speaker && speaker) {
         current.speaker = speaker;
       }
-      // Keep the row's first spoken language for stripe stability.
-      if (token.language && !current.origLang) current.origLang = token.language;
+      if (lang && !current.origLang) current.origLang = token.language;
       if (typeof ms === "number") current.lastOrigMs = ms;
       const next = appendToken(
         { final: current.origFinal, partial: current.origPartial },
@@ -272,10 +308,12 @@ export function rowsFromSonioxTokens(tokens: Token[]): SonioxXRow[] {
       continue;
     }
 
-    if (!current) {
+    if (rows.length === 0) {
       current = openRow(undefined);
+      appendTranslation(current, token);
+      continue;
     }
-    appendTranslation(current, token);
+    appendTranslation(rows[translationTargetIndex(rows, token.language)]!, token);
   }
 
   return rows.filter(
