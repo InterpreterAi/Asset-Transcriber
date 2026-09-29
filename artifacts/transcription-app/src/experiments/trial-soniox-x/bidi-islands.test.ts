@@ -36,6 +36,13 @@ describe("splitBidiIslands", () => {
     expect(pieces.map((p) => p.text).join("")).toBe("Hello world");
   });
 
+  it("keeps a spaced phone number as one LTR run inside Arabic", () => {
+    const pieces = splitBidiIslands("رقم الهاتف 555 123 4567 شكرا", "rtl");
+    const ltr = pieces.filter((p) => p.isolate === "ltr");
+    expect(ltr).toHaveLength(1);
+    expect(ltr[0]!.text).toContain("555 123 4567");
+  });
+
   it("keeps digit order tokens intact", () => {
     const pieces = splitBidiIslands("الرقم 12345", "rtl");
     expect(pieces.find((p) => p.text.includes("12345"))?.isolate).toBe("ltr");

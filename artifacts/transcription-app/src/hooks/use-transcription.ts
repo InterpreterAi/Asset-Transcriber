@@ -6064,18 +6064,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       );
       if (nativeTx.length > 0) {
         paintCanonRowTranslationIfAllowed(rowId, nativeTx, { force: true });
-      } else {
-        // Never clear in chunk-v2 finalization path.
-        // If Soniox emits no finalized translation for this row, preserve existing
-        // painted translation; otherwise mirror committed source so the bubble
-        // never disappears.
-        const fallback = canonWsIsolationEngineRef.current?.getRowTranslation(rowId).trim()
-          || committedText.trim()
-          || utteranceCommittedText(utterance).trim();
-        if (fallback.length > 0) {
-          paintCanonRowTranslationIfAllowed(rowId, fallback, { force: true });
-        }
       }
+      // No Soniox translation yet: keep what is painted. Never copy the original
+      // into the translation column — late tokens are routed here by the reducer.
       return;
     }
     const sourceNorm = committedText.trim();
@@ -7318,14 +7309,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       );
       if (nativeTx.length > 0) {
         paintCanonRowTranslationIfAllowed(rowId, nativeTx, { force: true });
-      } else {
-        const fallback = canonWsIsolationEngineRef.current?.getRowTranslation(rowId).trim()
-          || utteranceCommittedText(payload.utterance).trim();
-        if (fallback.length > 0) {
-          paintCanonRowTranslationIfAllowed(rowId, fallback, { force: true });
-        }
-        // Never call clearCanonRowTranslation — the frozen-row paint already owns the bubble.
       }
+      // Never call clearCanonRowTranslation — the frozen-row paint already owns the bubble.
       return;
     }
     setTimeout(() => {

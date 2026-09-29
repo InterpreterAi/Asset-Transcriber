@@ -1,6 +1,12 @@
 import type { RowProjection } from "../projection/transcript-view";
 import { logChunkV2DomPaint } from "@/hooks/morsy-chunk-v2-instrumentation";
 import {
+  dominantBidiDir,
+  splitBidiIslands,
+  stripBidiControls,
+  type BidiDir,
+} from "@/experiments/trial-soniox-x/bidi-islands";
+import {
   createWorkspaceCopyButton,
   markWorkspaceSelectableText,
   runWorkspaceDomMutation,
@@ -11,7 +17,7 @@ import {
   createCommittedMirror,
   renderCommittedAppendOnly,
 } from "./committed-renderer";
-import { isolateLtrInRtl, renderHypothesisLcp } from "./hypothesis-renderer";
+import { renderHypothesisLcp } from "./hypothesis-renderer";
 export type CanonAppendWsLayoutMode = "side-by-side" | "stacked";
 export type EngineDomRowHandles = {
   row: HTMLElement;
@@ -33,31 +39,32 @@ function getLangDirection(langCode: string): "rtl" | "ltr" {
   const base = langCode.split("-")[0]?.toLowerCase() ?? "";
   return RTL_LANGS.has(base) ? "rtl" : "ltr";
 }
-function isolateForeignInRtl(text: string): string {
-  // Inside RTL text: isolate Latin words, brand names, numbers, codes, emails, URLs
-  return text.replace(
-    /([A-Za-z][A-Za-z0-9._@+\-/:%]*(?:\s[A-Za-z][A-Za-z0-9._@+\-/:%]*)*|\d[\d.,/:%-]*(?:\s*(?:mg|mL|kg|mmHg|bpm|%|dL|mcg|m2|USD|\$|lbs|oz|cm|mm|Hz|kHz|MHz))?)/g,
-    "\u2066$1\u2069",
-  );
+/** Chunk V2 paints like Soniox X: paragraph direction from the text's own letters. */
+function textDirection(text: string, fallbackLangCode: string): BidiDir {
+  return dominantBidiDir(text, getLangDirection(fallbackLangCode));
 }
-function applyDirectionToElement(el: HTMLElement, langCode: string): void {
-  const dir = getLangDirection(langCode);
-  el.setAttribute("dir", dir);
+function applyDirectionToElement(el: HTMLElement, dir: BidiDir): void {
+  if (el.getAttribute("dir") !== dir) el.setAttribute("dir", dir);
   el.style.textAlign = dir === "rtl" ? "right" : "left";
-  el.style.unicodeBidi = "plaintext";
+  el.style.unicodeBidi = "isolate";
 }
-function prepareTextForDisplay(text: string, langCode: string): string {
-  const dir = getLangDirection(langCode);
-  // For RTL languages: isolate any embedded LTR content so it reads correctly
-  if (dir === "rtl") return isolateForeignInRtl(text);
-  // For LTR languages: no special handling needed, browser handles it correctly
-  return text;
-}
-function rowSourceLanguage(row: HTMLElement): string {
-  return row.dataset.cawLanguage ?? "";
-}
-function rowTranslationLanguage(row: HTMLElement): string {
-  return row.dataset.cawTranslationLanguage ?? rowSourceLanguage(row);
+/**
+ * Whole opposite-script runs (an English clause, a phone number) become one `<bdi>`,
+ * so numbers keep their order and copied text has no hidden bidi characters.
+ */
+function paintBidiText(el: HTMLElement, text: string, baseDir: BidiDir): void {
+  const clean = stripBidiControls(text);
+  if (el.textContent === clean && el.dataset.cawBidiDir === baseDir) return;
+  const doc = el.ownerDocument;
+  const nodes = splitBidiIslands(clean, baseDir).map((piece) => {
+    if (!piece.isolate) return doc.createTextNode(piece.text);
+    const bdi = doc.createElement("bdi");
+    bdi.setAttribute("dir", piece.isolate);
+    bdi.textContent = piece.text;
+    return bdi;
+  });
+  el.replaceChildren(...nodes);
+  el.dataset.cawBidiDir = baseDir;
 }
 function stripeColorFallback(language?: string): string {
   const b = (language ?? "").split("-")[0]!.toLowerCase();
@@ -110,7 +117,6 @@ export class CanonAppendWsDomWriter {
     return ROW_STRIPE_COLOR_CLASSES[idx]!;
   }
   private readonly translationByRowId = new Map<string, string>();
-  private readonly committedRtlCache = new Map<string, { raw: string; processed: string }>();
   /** Basic · Morsy Urgent live paint: frozen prefix span + editable tail span. */
   private readonly translationPrefixLiveByRowId = new Map<
     string,
@@ -206,25 +212,30 @@ export class CanonAppendWsDomWriter {
   private paintTranslation(handles: EngineDomRowHandles): void {
     const rowId = handles.row.dataset.cawSegment ?? "";
     const text = this.translationByRowId.get(rowId) ?? "";
-    const translationLanguage = rowTranslationLanguage(handles.row);
-    const displayText =
-      this.chunkV2NativeTranslate
-        ? prepareTextForDisplay(text, translationLanguage)
-        : text;
     const prevRendered = handles.translationEl.textContent ?? "";
     if (this.chunkV2NativeTranslate) {
-      applyDirectionToElement(handles.translationEl, translationLanguage);
-    }
-    if (this.layoutMode === "stacked") {
+      const dir = textDirection(text, "");
+      applyDirectionToElement(handles.translationEl, dir);
+      if (this.layoutMode === "stacked") {
+        const textEl = this.stackedTranslationTextEl(handles.translationEl);
+        paintBidiText(textEl, text, dir);
+        const arrow = handles.translationEl.querySelector(`[data-caw-translation-arrow]`);
+        if (arrow instanceof HTMLElement) {
+          arrow.style.display = text.length ? "" : "none";
+        }
+      } else {
+        paintBidiText(handles.translationEl, text, dir);
+      }
+    } else if (this.layoutMode === "stacked") {
       const textEl = this.stackedTranslationTextEl(handles.translationEl);
-      if (textEl.textContent === displayText) return;
-      textEl.textContent = displayText;
+      if (textEl.textContent === text) return;
+      textEl.textContent = text;
       const arrow = handles.translationEl.querySelector(`[data-caw-translation-arrow]`);
       if (arrow instanceof HTMLElement) {
-        arrow.style.display = displayText.length ? "" : "none";
+        arrow.style.display = text.length ? "" : "none";
       }
-    } else if (handles.translationEl.textContent !== displayText) {
-      handles.translationEl.textContent = displayText;
+    } else if (handles.translationEl.textContent !== text) {
+      handles.translationEl.textContent = text;
     }
     if (!this.translationPrefixLiveByRowId.has(rowId)) {
       logChunkV2DomPaint({
@@ -271,25 +282,17 @@ export class CanonAppendWsDomWriter {
     const prevRendered = handles.translationEl.textContent ?? "";
     if (prevRendered.trim() === composedTarget.trim()) return;
     const { lockedEl, liveEl } = this.translationPartEls(handles.translationEl);
-    const translationLanguage = rowTranslationLanguage(handles.row);
     markWorkspaceSelectableText(lockedEl);
     markWorkspaceSelectableText(liveEl);
     if (this.chunkV2NativeTranslate) {
-      applyDirectionToElement(handles.translationEl, translationLanguage);
-      const lockedDisplay = parts.locked.length
-        ? prepareTextForDisplay(parts.locked, translationLanguage)
-        : "";
-      const liveDisplay = parts.live.length
-        ? prepareTextForDisplay(parts.live, translationLanguage)
-        : "";
-      if (prev?.locked !== parts.locked) {
-        lockedEl.textContent = lockedDisplay;
-      }
+      const dir = textDirection(composedTarget, "");
+      applyDirectionToElement(handles.translationEl, dir);
+      paintBidiText(lockedEl, parts.locked, dir);
       const _selA = liveEl.ownerDocument.getSelection();
       const _userSelectingA = _selA != null && _selA.rangeCount > 0 && !_selA.isCollapsed &&
         handles.translationEl.contains(_selA.getRangeAt(0).commonAncestorContainer);
-      if (!_userSelectingA && liveEl.textContent !== liveDisplay) {
-        liveEl.textContent = liveDisplay;
+      if (!_userSelectingA) {
+        paintBidiText(liveEl, parts.live, dir);
       }
       return;
     }
@@ -343,7 +346,7 @@ export class CanonAppendWsDomWriter {
       sel.addRange(range);
     });
     if (this.chunkV2NativeTranslate) {
-      applyDirectionToElement(line, proj?.language ?? "");
+      applyDirectionToElement(line, getLangDirection(proj?.language ?? ""));
     }
     if (this.chunkV2NativeTranslate) {
       // Chunk V2-only: active rows render in a single grey hypothesis span.
@@ -392,9 +395,6 @@ export class CanonAppendWsDomWriter {
         range.selectNodeContents(translationEl);
         sel.addRange(range);
       });
-      if (this.chunkV2NativeTranslate) {
-        applyDirectionToElement(translationEl, proj.language ?? "");
-      }
       transRow.appendChild(translationEl);
       transRow.appendChild(
         createWorkspaceCopyButton(() => translationEl.textContent ?? ""),
@@ -419,9 +419,6 @@ export class CanonAppendWsDomWriter {
         range.selectNodeContents(translationEl);
         sel.addRange(range);
       });
-      if (this.chunkV2NativeTranslate) {
-        applyDirectionToElement(translationEl, proj.language ?? "");
-      }
       transRow.appendChild(translationEl);
       transRow.appendChild(
         createWorkspaceCopyButton(() => translationEl.textContent ?? ""),
@@ -466,28 +463,15 @@ export class CanonAppendWsDomWriter {
       handles.stripe.className = `w-1 shrink-0 rounded-full self-stretch min-h-[1.25rem] mt-0.5 ${this.stripeColorForRow(proj.speaker, proj.row_id)}`;
       if (!line || !hypo) continue;
       if (this.chunkV2NativeTranslate) {
-        applyDirectionToElement(line, proj.language ?? "");
-        if (proj.finalized) {
-          // Chunk V2: freeze-time commit only.
-          renderCommittedAppendOnly(line, proj.committedText, handles.committedMirror);
-          renderHypothesisLcp(hypo, "");
-        } else {
-          // Chunk V2: keep active row fully grey until structural freeze.
-          // Cache processed committedText so isolateLtrInRtl only re-runs when committed changes.
-          const dir = getLangDirection(proj.language ?? "");
-          let processedCommitted = proj.committedText;
-          if (dir === "rtl" && proj.committedText) {
-            const cached = this.committedRtlCache.get(proj.row_id);
-            if (cached && cached.raw === proj.committedText) {
-              processedCommitted = cached.processed;
-            } else {
-              processedCommitted = isolateLtrInRtl(proj.committedText);
-              this.committedRtlCache.set(proj.row_id, { raw: proj.committedText, processed: processedCommitted });
-            }
-          }
-          const combined = [processedCommitted, proj.liveText].filter(Boolean).join(" ");
-          renderHypothesisLcp(hypo, combined);
-        }
+        const committedHost = line.querySelector<HTMLElement>(`[data-caw-engine="committed"]`);
+        // Chunk V2: active row stays fully grey (hypothesis span) until structural freeze.
+        const visible = proj.finalized
+          ? proj.committedText
+          : [proj.committedText, proj.liveText].filter(Boolean).join(" ");
+        const dir = textDirection(visible, proj.language ?? "");
+        applyDirectionToElement(line, dir);
+        if (committedHost) paintBidiText(committedHost, proj.finalized ? visible : "", dir);
+        paintBidiText(hypo, proj.finalized ? "" : visible, dir);
       } else {
         // Non-chunk-v2 path remains committed + live split.
         renderCommittedAppendOnly(line, proj.committedText, handles.committedMirror);
@@ -506,7 +490,6 @@ export class CanonAppendWsDomWriter {
       if (!seen.has(id)) {
         handles.row.remove();
         this.byRowId.delete(id);
-        this.committedRtlCache.delete(id);
         this.translationByRowId.delete(id);
         this.translationPrefixLiveByRowId.delete(id);
       }
@@ -520,7 +503,6 @@ export class CanonAppendWsDomWriter {
   detachAll(container: HTMLElement): void {
     container.replaceChildren();
     this.byRowId.clear();
-    this.committedRtlCache.clear();
     this.translationByRowId.clear();
     this.translationPrefixLiveByRowId.clear();
     this.rowStripeSlotBySpeaker.clear();

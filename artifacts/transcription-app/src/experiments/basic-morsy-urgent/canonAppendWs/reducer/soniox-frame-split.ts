@@ -65,6 +65,16 @@ export function translationPreviewTextFromFrame(tokens: readonly Token[]): strin
     .join("");
 }
 
+/** Translation tokens in stream order (final and non-final), for per-row routing. */
+export function translationTokensFromFrame(tokens: readonly Token[]): Token[] {
+  return tokens.filter(
+    t =>
+      t.translation_status === "translation" &&
+      typeof t.text === "string" &&
+      t.text.length > 0,
+  );
+}
+
 /** Infer speaker/language from the tail of the token list */
 export function inferTailSpeakerLang(tokens: readonly CanonToken[]): {
   speaker?: string;

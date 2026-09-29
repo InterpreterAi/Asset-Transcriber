@@ -117,4 +117,115 @@ describe("reduceCanonAppendWs chunk-v2 segmentation", () => {
     expect(other.finalizedUtterances).toHaveLength(0);
     expect(utteranceCommittedText(other.activeUtterance!)).toBe("Hello مرحبا");
   });
+
+  it("does not split the row on a digit token tagged with the other language", () => {
+    let state = createInitialEngineState();
+    state = reduceCanonAppendWs(
+      state,
+      frame(1, [
+        tok(1, "رقمي", { speaker: "1", language: "ar" }),
+        tok(2, " 555", { speaker: "1", language: "en" }),
+        tok(3, " هو", { speaker: "1", language: "ar" }),
+      ]),
+      ctx(1_000, true),
+    );
+    expect(state.finalizedUtterances).toHaveLength(0);
+    expect(state.activeUtterance?.language).toBe("ar");
+    expect(utteranceCommittedText(state.activeUtterance!)).toBe("رقمي 555 هو");
+  });
+});
+
+function trans(n: number, text: string, language: string, isFinal = true): Token {
+  return {
+    id: `tr-${n}`,
+    text,
+    isFinal,
+    confidence: 0.95,
+    language,
+    translation_status: "translation",
+  };
+}
+
+describe("reduceCanonAppendWs chunk-v2 translation routing", () => {
+  it("keeps the translation on its own row", () => {
+    let state = createInitialEngineState();
+    state = reduceCanonAppendWs(
+      state,
+      frame(1, [tok(1, "Hello", { speaker: "1", language: "en" }), trans(1, "Bonjour", "fr")]),
+      ctx(1_000, true),
+    );
+    expect(state.activeTranslationText).toBe("Bonjour");
+    expect(state.activeTranslationPreviewText).toBe("Bonjour");
+  });
+
+  it("routes a late translation back to the previous row after a language switch", () => {
+    let state = createInitialEngineState();
+    state = reduceCanonAppendWs(
+      state,
+      frame(1, [tok(1, "No. Just", { speaker: "1", language: "en" })]),
+      ctx(1_000, true),
+    );
+    state = reduceCanonAppendWs(
+      state,
+      frame(2, [
+        tok(2, " je ne peux pas", { speaker: "1", language: "fr" }),
+        trans(1, "Non. Juste", "fr"),
+        trans(2, "I can't", "en"),
+      ]),
+      ctx(1_400, true),
+    );
+    expect(state.finalizedUtterances).toHaveLength(1);
+    expect(state.finalizedUtterances[0]!.translationText).toBe("Non. Juste");
+    expect(state.activeUtterance?.language).toBe("fr");
+    expect(state.activeTranslationText).toBe("I can't");
+  });
+
+  it("routes a late translation to the frozen row after a speaker handoff", () => {
+    let state = createInitialEngineState();
+    state = reduceCanonAppendWs(
+      state,
+      frame(1, [tok(1, "Merci", { speaker: "1", language: "fr" })]),
+      ctx(1_000, true),
+    );
+    state = reduceCanonAppendWs(
+      state,
+      frame(2, [tok(2, "Okay", { speaker: "2", language: "en" })]),
+      ctx(1_200, true),
+    );
+    state = reduceCanonAppendWs(
+      state,
+      frame(3, [trans(1, "Thank you", "en"), trans(2, "D'accord", "fr")]),
+      ctx(1_300, true),
+    );
+    expect(state.finalizedUtterances[0]!.translationText).toBe("Thank you");
+    expect(state.activeTranslationText).toBe("D'accord");
+  });
+
+  it("shows a non-final translation only as the active row preview", () => {
+    let state = createInitialEngineState();
+    state = reduceCanonAppendWs(
+      state,
+      frame(1, [tok(1, "Hello", { speaker: "1", language: "en" }), trans(1, "Bon", "fr", false)]),
+      ctx(1_000, true),
+    );
+    expect(state.activeTranslationText).toBe("");
+    expect(state.activeTranslationPreviewText).toBe("Bon");
+    state = reduceCanonAppendWs(
+      state,
+      frame(2, [trans(2, "Bonjour", "fr")]),
+      ctx(1_100, true),
+    );
+    expect(state.activeTranslationText).toBe("Bonjour");
+    expect(state.activeTranslationPreviewText).toBe("Bonjour");
+  });
+
+  it("leaves the non-chunk path unchanged", () => {
+    let state = createInitialEngineState();
+    state = reduceCanonAppendWs(
+      state,
+      frame(1, [tok(1, "Hello", { speaker: "1", language: "en" }), trans(1, "Bonjour", "fr")]),
+      ctx(1_000, false),
+    );
+    expect(state.activeTranslationText).toBe("Bonjour");
+  });
 });

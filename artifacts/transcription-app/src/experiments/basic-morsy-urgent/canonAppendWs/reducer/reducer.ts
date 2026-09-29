@@ -1,4 +1,5 @@
 import type { AppendOnlyCanonLedger } from "../ledger/append-ledger";
+import type { Token } from "../types/tokens";
 import type { EngineState } from "../types/transcript";
 import type { SonioxFrame } from "../ws/frame-types";
 
@@ -15,6 +16,7 @@ import {
   canonTokensFromFrame,
   translationPreviewTextFromFrame,
   translationTextFromFrame,
+  translationTokensFromFrame,
   inferTailSpeakerLang,
   nonFinalsForRow,
 } from "./soniox-frame-split";
@@ -24,6 +26,63 @@ const SPEAKER_BREAK_CONFIRM_TOKENS = 1;
 function normalizedSpeakerId(s?: string): string | undefined {
   const t = s?.trim();
   return t && t.length > 0 ? t : undefined;
+}
+
+/** Digits / punctuation carry no spoken language and must not switch the row language. */
+function hasLetters(text: string): boolean {
+  return /\p{L}/u.test(text);
+}
+
+function langBase(code: string | undefined): string | undefined {
+  const b = code?.trim().split("-")[0]?.toLowerCase();
+  return b && b.length > 0 ? b : undefined;
+}
+
+type TranslationTarget = { kind: "active" } | { kind: "finalized"; index: number };
+
+/**
+ * Soniox translation tokens trail their originals, so after a language switch the
+ * previous row's translation is still arriving. Send each token to the latest row
+ * spoken in the other language (active row first), else the active row.
+ */
+function translationTarget(state: EngineState, transLang: string | undefined): TranslationTarget {
+  const lang = langBase(transLang);
+  if (!lang) return { kind: "active" };
+  const activeLang = langBase(state.activeUtterance?.language);
+  if (activeLang && activeLang !== lang) return { kind: "active" };
+  for (let i = state.finalizedUtterances.length - 1; i >= 0; i--) {
+    const rowLang = langBase(state.finalizedUtterances[i]!.language);
+    if (rowLang && rowLang !== lang) return { kind: "finalized", index: i };
+  }
+  return { kind: "active" };
+}
+
+/**
+ * Chunk V2: route final translation tokens per row; non-final translation tokens
+ * are resent every frame, so only those routed to the active row form its preview.
+ */
+function routeChunkV2Translations(state: EngineState, tokens: readonly Token[]): EngineState {
+  let activeFinal = state.activeTranslationText ?? "";
+  let activePreview = "";
+  let finalized = state.finalizedUtterances;
+  for (const t of tokens) {
+    const target = translationTarget({ ...state, finalizedUtterances: finalized }, t.language);
+    if (target.kind === "active") {
+      if (t.isFinal) activeFinal += t.text;
+      else activePreview += t.text;
+      continue;
+    }
+    if (!t.isFinal) continue;
+    if (finalized === state.finalizedUtterances) finalized = finalized.slice();
+    const row = finalized[target.index]!;
+    finalized[target.index] = { ...row, translationText: `${row.translationText ?? ""}${t.text}` };
+  }
+  return {
+    ...state,
+    finalizedUtterances: finalized,
+    activeTranslationText: activeFinal,
+    activeTranslationPreviewText: `${activeFinal}${activePreview}`,
+  };
 }
 
 export type ReduceContext = {
@@ -90,22 +149,26 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
     lastHypothesisLagMs: lagComputed !== null ? lagComputed : next.lastHypothesisLagMs,
   };
 
-  const translationChunk = translationTextFromFrame(frame.tokens);
-  const translationPreview = translationPreviewTextFromFrame(frame.tokens);
-  const nextFinalTranslation =
-    translationChunk.length > 0
-      ? (next.activeTranslationText ?? "") + translationChunk
-      : next.activeTranslationText ?? "";
-  next = {
-    ...next,
-    activeTranslationText: nextFinalTranslation,
-    activeTranslationPreviewText:
-      translationPreview.length > 0
-        ? `${nextFinalTranslation}${translationPreview}`
-        : nextFinalTranslation,
-  };
+  if (!chunkV2) {
+    const translationChunk = translationTextFromFrame(frame.tokens);
+    const translationPreview = translationPreviewTextFromFrame(frame.tokens);
+    const nextFinalTranslation =
+      translationChunk.length > 0
+        ? (next.activeTranslationText ?? "") + translationChunk
+        : next.activeTranslationText ?? "";
+    next = {
+      ...next,
+      activeTranslationText: nextFinalTranslation,
+      activeTranslationPreviewText:
+        translationPreview.length > 0
+          ? `${nextFinalTranslation}${translationPreview}`
+          : nextFinalTranslation,
+    };
+  }
 
-  const canon = canonTokensFromFrame(frame.tokens);
+  const canon = canonTokensFromFrame(frame.tokens).map(ct =>
+    chunkV2 && !hasLetters(ct.text) ? { ...ct, language: undefined } : ct,
+  );
   const frameFinals = canon.filter(t => t.is_final);
   const frameNonFinals = canon.filter(t => !t.is_final);
 
@@ -196,6 +259,10 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
         nonFinalTokens: nonFinalsForRow(frameNonFinals, rowSpeaker),
       },
     };
+  }
+
+  if (chunkV2) {
+    next = routeChunkV2Translations(next, translationTokensFromFrame(frame.tokens));
   }
 
   if (frame.tokens.length > 0) {
