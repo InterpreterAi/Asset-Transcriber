@@ -25,16 +25,16 @@ describe("stable dialect pins", () => {
     expect(STABLE_WRITTEN_DIALECT.pl).toMatch(/ogólnopolski|polszczyzna/i);
   });
 
-  it("gives English↔Arabic short keys, the dialect list once, and فصحى for translation", () => {
+  it("gives English↔Arabic short keys, any dialect with none named, and فصحى for translation", () => {
     const ctx = buildStableDialectContext("ar", "en");
     const blob = JSON.stringify(ctx);
     expect(blob).toBe(JSON.stringify(buildStableDialectContext("en", "ar")));
     expect(ctx.general?.map((row) => row.key)).toEqual(["domain", "language", "instructions", "translation", "call_opening"]);
     expect(ctx.text).toBeUndefined();
-    expect(blob.match(/Yemeni/g)?.length).toBe(1);
-    for (const d of ["Iraqi", "Gulf", "Levantine", "Egyptian", "Sudanese", "Moroccan Darija", "Algerian", "Tunisian", "Libyan"]) {
-      expect(blob, d).toContain(d);
+    for (const d of ["Yemeni", "Iraqi", "Gulf", "Levantine", "Egyptian", "Sudanese", "Algerian", "Tunisian", "Libyan", "Hassaniya"]) {
+      expect(blob, d).not.toContain(d);
     }
+    expect(ctx.general?.find((row) => row.key === "instructions")?.value).toMatch(/any dialect from any country/);
     expect(ctx.general?.find((row) => row.key === "instructions")?.value).toMatch(/Arabic script exactly as heard/);
     expect(ctx.general?.find((row) => row.key === "instructions")?.value).toMatch(/not French/);
     expect(ctx.general?.find((row) => row.key === "translation")?.value).toMatch(/الفصحى/);

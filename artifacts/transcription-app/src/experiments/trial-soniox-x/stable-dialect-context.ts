@@ -214,38 +214,66 @@ export function isEnglishArabicPair(langA: string, langB: string): boolean {
   return (a === "en" && b === "ar") || (a === "ar" && b === "en");
 }
 
-/** Everyday dialect words, a few per region, so Soniox hears every dialect as Arabic. */
+/**
+ * Everyday spoken words from every Arabic-speaking region, so Soniox hears any
+ * dialect as Arabic. Region comments are for maintainers only; Soniox gets words.
+ */
 const EN_AR_DIALECT_TERMS = [
-  // Egyptian
+  // Egypt
   "ازاي",
   "كده",
   "دلوقتي",
   "عايز",
   "النهارده",
-  // Gulf
+  "إمبارح",
+  "بتاع",
+  "أوي",
+  "مفيش",
+  "فين",
+  "بقى",
+  // Sudan
+  "زول",
+  "داير",
+  "هسي",
+  "عديل",
+  "شنو",
+  // Arabian Peninsula
   "شلون",
   "وايد",
   "الحين",
   "أبغى",
-  // Levantine
+  "وش",
+  "دحين",
+  "ترى",
+  "شفيك",
+  "هذيل",
+  "زين",
+  // Iraq
+  "هسه",
+  "شكو",
+  "ماكو",
+  "اكو",
+  "كلش",
+  "هواية",
+  "ميخالف",
+  // Levant
   "قديش",
   "هلق",
+  "هلأ",
   "شو",
   "هيك",
   "بدي",
   "منيح",
-  // Iraqi
-  "هسه",
-  "شكو",
-  "ماكو",
-  "كلش",
-  // Yemeni
+  "كتير",
+  "هون",
+  "مبارح",
+  "مو",
+  // Yemen
   "مدري",
   "ايش",
-  // Sudanese
-  "زول",
-  "داير",
-  // Maghrebi
+  "ذلحين",
+  "عاد",
+  // North Africa
   "واش",
   "بزاف",
   "علاش",
@@ -254,10 +282,24 @@ const EN_AR_DIALECT_TERMS = [
   "كيفاش",
   "مزيان",
   "بغيت",
+  "واخا",
+  "راني",
+  "درك",
+  "شحال",
+  "توا",
+  "باهي",
+  "شنية",
+  "هلبا",
   // Shared
   "وين",
   "يعني",
   "والله",
+  "إن شاء الله",
+  "الحمد لله",
+  "طيب",
+  "خلاص",
+  "ليش",
+  "ليه",
 ];
 
 const EN_AR_HANDOFF_TERMS = [
@@ -272,7 +314,10 @@ const EN_AR_PHRASE_TERMS: { source: string; target: string }[] = AR_EN_MSA_TERMS
   (t) => t.source !== "family bucket" && t.source !== "What the fuck do you mean",
 );
 
-/** English↔Arabic only: short keys, dialect list once, no background text. */
+/**
+ * English↔Arabic only: short keys, no background text. Soniox's single `ar` model
+ * covers every dialect, so none are named (a partial list would single some out).
+ */
 function buildEnglishArabicContext(): SonioxStartContext {
   return {
     general: [
@@ -281,7 +326,7 @@ function buildEnglishArabicContext(): SonioxStartContext {
       {
         key: "instructions",
         value:
-          `Two-way call: English and Arabic are both spoken. Arabic may be in any dialect (${AR_SPOKEN_DIALECTS}). ` +
+          "Two-way call: English and Arabic are both spoken. Arabic may be spoken in any dialect from any country. " +
           "Write Arabic speech in Arabic script exactly as heard, and English speech in English. " +
           "Maghrebi/Darija is Arabic, not French. Never skip or silence either side.",
       },

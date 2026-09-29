@@ -79,7 +79,7 @@ describe("interpreter glossary", () => {
     expect(blob.length).toBeLessThan(6_000);
     expect(JSON.stringify(enAr("ar", "en"))).toBe(blob);
     expect(ctx.text).toBeUndefined();
-    expect(blob.match(/Yemeni/g)?.length).toBe(1);
+    expect(blob).not.toMatch(/Yemeni|Levantine|Hassaniya/);
     expect(blob).not.toMatch(/Spanish|family bucket|What the fuck/);
 
     const find = (src: string) => ctx.translation_terms?.find((t) => t.source.toLowerCase() === src.toLowerCase());
@@ -98,8 +98,11 @@ describe("interpreter glossary", () => {
     expect(new Set(sources).size).toBe(sources.length);
 
     const arabicTerms = (ctx.terms ?? []).filter((t) => /[\u0600-\u06FF]/.test(t));
-    expect(arabicTerms.length).toBeGreaterThanOrEqual(30);
-    for (const w of ["بزاف", "شلون", "ازاي", "قديش", "هسه", "واش", "زول", "مدري"]) expect(arabicTerms, w).toContain(w);
+    expect(arabicTerms.length).toBeGreaterThanOrEqual(70);
+    expect(new Set(arabicTerms).size).toBe(arabicTerms.length);
+    for (const w of ["بزاف", "شلون", "ازاي", "قديش", "هسه", "واش", "زول", "مدري", "باهي", "هلبا", "دحين", "ذلحين"]) {
+      expect(arabicTerms, w).toContain(w);
+    }
     expect(ctx.terms).toContain("you're through to the Arabic interpreter");
     expect((ctx.terms ?? []).some((t) => /^[A-Z]{2,8}$/.test(t))).toBe(false);
 
