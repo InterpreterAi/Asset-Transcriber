@@ -60,32 +60,62 @@ describe("interpreter glossary", () => {
     expect(pack.glossaryLines.length).toBeGreaterThan(400);
   });
 
-  it("pins high-value medical abbreviations inside the Soniox budget", () => {
-    const dialect = buildStableDialectContext("en", "ar");
-    const pack = packTermsForPair("en", "ar");
-    const ctx = mergeSonioxXInterpreterContext({
-      dialect,
-      packTerms: pack.translationTerms,
-      packPins: pack.recognitionPins,
-      packLines: pack.glossaryLines,
-      userTerms: [],
-      langA: "en",
-      langB: "ar",
-    });
-    const n = JSON.stringify(ctx).length;
-    expect(n).toBeGreaterThan(7_500);
-    expect(n).toBeLessThanOrEqual(SONIOX_X_CONTEXT_SAFE_CHARS);
-    for (const en of ["CPR", "MRI", "Sonogram"] as const) {
-      const ok =
-        ctx.translation_terms?.some((t) => t.source === en) || (ctx.text ?? "").includes(`${en}=`);
-      expect(ok, `${en} missing; chars=${n}`).toBe(true);
+  it("sends English↔Arabic a lean context: common words both ways, dialect words, no rare abbreviations", () => {
+    const enAr = (a: string, b: string, userTerms: ReturnType<typeof userGlossaryToTerms> = []) => {
+      const pack = packTermsForPair(a, b);
+      return mergeSonioxXInterpreterContext({
+        dialect: buildStableDialectContext(a, b),
+        packTerms: pack.translationTerms,
+        packPins: pack.recognitionPins,
+        packLines: pack.glossaryLines,
+        userTerms,
+        langA: a,
+        langB: b,
+      });
+    };
+    const ctx = enAr("en", "ar");
+    const blob = JSON.stringify(ctx);
+    expect(blob.length).toBeGreaterThan(4_000);
+    expect(blob.length).toBeLessThan(6_000);
+    expect(JSON.stringify(enAr("ar", "en"))).toBe(blob);
+    expect(ctx.text).toBeUndefined();
+    expect(blob.match(/Yemeni/g)?.length).toBe(1);
+    expect(blob).not.toMatch(/Spanish|family bucket|What the fuck/);
+
+    const find = (src: string) => ctx.translation_terms?.find((t) => t.source.toLowerCase() === src.toLowerCase());
+    for (const en of ["CPR", "MRI", "ER", "sonogram", "stroke", "blood pressure", "prescription", "Felony", "Car insurance", "appointment"]) {
+      expect(find(en), en).toBeDefined();
     }
-    const sono = ctx.translation_terms?.find((t) => t.source === "Sonogram");
-    expect(sono?.target).toBe("تصوير بالموجات فوق الصوتية");
-    expect(sono?.target ?? "").not.toMatch(/sonogram/i);
-    expect(ctx.terms?.includes("بزاف")).toBe(true);
-    expect(ctx.terms?.some((t) => /you are through to the Arabic interpreter/i.test(t))).toBe(true);
-    expect(JSON.stringify(ctx)).toMatch(/Yemeni/);
+    expect(find("sonogram")?.target).toBe("تصوير بالموجات فوق الصوتية");
+    expect(find("Immigration status")?.target).toBe("الوضع الهجري");
+    expect(find("Felony")?.target).toBe("جناية");
+    expect(find("جناية")?.target).toBe("Felony");
+    expect(find("موعد")?.target).toBe("appointment");
+    for (const rare of ["BCG", "DTP", "ELISA", "FSH", "IGE", "LOP", "SGOT", "RBC", "WBC", "PMS", "D&C", "CAT", "EEG", "CBC", "VIN"]) {
+      expect(find(rare), rare).toBeUndefined();
+    }
+    const sources = (ctx.translation_terms ?? []).map((t) => t.source.toLowerCase());
+    expect(new Set(sources).size).toBe(sources.length);
+
+    const arabicTerms = (ctx.terms ?? []).filter((t) => /[\u0600-\u06FF]/.test(t));
+    expect(arabicTerms.length).toBeGreaterThanOrEqual(30);
+    for (const w of ["بزاف", "شلون", "ازاي", "قديش", "هسه", "واش", "زول", "مدري"]) expect(arabicTerms, w).toContain(w);
+    expect(ctx.terms).toContain("you're through to the Arabic interpreter");
+    expect((ctx.terms ?? []).some((t) => /^[A-Z]{2,8}$/.test(t))).toBe(false);
+
+    const user = userGlossaryToTerms(
+      [
+        { term: "MRI", translation: "الرنين المغناطيسي", sourceLanguage: "en", targetLanguage: "ar" },
+        { term: "Photo ID", translation: "بطاقة هوية تحمل صورة شخصية" },
+      ],
+      "en",
+      "ar",
+    );
+    const withUser = enAr("en", "ar", user);
+    expect(withUser.translation_terms?.slice(0, 4)).toEqual(user);
+    expect(withUser.translation_terms?.filter((t) => t.source === "MRI")).toEqual([
+      { source: "MRI", target: "الرنين المغناطيسي" },
+    ]);
   });
 
   it("loads the en-es medical pack both directions", () => {
@@ -314,6 +344,8 @@ describe("interpreter glossary", () => {
       expect(pack.translationTerms.some((t) => t.source === "Immigration status")).toBe(true);
       expect(pack.translationTerms.some((t) => t.source === "Felony")).toBe(true);
       expect(pack.translationTerms.some((t) => t.source === "Pro bono")).toBe(true);
+      // English↔Arabic sends its own lean list (covered above).
+      if (b === "ar") continue;
       const dialect = buildStableDialectContext(a, b);
       const ctx = mergeSonioxXInterpreterContext({
         dialect,
@@ -339,14 +371,6 @@ describe("interpreter glossary", () => {
         ctx.translation_terms?.some((t) => t.source === "Pro bono") ||
           (ctx.text ?? "").includes("Pro bono="),
       ).toBe(true);
-      if (b === "ar") {
-        expect(
-          ctx.translation_terms?.some(
-            (t) => t.source === "Immigration status" && t.target === "الوضع الهجري",
-          ),
-        ).toBe(true);
-        expect(ctx.translation_terms?.some((t) => t.source === "Felony" && t.target === "جناية")).toBe(true);
-      }
     }
   });
 

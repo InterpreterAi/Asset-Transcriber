@@ -208,8 +208,104 @@ const PL_EN_STANDARD_TERMS: { source: string; target: string }[] = [
   { source: "nobody", target: "nikt" },
 ];
 
+export function isEnglishArabicPair(langA: string, langB: string): boolean {
+  const a = langBase(langA);
+  const b = langBase(langB);
+  return (a === "en" && b === "ar") || (a === "ar" && b === "en");
+}
+
+/** Everyday dialect words, a few per region, so Soniox hears every dialect as Arabic. */
+const EN_AR_DIALECT_TERMS = [
+  // Egyptian
+  "ازاي",
+  "كده",
+  "دلوقتي",
+  "عايز",
+  "النهارده",
+  // Gulf
+  "شلون",
+  "وايد",
+  "الحين",
+  "أبغى",
+  // Levantine
+  "قديش",
+  "هلق",
+  "شو",
+  "هيك",
+  "بدي",
+  "منيح",
+  // Iraqi
+  "هسه",
+  "شكو",
+  "ماكو",
+  "كلش",
+  // Yemeni
+  "مدري",
+  "ايش",
+  // Sudanese
+  "زول",
+  "داير",
+  // Maghrebi
+  "واش",
+  "بزاف",
+  "علاش",
+  "برشا",
+  "دابا",
+  "كيفاش",
+  "مزيان",
+  "بغيت",
+  // Shared
+  "وين",
+  "يعني",
+  "والله",
+];
+
+const EN_AR_HANDOFF_TERMS = [
+  "you're through to the Arabic interpreter",
+  "you're through to the English interpreter",
+  "you're through to the interpreter",
+  "you're through",
+];
+
+/** English phrases Soniox tends to render in dialect; one direction, into فصحى. */
+const EN_AR_PHRASE_TERMS: { source: string; target: string }[] = AR_EN_MSA_TERMS.filter(
+  (t) => t.source !== "family bucket" && t.source !== "What the fuck do you mean",
+);
+
+/** English↔Arabic only: short keys, dialect list once, no background text. */
+function buildEnglishArabicContext(): SonioxStartContext {
+  return {
+    general: [
+      { key: "domain", value: "Telephone and video interpreting (medical, legal, insurance)" },
+      { key: "language", value: "English and Arabic" },
+      {
+        key: "instructions",
+        value:
+          `Two-way call: English and Arabic are both spoken. Arabic may be in any dialect (${AR_SPOKEN_DIALECTS}). ` +
+          "Write Arabic speech in Arabic script exactly as heard, and English speech in English. " +
+          "Maghrebi/Darija is Arabic, not French. Never skip or silence either side.",
+      },
+      {
+        key: "translation",
+        value:
+          "Translate the full meaning of each utterance: nothing added, nothing dropped, no softening; vulgar or sexual meaning stays (never food words). " +
+          "Into Arabic: Modern Standard Arabic (الفصحى) only — no dialect words (الآن not الحين، لكن not بس، لا أستطيع not ما أقدر) and no English words or abbreviations. " +
+          "Into English: standard American English. Use translation_terms wording exactly.",
+      },
+      {
+        key: "call_opening",
+        value:
+          "Handoff line: you're through to the [language] interpreter. Never write UR3 or thank you for calling our crew/team for that line.",
+      },
+    ],
+    terms: [...EN_AR_HANDOFF_TERMS, ...EN_AR_DIALECT_TERMS],
+    translation_terms: EN_AR_PHRASE_TERMS.map((t) => ({ ...t })),
+  };
+}
+
 /** Pair-scoped Soniox context. Short `general` keys; no 60-language dump. */
 export function buildStableDialectContext(langA: string, langB: string): SonioxStartContext {
+  if (isEnglishArabicPair(langA, langB)) return buildEnglishArabicContext();
   const a = langBase(langA);
   const b = langBase(langB);
   const pinA = pinFor(a);

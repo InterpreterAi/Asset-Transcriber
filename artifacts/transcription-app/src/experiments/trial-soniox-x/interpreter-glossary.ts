@@ -9,7 +9,7 @@
  * We emit both directions as translation_terms (highest-value first) and
  * remaining pairs as compact `text` glossary lines. Hard limit ~10,000 chars.
  */
-import type { SonioxStartContext } from "./stable-dialect-context";
+import { isEnglishArabicPair, type SonioxStartContext } from "./stable-dialect-context";
 import pack from "./interpreter-glossary.json";
 import { meaningLockPinPairs } from "./meaning-locks";
 
@@ -736,6 +736,107 @@ function mergeJapaneseLeanInterpreterContext(args: {
   return ctx;
 }
 
+/** English↔Arabic Soniox slice: common call words only, English wording as in the pack. */
+const EN_AR_PACK_WORDS = [
+  "CPR",
+  "CT",
+  "ER",
+  "MRI",
+  "ECG",
+  "IUD",
+  "ultrasound",
+  "sonogram",
+  "mammogram",
+  "stroke",
+  "prescription",
+  "medication",
+  "allergy",
+  "fever",
+  "blood pressure",
+  "blood test",
+  "symptoms",
+  "diagnosis",
+  "surgery",
+  "antibiotic",
+  "diabetes",
+  "car accident",
+  "car insurance",
+  "insurance claim",
+  "attorney",
+  "lawyer",
+  "asylum",
+  "deportation",
+  "felony",
+  "misdemeanor",
+  "green card",
+  "visa",
+  "immigration status",
+  "legal aid",
+  "power of attorney",
+  "court",
+  "custody",
+].map((w) => w.toLowerCase());
+
+/** Everyday words the pack lacks (not pinned on screen, so no clash with pack pins). */
+const EN_AR_EXTRA_TERMS: GlossaryTerm[] = [
+  { source: "appointment", target: "موعد" },
+  { source: "pharmacy", target: "الصيدلية" },
+];
+
+/**
+ * English↔Arabic only. Personal glossary first (never trimmed), then فصحى phrase
+ * pins, then common words in both directions. A source is sent once.
+ */
+function mergeEnglishArabicLeanContext(args: {
+  dialect: SonioxStartContext;
+  packTerms: GlossaryTerm[];
+  userTerms: GlossaryTerm[];
+}): SonioxStartContext {
+  const ctx = cloneContext(args.dialect);
+  const phraseTerms = ctx.translation_terms ?? [];
+  const out: GlossaryTerm[] = [];
+  const sources = new Set<string>();
+  ctx.translation_terms = out;
+
+  const tryAdd = (batch: readonly GlossaryTerm[], limit: number): void => {
+    const fresh: GlossaryTerm[] = [];
+    const batchSources = new Set<string>();
+    for (const t of batch) {
+      const k = t.source.trim().toLowerCase();
+      if (!k || !t.target.trim() || sources.has(k) || batchSources.has(k)) continue;
+      batchSources.add(k);
+      fresh.push(t);
+    }
+    if (fresh.length === 0) return;
+    out.push(...fresh);
+    if (!fits(ctx, limit)) {
+      out.length -= fresh.length;
+      return;
+    }
+    for (const t of fresh) sources.add(t.source.trim().toLowerCase());
+  };
+
+  for (const t of args.userTerms) tryAdd([t], Number.POSITIVE_INFINITY);
+  for (const t of phraseTerms) tryAdd([t], SONIOX_X_CONTEXT_SAFE_CHARS);
+
+  const byEnglish = new Map<string, number>();
+  for (let i = 0; i + 1 < args.packTerms.length; i += 2) {
+    const k = args.packTerms[i]!.source.trim().toLowerCase();
+    if (!byEnglish.has(k)) byEnglish.set(k, i);
+  }
+  for (const en of EN_AR_PACK_WORDS) {
+    const i = byEnglish.get(en);
+    if (i === undefined) continue;
+    tryAdd([args.packTerms[i]!, args.packTerms[i + 1]!], SONIOX_X_CONTEXT_SAFE_CHARS);
+  }
+  for (const t of EN_AR_EXTRA_TERMS) {
+    tryAdd([t, { source: t.target, target: t.source }], SONIOX_X_CONTEXT_SAFE_CHARS);
+  }
+
+  if (out.length === 0) delete ctx.translation_terms;
+  return ctx;
+}
+
 /** Dialect first, then medical pack (with reserve), then interpreter intro handoff bias. */
 export function mergeSonioxXInterpreterContext(args: {
   dialect: SonioxStartContext;
@@ -746,7 +847,10 @@ export function mergeSonioxXInterpreterContext(args: {
   langA: string;
   langB: string;
 }): SonioxStartContext {
-  // Only EN↔JA is special-cased. Every other pair uses the original full merge path.
+  // Only EN↔AR and EN↔JA are special-cased. Every other pair uses the original full merge path.
+  if (isEnglishArabicPair(args.langA, args.langB)) {
+    return mergeEnglishArabicLeanContext(args);
+  }
   if (isJapaneseSonioxPair(args.langA, args.langB)) {
     return mergeJapaneseLeanInterpreterContext(args);
   }
