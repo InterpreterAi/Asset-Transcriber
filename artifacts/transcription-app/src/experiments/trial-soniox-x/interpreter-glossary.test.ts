@@ -1,12 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { buildStableDialectContext } from "./stable-dialect-context";
 import {
-  commonCallTermsForPair,
   englishPivotPairKey,
   mergeSonioxXInterpreterContext,
   packTermsForPair,
   userGlossaryToTerms,
-  SONIOX_X_COMMON_CONTEXT_CHARS,
   SONIOX_X_CONTEXT_SAFE_CHARS,
   SONIOX_X_CONTEXT_TARGET_CHARS,
   type GlossaryTerm,
@@ -152,8 +150,7 @@ describe("interpreter glossary", () => {
     for (const [a, b] of PRIORITY_PAIRS) {
       const ctx = contextFor(a, b);
       const n = JSON.stringify(ctx).length;
-      const limit = b === "ar" ? SONIOX_X_COMMON_CONTEXT_CHARS : SONIOX_X_CONTEXT_TARGET_CHARS;
-      expect(n, `${b}: ${n}`).toBeLessThanOrEqual(limit);
+      expect(n, `${b}: ${n}`).toBeLessThanOrEqual(SONIOX_X_CONTEXT_TARGET_CHARS);
       expect(ctx.text, b).toBeUndefined();
       expect(ctx.general?.map((row) => row.key), b).toEqual(["domain", "language", "instructions", "translation"]);
       for (const term of ctx.terms ?? []) {
@@ -235,55 +232,6 @@ describe("interpreter glossary", () => {
       "ar",
     );
     expect(JSON.stringify(contextFor("en", "ar", huge)).length).toBeLessThanOrEqual(SONIOX_X_CONTEXT_SAFE_CHARS);
-  });
-
-  it("sends every everyday EN→AR call word in فصحى, English → Arabic only", () => {
-    const common = commonCallTermsForPair("en", "ar");
-    expect(common.length).toBeGreaterThanOrEqual(45);
-    const ar = contextFor("ar", "en");
-    for (const t of common) expect(ar.translation_terms, t.source).toContainEqual(t);
-    const find = (en: string) => ar.translation_terms?.find((t) => t.source === en)?.target;
-    expect(find("cavities")).toBe("تسوس الأسنان");
-    expect(find("floss")).toBe("خيط الأسنان");
-    expect(find("candy")).toBe("الحلوى");
-    expect(find("appointment")).toBe("موعد");
-    for (const t of common) {
-      expect(ar.translation_terms?.some((x) => x.source === t.target), t.target).toBe(false);
-      expect(/[A-Za-z]/.test(t.target), t.target).toBe(false);
-    }
-  });
-
-  it("keeps everyday call words off the pack, so they never clash with on-screen pins", () => {
-    const packSources = new Set(packTermsForPair("en", "ar").translationTerms.map((t) => t.source.toLowerCase()));
-    for (const t of commonCallTermsForPair("en", "ar")) {
-      expect(packSources.has(t.source.toLowerCase()), t.source).toBe(false);
-    }
-  });
-
-  it("still fits every everyday call word next to a typical personal glossary", () => {
-    const user = userGlossaryToTerms(
-      Array.from({ length: 20 }, (_, i) => ({
-        term: `personal term ${i}`,
-        translation: `مصطلح شخصي ${i}`,
-        sourceLanguage: "en",
-        targetLanguage: "ar",
-      })),
-      "en",
-      "ar",
-    );
-    const ctx = contextFor("en", "ar", user);
-    for (const t of user) expect(ctx.translation_terms).toContainEqual(t);
-    for (const t of commonCallTermsForPair("en", "ar")) expect(ctx.translation_terms, t.source).toContainEqual(t);
-    expect(JSON.stringify(ctx).length).toBeLessThanOrEqual(SONIOX_X_COMMON_CONTEXT_CHARS);
-  });
-
-  it("adds everyday call words only to English–Arabic", () => {
-    for (const [a, b] of PRIORITY_PAIRS) {
-      if (b === "ar") continue;
-      expect(commonCallTermsForPair(a, b), b).toEqual([]);
-      expect(hasSource(contextFor(a, b), "cavities"), b).toBe(false);
-    }
-    expect(commonCallTermsForPair("fr", "de")).toEqual([]);
   });
 
   it("pairs without a shared pack send only the short pair context", () => {

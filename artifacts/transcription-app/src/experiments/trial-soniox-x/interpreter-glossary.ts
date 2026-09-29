@@ -7,8 +7,7 @@
  *
  * English is the pivot. Each pair is `en-<lang>` with `{ "en", "<lang>" }`.
  * Soniox receives only a small core slice as translation_terms (user glossary
- * first, then a fixed medical/legal/insurance core, then everyday call words for
- * pairs that have a curated list). The full pack is applied
+ * first, then a fixed medical/legal/insurance core). The full pack is applied
  * on screen by `displayPinPairs`. Large English glossary dumps in `text`/`terms`
  * pull live language detection onto English, so none are sent.
  */
@@ -22,8 +21,6 @@ export const SONIOX_X_CONTEXT_SAFE_CHARS = 9_600;
 export const SONIOX_X_CONTEXT_TARGET_CHARS = 4_000;
 /** Max shared-pack pairs (each sent both directions). */
 export const SONIOX_X_MAX_PACK_PAIRS = 30;
-/** Budget ceiling once everyday call words are added (EN↔AR only). */
-export const SONIOX_X_COMMON_CONTEXT_CHARS = 7_000;
 
 export type GlossaryTerm = { source: string; target: string };
 type PackEntry = Record<string, string>;
@@ -498,73 +495,6 @@ const CORE_PACK_ORDER = [
   "VIN",
 ].map((w) => w.toLowerCase());
 
-/**
- * Everyday medical / dental / legal call words that the pack does not cover,
- * English → فصحى. Sent to Soniox only (English → Arabic), never pinned on screen,
- * so they cannot clash with pack pins.
- */
-const COMMON_CALL_TERMS: Readonly<Record<string, readonly GlossaryTerm[]>> = {
-  ar: [
-    { source: "cavities", target: "تسوس الأسنان" },
-    { source: "cavity", target: "تسوس في السن" },
-    { source: "floss", target: "خيط الأسنان" },
-    { source: "flossing", target: "استخدام خيط الأسنان" },
-    { source: "toothbrush", target: "فرشاة الأسنان" },
-    { source: "toothpaste", target: "معجون الأسنان" },
-    { source: "dentist", target: "طبيب الأسنان" },
-    { source: "gums", target: "اللثة" },
-    { source: "fluoride", target: "الفلورايد" },
-    { source: "candy", target: "الحلوى" },
-    { source: "sweets", target: "الحلويات" },
-    { source: "appointment", target: "موعد" },
-    { source: "follow-up appointment", target: "موعد المتابعة" },
-    { source: "pharmacy", target: "الصيدلية" },
-    { source: "side effects", target: "الآثار الجانبية" },
-    { source: "referral", target: "إحالة" },
-    { source: "specialist", target: "طبيب مختص" },
-    { source: "pediatrician", target: "طبيب الأطفال" },
-    { source: "primary care doctor", target: "طبيب الرعاية الأولية" },
-    { source: "urgent care", target: "مركز الرعاية العاجلة" },
-    { source: "vaccine", target: "لقاح" },
-    { source: "vaccines", target: "اللقاحات" },
-    { source: "blood sugar", target: "نسبة السكر في الدم" },
-    { source: "nausea", target: "غثيان" },
-    { source: "vomiting", target: "تقيؤ" },
-    { source: "swelling", target: "تورم" },
-    { source: "constipation", target: "إمساك" },
-    { source: "pregnant", target: "حامل" },
-    { source: "pregnancy", target: "الحمل" },
-    { source: "dose", target: "جرعة" },
-    { source: "over the counter", target: "دون وصفة طبية" },
-    { source: "ointment", target: "مرهم" },
-    { source: "x-ray", target: "أشعة سينية" },
-    { source: "lab results", target: "نتائج التحاليل" },
-    { source: "chest pain", target: "ألم في الصدر" },
-    { source: "urine sample", target: "عينة بول" },
-    { source: "stool sample", target: "عينة براز" },
-    { source: "court date", target: "موعد الجلسة" },
-    { source: "lease", target: "عقد الإيجار" },
-    { source: "landlord", target: "مالك العقار" },
-    { source: "eviction", target: "الإخلاء" },
-    { source: "signature", target: "التوقيع" },
-    { source: "consent form", target: "نموذج الموافقة" },
-    { source: "date of birth", target: "تاريخ الميلاد" },
-    { source: "social security number", target: "رقم الضمان الاجتماعي" },
-    { source: "case number", target: "رقم القضية" },
-    { source: "insurance card", target: "بطاقة التأمين" },
-    { source: "copay", target: "الدفعة المشتركة" },
-    { source: "Medicaid", target: "ميديكيد" },
-    { source: "Medicare", target: "ميديكير" },
-  ],
-};
-
-/** Everyday call words for an English pair; empty for pairs without a curated list. */
-export function commonCallTermsForPair(langA: string, langB: string): readonly GlossaryTerm[] {
-  const key = englishPivotPairKey(langA, langB);
-  const other = key ? otherLangFromPairKey(key) : null;
-  return (other && COMMON_CALL_TERMS[other]) || [];
-}
-
 /** `[en→tgt, tgt→en]` batches from the pack, in CORE_PACK_ORDER. */
 function corePackBatches(packTerms: readonly GlossaryTerm[]): GlossaryTerm[][] {
   const byEnglish = new Map<string, number>();
@@ -583,8 +513,8 @@ function corePackBatches(packTerms: readonly GlossaryTerm[]): GlossaryTerm[][] {
 
 /**
  * Short pair context + translation_terms: personal glossary first (never trimmed for
- * budget), then standard-phrase pins, then the core pack slice, then everyday call
- * words. A source is sent once, so Soniox never sees two targets for the same wording.
+ * budget), then standard-phrase pins, then the core pack slice. A source is sent once,
+ * so Soniox never sees two targets for the same wording.
  */
 export function mergeSonioxXInterpreterContext(args: {
   dialect: SonioxStartContext;
@@ -624,9 +554,6 @@ export function mergeSonioxXInterpreterContext(args: {
   for (const batch of corePackBatches(args.packTerms)) {
     if (packPairs >= SONIOX_X_MAX_PACK_PAIRS) break;
     if (tryAdd(batch, SONIOX_X_CONTEXT_TARGET_CHARS)) packPairs += 1;
-  }
-  for (const t of commonCallTermsForPair(args.langA, args.langB)) {
-    tryAdd([t], SONIOX_X_COMMON_CONTEXT_CHARS);
   }
 
   if (out.length === 0) delete ctx.translation_terms;
