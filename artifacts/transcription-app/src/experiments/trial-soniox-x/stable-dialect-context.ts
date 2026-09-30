@@ -302,13 +302,6 @@ const EN_AR_DIALECT_TERMS = [
   "ليه",
 ];
 
-const EN_AR_HANDOFF_TERMS = [
-  "you're through to the Arabic interpreter",
-  "you're through to the English interpreter",
-  "you're through to the interpreter",
-  "you're through",
-];
-
 /** English phrases Soniox tends to render in dialect; one direction, into فصحى. */
 const EN_AR_PHRASE_TERMS: { source: string; target: string }[] = AR_EN_MSA_TERMS.filter(
   (t) => t.source !== "family bucket" && t.source !== "What the fuck do you mean",
@@ -328,6 +321,7 @@ function buildEnglishArabicContext(): SonioxStartContext {
         value:
           "Two-way call: English and Arabic are both spoken. Arabic may be spoken in any dialect from any country. " +
           "Write Arabic speech in Arabic script exactly as heard, and English speech in English. " +
+          "Never transliterate Arabic into English words or Latin letters. " +
           "Maghrebi/Darija is Arabic, not French. Never skip or silence either side.",
       },
       {
@@ -343,7 +337,7 @@ function buildEnglishArabicContext(): SonioxStartContext {
           "Handoff line: you're through to the [language] interpreter. Never write UR3 or thank you for calling our crew/team for that line.",
       },
     ],
-    terms: [...EN_AR_HANDOFF_TERMS, ...EN_AR_DIALECT_TERMS],
+    terms: [...EN_AR_DIALECT_TERMS],
     translation_terms: EN_AR_PHRASE_TERMS.map((t) => ({ ...t })),
   };
 }
@@ -370,7 +364,7 @@ export function buildStableDialectContext(langA: string, langB: string): SonioxS
     {
       key: "transcription",
       value:
-        "Original column: transcribe everything spoken in either pair language, exactly as spoken — dialect, slang, and code-switching included. Never drop one side. Do not rewrite originals into the standard written variety." +
+        "Original column: transcribe everything spoken in either pair language, exactly as spoken — dialect, slang, and code-switching included. Never drop one side. Do not rewrite originals into the standard written variety. Never write the non-English language as English words." +
         (arabicPair
           ? ` Arabic originals MUST include ${AR_SPOKEN_DIALECTS}. Write them in Arabic script as heard. Do not skip dialect. Do not treat Maghrebi/Darija/Algerian/Tunisian as French or as silence.`
           : japanesePair

@@ -545,16 +545,13 @@ function withInterpreterCallFraming(ctx: SonioxStartContext, langA: string, lang
   if (opening) opening.value = openingValue;
   else ctx.general.push({ key: "call_opening", value: openingValue });
 
-  const intro = buildInterpreterIntroTerms(langA, langB);
-  const terms: string[] = [];
-  const seen = new Set<string>();
-  for (const t of [...intro, ...(ctx.terms ?? [])]) {
-    const k = t.toLowerCase();
-    if (seen.has(k)) continue;
-    seen.add(k);
-    terms.push(t);
-  }
+  // Handoff wording stays in `call_opening` only. Putting those English phrases
+  // in `terms` biases recognition for the whole call, so the other language
+  // gets written as English words.
+  const intro = new Set(buildInterpreterIntroTerms(langA, langB).map((t) => t.toLowerCase()));
+  const terms = (ctx.terms ?? []).filter((t) => !intro.has(t.toLowerCase()));
   if (terms.length > 0) ctx.terms = terms;
+  else delete ctx.terms;
 }
 
 function withHealthcareTopic(ctx: SonioxStartContext): void {

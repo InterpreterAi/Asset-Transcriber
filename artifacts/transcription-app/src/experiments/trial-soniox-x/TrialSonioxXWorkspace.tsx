@@ -45,7 +45,7 @@ import { workspaceLanguageOptions } from "@/lib/workspace-languages";
 import { useSessionHeartbeat } from "@/hooks/use-session-heartbeat";
 import useSonioxClient from "./useSonioxClient";
 import { getLanguage } from "./languages";
-import { sonioxTwoWayLanguageHints, workspaceLangToOfficialSonioxCode } from "./soniox-lang";
+import { sonioxTwoWayEndpoints, sonioxTwoWayLanguageHints, workspaceLangToOfficialSonioxCode } from "./soniox-lang";
 import { dominantBidiDir } from "./bidi-islands";
 import {
   cycleScriptReadingMode,
@@ -534,19 +534,19 @@ export default function TrialSonioxXWorkspace() {
     return apiKey;
   }, [getTokenMut]);
 
-  const translationConfig = useMemo(
-    () => ({
-      type: "two_way" as const,
-      language_a: languageA.code,
-      language_b: languageB.code,
-    }),
-    [languageA.code, languageB.code],
-  );
-
   const languageHints = useMemo(
     () => sonioxTwoWayLanguageHints(languageA.code, languageB.code),
     [languageA.code, languageB.code],
   );
+
+  const translationConfig = useMemo(() => {
+    const ends = sonioxTwoWayEndpoints(languageA.code, languageB.code);
+    return {
+      type: "two_way" as const,
+      language_a: ends.language_a,
+      language_b: ends.language_b,
+    };
+  }, [languageA.code, languageB.code]);
 
   const dialectContext = useMemo(
     () => buildStableDialectContext(languageA.code, languageB.code),

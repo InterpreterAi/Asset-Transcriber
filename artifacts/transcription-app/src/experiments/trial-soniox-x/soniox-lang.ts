@@ -20,9 +20,11 @@ export function workspaceLangToOfficialSonioxCode(workspaceCode: string): string
 }
 
 /**
- * Two-way LID hints. Put the non-English code first so English-heavy glossary
- * context does not lock STT onto English when the other side speaks.
- * Official en/ar example: language_hints ["ar","en"].
+ * Two-way LID hints. Non-English first, English last, same order for either
+ * picker slot. Soniox `language_hints_strict` only keeps output inside this
+ * pair — it still may write the other language in the English script when
+ * English is language_a and the hint list starts with English. Official
+ * samples keep `language_hints` in the same order as `language_a` / `language_b`.
  */
 export function sonioxTwoWayLanguageHints(langA: string, langB: string): string[] {
   const codes = [langA, langB]
@@ -34,4 +36,13 @@ export function sonioxTwoWayLanguageHints(langA: string, langB: string): string[
   }
   uniq.sort((x, y) => (x === "en" ? 1 : 0) - (y === "en" ? 1 : 0) || x.localeCompare(y));
   return uniq;
+}
+
+/** `translation.two_way` endpoints in the same order as {@link sonioxTwoWayLanguageHints}. */
+export function sonioxTwoWayEndpoints(langA: string, langB: string): {
+  language_a: string;
+  language_b: string;
+} {
+  const hints = sonioxTwoWayLanguageHints(langA, langB);
+  return { language_a: hints[0] ?? langA, language_b: hints[1] ?? langB };
 }

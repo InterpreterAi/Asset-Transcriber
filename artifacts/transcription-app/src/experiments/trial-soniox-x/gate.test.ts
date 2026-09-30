@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { planUsesTrialSonioxX } from "./gate";
-import { sonioxTwoWayLanguageHints, workspaceLangToOfficialSonioxCode } from "./soniox-lang";
+import { sonioxTwoWayEndpoints, sonioxTwoWayLanguageHints, workspaceLangToOfficialSonioxCode } from "./soniox-lang";
 
 describe("trial-soniox-x gate", () => {
   it("matches Soniox X trial, basic, professional, and retired trial-hetzner", () => {
@@ -28,5 +28,7 @@ describe("sonioxTwoWayLanguageHints", () => {
   it("puts Arabic before English for the default interpreter pair", () => {
     expect(sonioxTwoWayLanguageHints("en", "ar")).toEqual(["ar", "en"]);
     expect(sonioxTwoWayLanguageHints("ar", "en")).toEqual(["ar", "en"]);
+    expect(sonioxTwoWayEndpoints("en", "ar")).toEqual({ language_a: "ar", language_b: "en" });
+    expect(sonioxTwoWayEndpoints("es", "en")).toEqual({ language_a: "es", language_b: "en" });
   });
 });

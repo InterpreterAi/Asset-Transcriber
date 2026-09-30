@@ -43,7 +43,7 @@ describe("interpreter glossary", () => {
     expect(JSON.stringify(ctx).length).toBeLessThanOrEqual(SONIOX_X_CONTEXT_SAFE_CHARS);
     expect(ctx.translation_terms?.some((t) => t.source === "MRI")).toBe(true);
     expect(ctx.translation_terms?.some((t) => t.target === "MRI")).toBe(true);
-    expect(ctx.terms?.some((t) => /you're through to the Arabic interpreter/i.test(t))).toBe(true);
+    expect(ctx.terms?.some((t) => /you're through to the Arabic interpreter/i.test(t))).toBe(false);
     expect(ctx.general?.some((kv) => kv.key === "call_opening" && /UR3/i.test(kv.value))).toBe(true);
     expect(ctx.general?.find((kv) => kv.key === "domain")?.value).toMatch(/Telephone and video interpreting/i);
     expect(ctx.general?.find((kv) => kv.key === "domain")?.value).not.toMatch(/^Healthcare interpretation$/i);
@@ -103,7 +103,7 @@ describe("interpreter glossary", () => {
     for (const w of ["بزاف", "شلون", "ازاي", "قديش", "هسه", "واش", "زول", "مدري", "باهي", "هلبا", "دحين", "ذلحين"]) {
       expect(arabicTerms, w).toContain(w);
     }
-    expect(ctx.terms).toContain("you're through to the Arabic interpreter");
+    expect(ctx.terms).not.toContain("you're through to the Arabic interpreter");
     expect((ctx.terms ?? []).some((t) => /^[A-Z]{2,8}$/.test(t))).toBe(false);
 
     const user = userGlossaryToTerms(
@@ -212,8 +212,8 @@ describe("interpreter glossary", () => {
     expect(sono?.target).toBe("ecografía");
     expect(sono?.target ?? "").not.toMatch(/sonogram/i);
     expect(ctx.text).toMatch(/español estándar/i);
-    expect(ctx.terms?.some((t) => /you're through to the Spanish interpreter/i.test(t))).toBe(true);
-    expect(ctx.terms?.some((t) => /Arabic interpreter/i.test(t))).toBe(true);
+    expect(ctx.terms?.some((t) => /you're through to the Spanish interpreter/i.test(t))).toBe(false);
+    expect(ctx.general?.some((kv) => kv.key === "call_opening" && /you're through/i.test(kv.value))).toBe(true);
   });
 
   it("loads the en-de medical pack both directions", () => {
@@ -329,7 +329,7 @@ describe("interpreter glossary", () => {
     expect(sono?.target).toBe("超音波画像");
     expect(JSON.stringify(ctx.general)).toMatch(/hyōjungo|標準語/);
     expect(JSON.stringify(ctx.general)).toMatch(/Never treat Japanese as silence|never treat Japanese as silence|Never leave the original blank for Japanese/i);
-    expect(ctx.terms?.some((t) => /you're through to the Japanese interpreter/i.test(t))).toBe(true);
+    expect(ctx.terms?.some((t) => /you're through to the Japanese interpreter/i.test(t))).toBe(false);
   });
 
   it("pins high-value legal terms for Arabic/Spanish/Portuguese/Polish/German/Italian/Japanese/French", () => {
