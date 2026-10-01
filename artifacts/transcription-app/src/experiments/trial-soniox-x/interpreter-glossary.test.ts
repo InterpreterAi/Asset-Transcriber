@@ -76,14 +76,14 @@ describe("interpreter glossary", () => {
     const ctx = enAr("en", "ar");
     const blob = JSON.stringify(ctx);
     expect(blob.length).toBeGreaterThan(4_000);
-    expect(blob.length).toBeLessThan(6_000);
+    expect(blob.length).toBeLessThan(7_000);
     expect(JSON.stringify(enAr("ar", "en"))).toBe(blob);
     expect(ctx.text).toBeUndefined();
     expect(blob).not.toMatch(/Yemeni|Levantine|Hassaniya/);
     expect(blob).not.toMatch(/Spanish|family bucket|What the fuck/);
 
     const find = (src: string) => ctx.translation_terms?.find((t) => t.source.toLowerCase() === src.toLowerCase());
-    for (const en of ["CPR", "MRI", "ER", "sonogram", "stroke", "blood pressure", "prescription", "Felony", "Car insurance", "appointment"]) {
+    for (const en of ["TANF", "SNAP", "EBT", "Medicaid", "sliding fee scale", "CPR", "MRI", "ER", "sonogram", "stroke", "blood pressure", "prescription", "Felony", "Car insurance", "appointment"]) {
       expect(find(en), en).toBeDefined();
     }
     expect(find("sonogram")?.target).toBe("تصوير بالموجات فوق الصوتية");
@@ -91,6 +91,9 @@ describe("interpreter glossary", () => {
     expect(find("Felony")?.target).toBe("جناية");
     expect(find("جناية")?.target).toBe("Felony");
     expect(find("موعد")?.target).toBe("appointment");
+    expect(find("TANF")?.target).toBe("المساعدة النقدية للأسر");
+    expect(find("المساعدة النقدية للأسر")?.target).toBe("TANF");
+    expect(find("قسائم الطعام")?.target).toBe("SNAP");
     for (const rare of ["BCG", "DTP", "ELISA", "FSH", "IGE", "LOP", "SGOT", "RBC", "WBC", "PMS", "D&C", "CAT", "EEG", "CBC", "VIN"]) {
       expect(find(rare), rare).toBeUndefined();
     }
@@ -212,7 +215,7 @@ describe("interpreter glossary", () => {
     expect(sono?.target).toBe("ecografía");
     expect(sono?.target ?? "").not.toMatch(/sonogram/i);
     expect(ctx.text).toMatch(/español estándar/i);
-    expect(ctx.terms?.some((t) => /you're through to the Spanish interpreter/i.test(t))).toBe(false);
+    expect(ctx.terms?.some((t) => /you're through to the Spanish interpreter/i.test(t)) ?? false).toBe(false);
     expect(ctx.general?.some((kv) => kv.key === "call_opening" && /you're through/i.test(kv.value))).toBe(true);
   });
 

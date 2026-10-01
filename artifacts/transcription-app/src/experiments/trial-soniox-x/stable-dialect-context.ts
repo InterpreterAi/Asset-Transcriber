@@ -124,7 +124,8 @@ const PAIR_TRANSLATION_TEXT: Record<string, string> = {
     "TRANSLATION COLUMN into Arabic: Modern Standard Arabic only (الفصحى), like news/subtitles. " +
     `Do not copy dialect morphology into the translation even if the audio is ${AR_SPOKEN_DIALECTS}; still translate the exact meaning, including vulgar/sexual/slang sense, into فصحى — never euphemize into a different meaning. ` +
     "Informal English still becomes فصحى, never dialect. " +
-    "Never repeat English words or Latin abbreviations in the Arabic translation (Sonogram → تصوير بالموجات فوق الصوتية). " +
+    "Never leave ordinary English words or Latin abbreviations in the Arabic translation (Sonogram → تصوير بالموجات فوق الصوتية). " +
+    "Person, place, and organization names stay as spoken. " +
     `ORIGINAL COLUMN: write every Arabic dialect as spoken (${AR_SPOKEN_DIALECTS}). ` +
     "Maghrebi, Algerian, Tunisian, and Darija are Arabic, not French. Never skip or silence Arabic speech.",
   es:
@@ -328,7 +329,8 @@ function buildEnglishArabicContext(): SonioxStartContext {
         key: "translation",
         value:
           "Translate the full meaning of each utterance: nothing added, nothing dropped, no softening; vulgar or sexual meaning stays (never food words). " +
-          "Into Arabic: Modern Standard Arabic (الفصحى) only — no dialect words (الآن not الحين، لكن not بس، لا أستطيع not ما أقدر) and no English words or abbreviations. " +
+          "Into Arabic: Modern Standard Arabic (الفصحى) only — no dialect words (الآن not الحين، لكن not بس، لا أستطيع not ما أقدر) and no ordinary English words or abbreviations. " +
+          "Person, place, and organization names stay exactly as spoken (Partnership stays Partnership). " +
           "Into English: standard American English. Use translation_terms wording exactly.",
       },
       {

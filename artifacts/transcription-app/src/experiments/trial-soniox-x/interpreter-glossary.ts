@@ -116,6 +116,11 @@ const LEGAL_PRIORITY = new Set(
   ].map((w) => w.toLowerCase()),
 );
 
+/** Benefit programs. Score sits under legal pins so they do not push Pro bono out. */
+const BENEFIT_GLOSSARY = new Set(
+  ["tanf", "snap", "ebt", "medicaid", "medicare", "wic", "ssi", "ssdi", "chip", "sliding fee scale"],
+);
+
 const LEGAL_SINGLE = new Set(
   [
     ...LEGAL_PRIORITY,
@@ -310,6 +315,7 @@ function otherLangFromPairKey(pairKey: string): string | null {
 
 function rowScore(en: string): number {
   const t = en.trim();
+  if (BENEFIT_GLOSSARY.has(t.toLowerCase())) return 117;
   if (RECOGNITION_ABBR.test(t) || /^[A-Z]{3,8}$/.test(t)) return 130;
   if (/^(sonogram|ultrasound|mammogram|mammography|stroke)$/i.test(t)) return 125;
   // Pack claim-intake auto pins ahead of broader legal so "Car insurance" survives budget.
@@ -577,6 +583,7 @@ function isPriorityPairStart(term: GlossaryTerm): boolean {
   const src = term.source.trim();
   return (
     LEGAL_PRIORITY.has(src.toLowerCase()) ||
+    BENEFIT_GLOSSARY.has(src.toLowerCase()) ||
     AUTO_PRIORITY.has(src.toLowerCase()) ||
     isRecognitionPin(src) ||
     /^(sonogram|ultrasound|mammogram|mammography|stroke)$/i.test(src)
@@ -595,7 +602,7 @@ function isJapanesePriorityPin(en: string): boolean {
 function isJapanesePriorityPairStart(term: GlossaryTerm): boolean {
   const src = term.source.trim();
   if (!/^[A-Za-z0-9]/.test(src)) return false;
-  if (LEGAL_PRIORITY.has(src.toLowerCase()) || AUTO_PRIORITY.has(src.toLowerCase())) return true;
+  if (LEGAL_PRIORITY.has(src.toLowerCase()) || BENEFIT_GLOSSARY.has(src.toLowerCase()) || AUTO_PRIORITY.has(src.toLowerCase())) return true;
   if (/^(sonogram|ultrasound|mammogram|mammography|stroke)$/i.test(src)) return true;
   return isJapanesePriorityPin(src);
 }
@@ -735,6 +742,16 @@ function mergeJapaneseLeanInterpreterContext(args: {
 
 /** English↔Arabic Soniox slice: common call words only, English wording as in the pack. */
 const EN_AR_PACK_WORDS = [
+  "TANF",
+  "SNAP",
+  "EBT",
+  "Medicaid",
+  "Medicare",
+  "WIC",
+  "SSI",
+  "SSDI",
+  "CHIP",
+  "sliding fee scale",
   "CPR",
   "CT",
   "ER",

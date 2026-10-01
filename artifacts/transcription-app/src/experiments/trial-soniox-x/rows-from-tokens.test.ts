@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Token } from "@soniox/speech-to-text-web";
 import { attachNonFinalRows, rowsFromSonioxTokens, snapshotLinesFromSonioxXRows, ROW_STRIPE_COLOR_CLASSES, stripeClassesForRows, stripeSlotKey } from "./rows-from-tokens";
 
-function tok(partial: Partial<Token> & Pick<Token, "text">): Token {
+function tok(partial: Partial<Token> & Pick<Token, "text"> & { source_language?: string }): Token {
   return {
     confidence: 1,
     is_final: true,
@@ -133,6 +133,30 @@ describe("rowsFromSonioxTokens", () => {
     expect(rows).toHaveLength(2);
     expect(rows[0]).toMatchObject({ origLang: "en", transFinal: "أي أوراق نقدية أُعطيتِ؟" });
     expect(rows[1]).toMatchObject({ origLang: "ar", transFinal: "Oh, she gave it to me in 100s." });
+  });
+
+  it("keeps a digit row's translation on that row, not the previous sentence", () => {
+    const rows = rowsFromSonioxTokens([
+      tok({ text: "لا.", speaker: "1", language: "ar", translation_status: "original" }),
+      tok({ text: "No.", speaker: "1", language: "en", translation_status: "translation", source_language: "ar" }),
+      tok({ text: "28.", speaker: "2", language: "en", translation_status: "original" }),
+      tok({ text: "28.", speaker: "2", language: "ar", translation_status: "translation", source_language: "en" }),
+    ]);
+    expect(rows.map((r) => [r.origFinal, r.transFinal])).toEqual([
+      ["لا.", "No."],
+      ["28.", "28."],
+    ]);
+  });
+
+  it("does not split a word when language id flips on the last letter", () => {
+    const rows = rowsFromSonioxTokens([
+      tok({ text: "البن", speaker: "1", language: "ar", translation_status: "original" }),
+      tok({ text: "ك", speaker: "2", language: "en", translation_status: "original" }),
+      tok({ text: " the bank", speaker: "1", language: "en", translation_status: "translation", source_language: "ar" }),
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.origFinal).toBe("البنك");
+    expect(rows[0]?.transFinal).toBe(" the bank");
   });
 
   it("does not switch language on digits or punctuation alone", () => {

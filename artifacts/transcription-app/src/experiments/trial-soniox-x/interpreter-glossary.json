@@ -2,6 +2,46 @@
   "pairs": {
     "en-ar": [
       {
+        "en": "sliding fee scale",
+        "ar": "مقياس الرسوم المتدرج"
+      },
+      {
+        "en": "CHIP",
+        "ar": "التأمين الصحي للأطفال"
+      },
+      {
+        "en": "SSDI",
+        "ar": "تأمين العجز للضمان الاجتماعي"
+      },
+      {
+        "en": "SSI",
+        "ar": "الدخل التكميلي للضمان الاجتماعي"
+      },
+      {
+        "en": "WIC",
+        "ar": "برنامج النساء والرضع والأطفال"
+      },
+      {
+        "en": "Medicare",
+        "ar": "ميديكير"
+      },
+      {
+        "en": "Medicaid",
+        "ar": "ميديكيد"
+      },
+      {
+        "en": "EBT",
+        "ar": "بطاقة المزايا الإلكترونية"
+      },
+      {
+        "en": "SNAP",
+        "ar": "قسائم الطعام"
+      },
+      {
+        "en": "TANF",
+        "ar": "المساعدة النقدية للأسر"
+      },
+      {
         "en": "CPR",
         "ar": "الإنعاش القلبي الرئوي"
       },
@@ -3394,8 +3434,89 @@
         "ar": "يصل إلى النشوة"
       }
     ],
-    "en-nl": [],
+    "en-nl": [
+      {
+        "en": "sliding fee scale",
+        "nl": "glijdende tariefschaal"
+      },
+      {
+        "en": "CHIP",
+        "nl": "ziektekostenverzekering voor kinderen"
+      },
+      {
+        "en": "SSDI",
+        "nl": "arbeidsongeschiktheidsuitkering"
+      },
+      {
+        "en": "SSI",
+        "nl": "aanvullend zekerheidsinkomen"
+      },
+      {
+        "en": "WIC",
+        "nl": "programma voor vrouwen, baby's en kinderen"
+      },
+      {
+        "en": "Medicare",
+        "nl": "Medicare"
+      },
+      {
+        "en": "Medicaid",
+        "nl": "Medicaid"
+      },
+      {
+        "en": "EBT",
+        "nl": "elektronische uitkeringskaart"
+      },
+      {
+        "en": "SNAP",
+        "nl": "voedselbonnen"
+      },
+      {
+        "en": "TANF",
+        "nl": "geldhulp voor gezinnen"
+      }
+    ],
     "en-fr": [
+      {
+        "en": "sliding fee scale",
+        "fr": "barème de frais dégressif"
+      },
+      {
+        "en": "CHIP",
+        "fr": "assurance maladie pour enfants"
+      },
+      {
+        "en": "SSDI",
+        "fr": "assurance invalidité de la sécurité sociale"
+      },
+      {
+        "en": "SSI",
+        "fr": "revenu de sécurité supplémentaire"
+      },
+      {
+        "en": "WIC",
+        "fr": "programme pour les femmes, les nourrissons et les enfants"
+      },
+      {
+        "en": "Medicare",
+        "fr": "Medicare"
+      },
+      {
+        "en": "Medicaid",
+        "fr": "Medicaid"
+      },
+      {
+        "en": "EBT",
+        "fr": "carte de prestations électroniques"
+      },
+      {
+        "en": "SNAP",
+        "fr": "bons alimentaires"
+      },
+      {
+        "en": "TANF",
+        "fr": "aide en espèces pour les familles"
+      },
       {
         "en": "CPR",
         "fr": "RCP"
@@ -6819,6 +6940,46 @@
     ],
     "en-es": [
       {
+        "en": "sliding fee scale",
+        "es": "escala de tarifas variables"
+      },
+      {
+        "en": "CHIP",
+        "es": "seguro médico para niños"
+      },
+      {
+        "en": "SSDI",
+        "es": "seguro por incapacidad del Seguro Social"
+      },
+      {
+        "en": "SSI",
+        "es": "ingreso suplementario de seguridad"
+      },
+      {
+        "en": "WIC",
+        "es": "programa para mujeres, bebés y niños"
+      },
+      {
+        "en": "Medicare",
+        "es": "Medicare"
+      },
+      {
+        "en": "Medicaid",
+        "es": "Medicaid"
+      },
+      {
+        "en": "EBT",
+        "es": "tarjeta de beneficios electrónicos"
+      },
+      {
+        "en": "SNAP",
+        "es": "cupones de alimentos"
+      },
+      {
+        "en": "TANF",
+        "es": "asistencia en efectivo"
+      },
+      {
         "en": "CPR",
         "es": "reanimación cardiopulmonar"
       },
@@ -10229,6 +10390,46 @@
     ],
     "en-de": [
       {
+        "en": "sliding fee scale",
+        "de": "gleitende Gebührenskala"
+      },
+      {
+        "en": "CHIP",
+        "de": "Kinderkrankenversicherung"
+      },
+      {
+        "en": "SSDI",
+        "de": "Erwerbsunfähigkeitsversicherung"
+      },
+      {
+        "en": "SSI",
+        "de": "zusätzliche Sozialhilfe"
+      },
+      {
+        "en": "WIC",
+        "de": "Programm für Frauen, Säuglinge und Kinder"
+      },
+      {
+        "en": "Medicare",
+        "de": "Medicare"
+      },
+      {
+        "en": "Medicaid",
+        "de": "Medicaid"
+      },
+      {
+        "en": "EBT",
+        "de": "elektronische Leistungskarte"
+      },
+      {
+        "en": "SNAP",
+        "de": "Lebensmittelmarken"
+      },
+      {
+        "en": "TANF",
+        "de": "Barhilfe für Familien"
+      },
+      {
         "en": "Immigration status",
         "de": "Aufenthaltsstatus"
       },
@@ -13454,6 +13655,46 @@
       }
     ],
     "en-pl": [
+      {
+        "en": "sliding fee scale",
+        "pl": "skala opłat ruchoma"
+      },
+      {
+        "en": "CHIP",
+        "pl": "ubezpieczenie zdrowotne dla dzieci"
+      },
+      {
+        "en": "SSDI",
+        "pl": "renta inwalidzka Social Security"
+      },
+      {
+        "en": "SSI",
+        "pl": "dodatkowy dochód z ubezpieczenia społecznego"
+      },
+      {
+        "en": "WIC",
+        "pl": "program dla kobiet, niemowląt i dzieci"
+      },
+      {
+        "en": "Medicare",
+        "pl": "Medicare"
+      },
+      {
+        "en": "Medicaid",
+        "pl": "Medicaid"
+      },
+      {
+        "en": "EBT",
+        "pl": "karta świadczeń elektronicznych"
+      },
+      {
+        "en": "SNAP",
+        "pl": "bony żywnościowe"
+      },
+      {
+        "en": "TANF",
+        "pl": "zasiłek pieniężny dla rodzin"
+      },
       {
         "en": "CPR",
         "pl": "resuscytacja krążeniowo-oddechowa"
@@ -16856,6 +17097,38 @@
       }
     ],
     "en-pt": [
+      {
+        "en": "sliding fee scale",
+        "pt": "tabela de taxas progressivas"
+      },
+      {
+        "en": "CHIP",
+        "pt": "seguro de saúde infantil"
+      },
+      {
+        "en": "SSDI",
+        "pt": "seguro de invalidez da segurança social"
+      },
+      {
+        "en": "SSI",
+        "pt": "rendimento suplementar de segurança social"
+      },
+      {
+        "en": "WIC",
+        "pt": "programa para mulheres, bebés e crianças"
+      },
+      {
+        "en": "EBT",
+        "pt": "cartão de benefícios eletrónicos"
+      },
+      {
+        "en": "SNAP",
+        "pt": "cupões alimentares"
+      },
+      {
+        "en": "TANF",
+        "pt": "assistência em dinheiro"
+      },
       {
         "en": "CT",
         "pt": "Tomografia computadorizada"
@@ -23117,10 +23390,6 @@
         "pt": "cumprimento/execução da pensão alimentícia"
       },
       {
-        "en": "TANNF (cash benefit)",
-        "pt": "TANF (benefício em dinheiro / assistência monetária)"
-      },
-      {
         "en": "Tenant",
         "pt": "inquilino(a)"
       },
@@ -23142,6 +23411,46 @@
       }
     ],
     "en-it": [
+      {
+        "en": "sliding fee scale",
+        "it": "tariffa agevolata a scaglioni"
+      },
+      {
+        "en": "CHIP",
+        "it": "assicurazione sanitaria per bambini"
+      },
+      {
+        "en": "SSDI",
+        "it": "assicurazione di invalidità della Social Security"
+      },
+      {
+        "en": "SSI",
+        "it": "reddito di sicurezza supplementare"
+      },
+      {
+        "en": "WIC",
+        "it": "programma per donne, neonati e bambini"
+      },
+      {
+        "en": "Medicare",
+        "it": "Medicare"
+      },
+      {
+        "en": "Medicaid",
+        "it": "Medicaid"
+      },
+      {
+        "en": "EBT",
+        "it": "carta per i sussidi elettronici"
+      },
+      {
+        "en": "SNAP",
+        "it": "buoni alimentari"
+      },
+      {
+        "en": "TANF",
+        "it": "assistenza in denaro per le famiglie"
+      },
       {
         "en": "Immigration status",
         "it": "status migratorio"
@@ -23596,6 +23905,46 @@
       }
     ],
     "en-ja": [
+      {
+        "en": "sliding fee scale",
+        "ja": "スライド式料金"
+      },
+      {
+        "en": "CHIP",
+        "ja": "児童医療保険"
+      },
+      {
+        "en": "SSDI",
+        "ja": "社会保障障害保険"
+      },
+      {
+        "en": "SSI",
+        "ja": "補足的保障所得"
+      },
+      {
+        "en": "WIC",
+        "ja": "女性・乳幼児・子ども向け栄養補助"
+      },
+      {
+        "en": "Medicare",
+        "ja": "メディケア"
+      },
+      {
+        "en": "Medicaid",
+        "ja": "メディケイド"
+      },
+      {
+        "en": "EBT",
+        "ja": "電子給付カード"
+      },
+      {
+        "en": "SNAP",
+        "ja": "食料配給券"
+      },
+      {
+        "en": "TANF",
+        "ja": "生活保護の現金給付"
+      },
       {
         "en": "Immigration status",
         "ja": "在留資格"

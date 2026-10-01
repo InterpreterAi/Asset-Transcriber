@@ -196,17 +196,63 @@ function spokenLang(token: Token): string | undefined {
   return langBase(token.language) || undefined;
 }
 
+/**
+ * Soniox translation tokens carry `source_language` (the spoken language),
+ * separate from `language` (the language of this token's text).
+ * https://soniox.com/docs/translation/stt-translation
+ */
+function sourceLang(token: Token): string | undefined {
+  const raw = (token as Token & { source_language?: string }).source_language;
+  return langBase(raw) || undefined;
+}
+
+/**
+ * True when `next` is a subword piece of the current word.
+ * Soniox puts a leading space on a new word (" ever") and none on a
+ * continuation ("ing", "ك"). Only a short piece counts, so "Hi"+"Bye"
+ * still opens a new speaker row.
+ * https://soniox.com/docs/translation/stt-translation
+ */
+function continuesWord(previous: string, next: string): boolean {
+  if (!previous || !next) return false;
+  if (/[\s\p{P}]$/u.test(previous)) return false;
+  if (/^[\s\p{P}]/u.test(next)) return false;
+  const bare = next.replace(/\s/g, "");
+  return bare.length > 0 && bare.length <= 2;
+}
+
 function languageChanged(rowLang: string | undefined, nextLang: string | undefined): boolean {
   return Boolean(rowLang && nextLang && langBase(rowLang) !== langBase(nextLang));
 }
 
-/** Latest row whose original is in a different language than this translation. */
-function translationTargetIndex(rows: readonly SonioxXRow[], transLang: string | undefined): number {
-  const lang = langBase(transLang);
-  if (lang) {
+/**
+ * Which original row this translation belongs to.
+ *
+ * Soniox streams originals, then their translations, in order, and tags each
+ * translation with `source_language`. Prefer that. A row of only digits often
+ * has no letters, so it used to have no `origLang` and the translation fell
+ * onto the previous sentence.
+ * https://soniox.com/docs/stt/rt/real-time-translation
+ */
+function translationTargetIndex(rows: readonly SonioxXRow[], token: Token): number {
+  const source = sourceLang(token);
+  const target = langBase(token.language);
+  const last = rows[rows.length - 1];
+  if (last && rowHasOriginal(last) && !last.transFinal && !last.transPartial) {
+    const orig = langBase(last.origLang);
+    if (!orig || (source && orig === source) || (target && orig !== target)) {
+      return rows.length - 1;
+    }
+  }
+  if (source) {
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if (langBase(rows[i]!.origLang) === source && rowHasOriginal(rows[i]!)) return i;
+    }
+  }
+  if (target) {
     for (let i = rows.length - 1; i >= 0; i--) {
       const orig = langBase(rows[i]!.origLang);
-      if (orig && orig !== lang) return i;
+      if (orig && orig !== target) return i;
     }
   }
   return rows.length - 1;
@@ -246,7 +292,7 @@ export function attachNonFinalRows(finalized: SonioxXRow[], nonFinalTokens: Toke
   // A live translation with no original belongs to an already-final original.
   const lead = live[0]!;
   if (!rowHasOriginal(lead) && out.length > 0) {
-    const idx = translationTargetIndex(out, lead.transLang);
+    const idx = translationTargetIndex(out, { text: "", language: lead.transLang, translation_status: "translation" } as Token);
     out[idx] = mergeLiveRow(out[idx]!, lead);
     live = live.slice(1);
   }
@@ -290,14 +336,22 @@ export function rowsFromSonioxTokens(tokens: Token[]): SonioxXRow[] {
       );
 
       const lang = spokenLang(token);
-      const langChanged = Boolean(current && languageChanged(current.origLang, lang));
+      const midWord = Boolean(
+        current && continuesWord(`${current.origFinal}${current.origPartial}`, token.text),
+      );
+      // Subword pieces ("H"+"ello", "البن"+"ك") must stay one word even if LID
+      // flips language on the last letter. Soniox tokens are subwords:
+      // https://soniox.com/docs/translation/stt-translation
+      const langChanged = Boolean(current && !midWord && languageChanged(current.origLang, lang));
       const translationOnly = Boolean(current && !rowHasOriginal(current) && rowHasVisibleText(current));
-      if (!current || speakerChanged || longPause || langChanged || translationOnly) {
+      if (!current || (!midWord && speakerChanged) || longPause || langChanged || translationOnly) {
         current = openRow(speaker);
       } else if (!current.speaker && speaker) {
         current.speaker = speaker;
       }
-      if (lang && !current.origLang) current.origLang = token.language;
+      if (!current.origLang && token.language && (lang || !/\p{L}/u.test(token.text))) {
+        current.origLang = token.language;
+      }
       if (typeof ms === "number") current.lastOrigMs = ms;
       const next = appendToken(
         { final: current.origFinal, partial: current.origPartial },
@@ -313,7 +367,7 @@ export function rowsFromSonioxTokens(tokens: Token[]): SonioxXRow[] {
       appendTranslation(current, token);
       continue;
     }
-    appendTranslation(rows[translationTargetIndex(rows, token.language)]!, token);
+    appendTranslation(rows[translationTargetIndex(rows, token)]!, token);
   }
 
   return rows.filter(
