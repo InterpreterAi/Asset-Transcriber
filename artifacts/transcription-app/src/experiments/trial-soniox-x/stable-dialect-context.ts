@@ -336,7 +336,8 @@ function buildEnglishArabicContext(): SonioxStartContext {
       {
         key: "call_opening",
         value:
-          "Handoff line: you're through to the [language] interpreter. Never write UR3 or thank you for calling our crew/team for that line.",
+          "Handoff line: you're through to the [language] interpreter. Never write UR3 or thank you for calling our crew/team for that line. " +
+          "Each utterance is independent — hear it again. Do not reuse a previous wrong word.",
       },
     ],
     terms: [...EN_AR_DIALECT_TERMS],

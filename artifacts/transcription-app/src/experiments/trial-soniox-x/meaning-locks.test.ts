@@ -52,6 +52,20 @@ describe("applyFaithfulMeaningFixes", () => {
     expect(out).toMatch(/رجل/);
   });
 
+  it("treats I will come as arrival, not orgasm", () => {
+    const out = applyFaithfulMeaningFixes("I will come.", "يصل إلى النشوة");
+    expect(out).toBe("سأأتي");
+    expect(out).not.toMatch(/النشوة/);
+  });
+
+  it("keeps cum as النشوة when the translation guessed arrival", () => {
+    expect(applyFaithfulMeaningFixes("cum", "سأأتي")).toBe("النشوة");
+  });
+
+  it("does not turn a real arrival translation into النشوة", () => {
+    expect(applyFaithfulMeaningFixes("I will come tomorrow.", "سأأتي غدًا.")).toBe("سأأتي غدًا.");
+  });
+
   it("rewrites a dialect-to-dialect Arabic translation into فصحى without touching the original", () => {
     const orig = "أنا كنت بتكلم معها وهي قالت لي لا مش هينفع كده";
     const trans = "شو يعني ليش هيك ما بصير يا أسطى";

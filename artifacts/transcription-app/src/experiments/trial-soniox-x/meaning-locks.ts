@@ -61,6 +61,55 @@ function arabicDominant(text: string): boolean {
   return arabic >= 4 && arabic > latin;
 }
 
+function motionCome(original: string): boolean {
+  return /\b(?:come|comes|coming|came)\b/i.test(original);
+}
+
+function sexualCum(original: string): boolean {
+  return /\bcum(?:s|ming|med)?\b/i.test(original);
+}
+
+/** Arrival Arabic for "come", never the orgasm sense. Person follows the English subject. */
+function arrivalArabic(original: string): string {
+  if (/\b(?:i will come|i'll come|i am coming|i'm coming)\b/i.test(original)) return "سأأتي";
+  if (/\b(?:we will come|we're coming|we are coming)\b/i.test(original)) return "سنأتي";
+  if (/\b(?:she will come|she's coming|she is coming)\b/i.test(original)) return "ستأتي";
+  if (/\b(?:he will come|he's coming|he is coming)\b/i.test(original)) return "سيأتي";
+  if (/\b(?:they will come|they're coming|they are coming)\b/i.test(original)) return "سيأتون";
+  if (/\b(?:you will come|you're coming|you are coming)\b/i.test(original)) return "ستأتي";
+  if (/\bi came\b/i.test(original)) return "أتيت";
+  if (/\bcome here\b/i.test(original)) return "تعال إلى هنا";
+  if (/\bcome in\b/i.test(original)) return "ادخل";
+  if (/\bcome back\b/i.test(original)) return "عد";
+  if (/\bcoming\b/i.test(original)) return "قادم";
+  if (/\bcame\b/i.test(original)) return "أتى";
+  return "يأتي";
+}
+
+/**
+ * "come" is arrival. "cum" is sexual. A bare "come" pin used to force النشوة
+ * onto every "I will come".
+ */
+function lockComeVersusCum(original: string, translation: string): string {
+  const sexual = sexualCum(original);
+  const motion = motionCome(original);
+  if (sexual && motion) return translation;
+  if (motion && /النشوة/.test(translation)) {
+    const arrival = arrivalArabic(original);
+    if (translation.trim().split(/\s+/).length <= 6) return withEndPunct(arrival, translation);
+    return translation
+      .replace(/يصل إلى النشوة/g, arrival)
+      .replace(/تصل إلى النشوة/g, arrival)
+      .replace(/النشوة/g, arrival);
+  }
+  if (sexual && !/النشوة|المني/.test(translation) && original.trim().split(/\s+/).length <= 3) {
+    if (/سأتي|سأأتي|سأحضر|سيأتي|ستأتي|قادم|يأتي|أتيت|أتى/.test(translation)) {
+      return withEndPunct("النشوة", translation);
+    }
+  }
+  return translation;
+}
+
 function lockEnglishToMsa(original: string, translation: string): string {
   if (!englishDominant(original) || !arabicDominant(translation)) return translation;
   const o = lettersOnly(original);
@@ -95,6 +144,8 @@ export function applyFaithfulMeaningFixes(original: string, translation: string)
   out = lockEnglishToMsa(original, out);
   // Any Arabic in the translation column → فصحى (not only "arabicDominant").
   if (/[\u0600-\u06FF]/.test(out)) out = lockArabicTranslationToMsa(out);
+  // After فصحى, so arrival wording is not rewritten back into النشوة.
+  out = lockComeVersusCum(original, out);
   return out;
 }
 

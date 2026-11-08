@@ -76,16 +76,20 @@ describe("interpreter glossary", () => {
     const ctx = enAr("en", "ar");
     const blob = JSON.stringify(ctx);
     expect(blob.length).toBeGreaterThan(4_000);
-    expect(blob.length).toBeLessThan(7_000);
+    expect(blob.length).toBeLessThan(9_000);
     expect(JSON.stringify(enAr("ar", "en"))).toBe(blob);
     expect(ctx.text).toBeUndefined();
     expect(blob).not.toMatch(/Yemeni|Levantine|Hassaniya/);
     expect(blob).not.toMatch(/Spanish|family bucket|What the fuck/);
 
     const find = (src: string) => ctx.translation_terms?.find((t) => t.source.toLowerCase() === src.toLowerCase());
-    for (const en of ["TANF", "SNAP", "EBT", "Medicaid", "sliding fee scale", "CPR", "MRI", "ER", "sonogram", "stroke", "blood pressure", "prescription", "Felony", "Car insurance", "appointment"]) {
+    for (const en of ["TANF", "SNAP", "EBT", "Medicaid", "sliding fee scale", "CPR", "MRI", "ER", "sonogram", "stroke", "blood pressure", "prescription", "Felony", "Car insurance", "appointment", "Insulin", "Infection", "Asthma", "Seizure", "High blood pressure", "Emergency room", "Prenatal", "Headache", "Bail", "Warrant", "Probation", "Restraining order", "Not guilty", "Public defender", "I will come", "cum"]) {
       expect(find(en), en).toBeDefined();
     }
+    expect(find("I will come")?.target).toBe("سأأتي");
+    expect(find("cum")?.target).toBe("النشوة");
+    expect(ctx.translation_terms?.some((t) => t.source.toLowerCase() === "come" && /النشوة/.test(t.target))).toBe(false);
+    expect(ctx.general?.some((kv) => /do not reuse a previous wrong word/i.test(kv.value))).toBe(true);
     expect(find("sonogram")?.target).toBe("تصوير بالموجات فوق الصوتية");
     expect(find("Immigration status")?.target).toBe("الوضع الهجري");
     expect(find("Felony")?.target).toBe("جناية");

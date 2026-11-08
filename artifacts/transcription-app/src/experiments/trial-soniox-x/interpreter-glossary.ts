@@ -13,7 +13,8 @@ import { isEnglishArabicPair, type SonioxStartContext } from "./stable-dialect-c
 import pack from "./interpreter-glossary.json";
 import { meaningLockPinPairs } from "./meaning-locks";
 
-export const SONIOX_X_CONTEXT_SAFE_CHARS = 9_600;
+/** Soniox hard cap is about 10,000 characters / 8,000 tokens. Stay just under it. */
+export const SONIOX_X_CONTEXT_SAFE_CHARS = 9_900;
 /**
  * English↔Japanese must stay lean. Dumping the full ~9k English medical glossary
  * into Soniox `text` locks LID onto English so Japanese speech is dropped.
@@ -116,6 +117,35 @@ const LEGAL_PRIORITY = new Set(
   ].map((w) => w.toLowerCase()),
 );
 
+/** A few courtroom words. Score sits under the must-keep legal pins. Not sent on Japanese. */
+const SPOKEN_LEGAL = new Set(
+  ["bail", "warrant", "probation", "not guilty", "custody", "public defender"].map((w) => w.toLowerCase()),
+);
+
+/**
+ * Words said on almost every medical call. Packed ahead of the long tail so
+ * they survive the context cap. Japanese stays on its own lean list.
+ */
+const SPOKEN_MEDICAL = new Set(
+  [
+    "diabetes",
+    "insulin",
+    "high blood pressure",
+    "infection",
+    "asthma",
+    "inhaler",
+    "seizure",
+    "emergency room",
+    "prenatal",
+    "headache",
+    "fever",
+    "antibiotic",
+    "allergy",
+    "surgery",
+    "prescription",
+  ].map((w) => w.toLowerCase()),
+);
+
 /** Benefit programs. Score sits under legal pins so they do not push Pro bono out. */
 const BENEFIT_GLOSSARY = new Set(
   ["tanf", "snap", "ebt", "medicaid", "medicare", "wic", "ssi", "ssdi", "chip", "sliding fee scale"],
@@ -165,7 +195,7 @@ const LEGAL_SINGLE = new Set(
 
 /**
  * Tiny auto-insurance / accident priority set — must stay small so medical + legal
- * still fit under the ~9.6k Soniox budget. Screenshot-critical claim language only.
+ * still fit under the ~9.9k Soniox budget. Screenshot-critical claim language only.
  */
 const AUTO_PRIORITY = new Set(
   [
@@ -321,6 +351,8 @@ function rowScore(en: string): number {
   // Pack claim-intake auto pins ahead of broader legal so "Car insurance" survives budget.
   if (AUTO_CRITICAL.has(t.toLowerCase())) return 119;
   if (LEGAL_PRIORITY.has(t.toLowerCase())) return 118;
+  if (SPOKEN_LEGAL.has(t.toLowerCase())) return 117;
+  if (SPOKEN_MEDICAL.has(t.toLowerCase())) return 116;
   if (AUTO_PRIORITY.has(t.toLowerCase())) return 116;
   if (LEGAL_SINGLE.has(t.toLowerCase())) return 95;
   if (AUTO_SINGLE.has(t.toLowerCase())) return 93;
@@ -547,7 +579,7 @@ function withInterpreterCallFraming(ctx: SonioxStartContext, langA: string, lang
   const openingValue =
     "Handoff line: you're through to the [language] interpreter (or you are through). " +
     "Never write UR3 or thank you for calling our crew/team for that line. " +
-    "Each utterance is independent — do not reuse a previous wrong transcript.";
+    "Each utterance is independent — hear it again. Do not reuse a previous wrong word.";
   if (opening) opening.value = openingValue;
   else ctx.general.push({ key: "call_opening", value: openingValue });
 
@@ -643,6 +675,8 @@ const PROTECTED_TRIM_SOURCES = new Set(
   [
     ...LEGAL_PRIORITY,
     ...AUTO_PRIORITY,
+    ...SPOKEN_MEDICAL,
+    ...SPOKEN_LEGAL,
     "sonogram",
     "ultrasound",
     "mammogram",
@@ -789,6 +823,26 @@ const EN_AR_PACK_WORDS = [
   "power of attorney",
   "court",
   "custody",
+  "insulin",
+  "infection",
+  "asthma",
+  "inhaler",
+  "seizure",
+  "high blood pressure",
+  "emergency room",
+  "prenatal",
+  "headache",
+  "bail",
+  "warrant",
+  "probation",
+  "restraining order",
+  "not guilty",
+  "public defender",
+  "I will come",
+  "I'm coming",
+  "come here",
+  "come in",
+  "cum",
 ].map((w) => w.toLowerCase());
 
 /** Everyday words the pack lacks (not pinned on screen, so no clash with pack pins). */

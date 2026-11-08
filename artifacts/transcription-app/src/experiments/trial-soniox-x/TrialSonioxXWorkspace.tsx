@@ -215,7 +215,7 @@ const SonioxXTranscriptRow = memo(function SonioxXTranscriptRow({
 }) {
   const orig = `${row.origFinal}${row.origPartial}`;
   const transRaw = `${row.transFinal}${row.transPartial}`;
-  // Option A: pin against the FULL local glossary (not just the 9.6k Soniox
+  // Option A: pin against the FULL local glossary (not just the 9.9k Soniox
   // session slice). Apply on live partials too so glossary wording shows as
   // soon as the original phrase is present — not only after finalize.
   const transPinned = applyExactGlossaryPins(orig, transRaw, pinPairs);

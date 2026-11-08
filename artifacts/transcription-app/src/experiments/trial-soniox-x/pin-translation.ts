@@ -5,7 +5,7 @@
  * (final **or** live partial), pin the translation column to the exact glossary
  * wording when that source phrase is already present in the Original.
  * Does not rewrite the original column. Uses the full local pack + user glossary
- * (`displayPinPairs`), not the 9.6k Soniox session slice.
+ * (`displayPinPairs`), not the 9.9k Soniox session slice.
  */
 import type { GlossaryTerm } from "./interpreter-glossary";
 
@@ -73,6 +73,9 @@ function replaceTrailingGuess(translation: string, preferred: string): string {
 
 function shouldPinSource(source: string): boolean {
   const t = source.trim();
+  // Bare "come" is arrival. Never pin it; "I will come" / "cum" are the explicit forms.
+  if (/^(?:come|comes|coming|came)$/i.test(t)) return false;
+  if (/^cum$/i.test(t)) return true;
   if (t.length >= 4) return true;
   if (/^[A-Z]{3,8}$/.test(t) || t === "D&C") return true;
   return false;

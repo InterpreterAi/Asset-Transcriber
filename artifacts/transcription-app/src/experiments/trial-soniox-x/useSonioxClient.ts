@@ -121,7 +121,7 @@ export default function useSonioxClient({
     // Official examples turn endpoint detection on so a pause finalizes the
     // current original AND its translation before the next utterance starts.
     await sonioxClient.current?.start({
-      model: "stt-rt-v5",
+      model: "stt-rt-v6",
       enableLanguageIdentification: true,
       enableSpeakerDiarization: true,
       enableEndpointDetection: true,
