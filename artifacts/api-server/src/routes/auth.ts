@@ -771,8 +771,8 @@ router.post("/signup", async (req, res) => {
 
   void sendTelegramNotification(
     reopenedClosedAccount
-      ? `🆕 InterpreterAI account reopened\nEmail: ${normalized}\nMethod: Email Registration (after close)\nPlan: Free Trial (7 days)`
-      : `🆕 New InterpreterAI user\nEmail: ${normalized}\nMethod: Email Registration\nPlan: Trial · Libre / Final Boss 3 (7 days)`,
+      ? `🆕 InterpreterAI account reopened\nEmail: ${normalized}\nMethod: Email Registration (after close)\nPlan: Free Trial (3 days)`
+      : `🆕 New InterpreterAI user\nEmail: ${normalized}\nMethod: Email Registration\nPlan: Trial · Soniox X (3 days, 2 hours/day)`,
   );
 
   const ip        = getClientIp(req);
@@ -1525,7 +1525,7 @@ const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
 
     void sendTelegramNotification(
       isNewUser
-        ? `🆕 New InterpreterAI user\nEmail: ${googleEmail}\nMethod: Google Sign-Up\nPlan: Free Trial (7 days)`
+        ? `🆕 New InterpreterAI user\nEmail: ${googleEmail}\nMethod: Google Sign-Up\nPlan: Free Trial (3 days, 2 hours/day)`
         : `🔑 InterpreterAI Google Login\nEmail: ${googleEmail}\nMethod: Google Login`,
     );
     if (isNewUser) {

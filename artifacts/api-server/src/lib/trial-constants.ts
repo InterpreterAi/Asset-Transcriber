@@ -2,14 +2,14 @@
  * Free trial only: max real-time interpreting minutes per calendar day.
  * Paid plan limits come from Stripe metadata / admin — do not use this for non-trial enforcement beyond DB sync.
  */
-/** New signups and subscription-cancel downgrade trial: max 2 hours interpreting per calendar day (7 days — {@link TRIAL_DAYS_NEW_USERS}). */
+/** New signups and subscription-cancel downgrade trial: max 2 hours interpreting per calendar day (3 days — {@link TRIAL_DAYS_NEW_USERS}). */
 export const TRIAL_DAILY_LIMIT_MINUTES = 120;
 
 /**
  * Calendar length for **new** signups only (`auth` / admin-created trial users).
- * Never use this to rewrite `trial_ends_at` for existing rows — the DB may hold 7- or 14-day (or other) cohorts.
+ * Never use this to rewrite `trial_ends_at` for existing rows — older cohorts may still hold 7- or 14-day windows.
  */
-export const TRIAL_DAYS_NEW_USERS = 7;
+export const TRIAL_DAYS_NEW_USERS = 3;
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 

@@ -86,7 +86,7 @@ export default function Pricing() {
                   }`}
                   variant={plan.highlight ? "default" : "outline"}
                 >
-                  Start free trial
+                  Start 3-day trial
                 </Button>
               </Link>
             </motion.div>
@@ -99,7 +99,7 @@ export default function Pricing() {
           viewport={{ once: true }}
           className="text-center text-sm text-muted-foreground mt-8"
         >
-          No credit card required. Cancel anytime. HIPAA compliant on all plans.
+          No credit card required. 3 days, 2 hours a day. Cancel anytime. HIPAA compliant on all plans.
         </motion.p>
       </div>
     </section>

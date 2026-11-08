@@ -133,7 +133,7 @@ export default function Signup() {
   return (
     <MarketingAuthLayout
       title="Create your account"
-      subtitle="7-day free trial · No credit card required · Start in one step"
+      subtitle="3-day free trial · 2 hours a day · No credit card required"
     >
       <div className="lg:hidden text-center mb-6">
         <div className="w-14 h-14 bg-sky-500/15 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-sky-500/20">
