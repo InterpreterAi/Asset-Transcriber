@@ -1333,35 +1333,26 @@ router.get("/stats", requireAdmin, async (_req, res) => {
       .from(usersTable)
       .where(gt(usersTable.lastActivity, startOfToday)),
 
-    // Minutes used today — non-admin users only (since midnight America/New_York).
+    // Minutes used today — every account, including admins (since midnight America/New_York).
     // Includes live sessions by using elapsed time when duration_seconds is not yet set.
     db.select({ total: sql<number>`COALESCE(SUM((${sql.raw(effectiveSessionSecondsSqlAliasS())})), 0) / 60.0` })
       .from(sql`sessions s`)
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
-      .where(and(
-        sql`s.started_at >= ${startOfToday}`,
-        sql`${usersTable.isAdmin} = false`,
-      )),
+      .where(sql`s.started_at >= ${startOfToday}`),
 
-    // Minutes used this week — non-admin users only
+    // Minutes used this week — every account, including admins
     db.select({ total: sql<number>`COALESCE(SUM(s.duration_seconds), 0) / 60.0` })
       .from(sql`sessions s`)
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
-      .where(and(
-        sql`s.started_at > ${sevenDaysAgo}`,
-        sql`${usersTable.isAdmin} = false`,
-      )),
+      .where(sql`s.started_at > ${sevenDaysAgo}`),
 
-    // Minutes used this month — non-admin users only
+    // Minutes used this month — every account, including admins
     db.select({ total: sql<number>`COALESCE(SUM(s.duration_seconds), 0) / 60.0` })
       .from(sql`sessions s`)
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
-      .where(and(
-        sql`s.started_at > ${thirtyDaysAgo}`,
-        sql`${usersTable.isAdmin} = false`,
-      )),
+      .where(sql`s.started_at > ${thirtyDaysAgo}`),
 
-    // Real API cost breakdown today — non-admin users only (since midnight America/New_York).
+    // Real API cost breakdown today — every account, including admins (since midnight America/New_York).
     // Completed sessions: use real stored soniox_cost and translation_cost.
     // Live sessions: real translation_cost so far + Soniox estimate from elapsed time.
     db.select({
@@ -1379,11 +1370,10 @@ router.get("/stats", requireAdmin, async (_req, res) => {
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
       .where(and(
         sql`s.started_at >= ${startOfToday}`,
-        sql`${usersTable.isAdmin} = false`,
         sql`(s.duration_seconds >= 30 OR s.ended_at IS NULL)`,
       )),
 
-    // Open (live) sessions — customer accounts only (aligns with /active-sessions; admin test tabs excluded)
+    // Open (live) sessions — same list as /active-sessions, admins included
     db.select({
       sessionId:  sessionsTable.id,
       userId:     sessionsTable.userId,
@@ -1402,7 +1392,7 @@ router.get("/stats", requireAdmin, async (_req, res) => {
     })
       .from(sessionsTable)
       .innerJoin(usersTable, eq(sessionsTable.userId, usersTable.id))
-      .where(and(isNull(sessionsTable.endedAt), sql`${usersTable.isAdmin} = false`))
+      .where(isNull(sessionsTable.endedAt))
       .orderBy(sessionsTable.startedAt),
 
     // All non-admin users for MRR calculation
@@ -1410,7 +1400,7 @@ router.get("/stats", requireAdmin, async (_req, res) => {
       .from(usersTable)
       .where(sql`${usersTable.isAdmin} = false`),
 
-    // Average completed session duration (non-admin, last 30 days)
+    // Average completed session duration (all accounts, last 30 days)
     db.select({ avg: sql<number>`COALESCE(AVG(s.duration_seconds), 0)` })
       .from(sql`sessions s`)
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
@@ -1418,7 +1408,6 @@ router.get("/stats", requireAdmin, async (_req, res) => {
         sql`s.started_at > ${thirtyDaysAgo}`,
         sql`s.ended_at IS NOT NULL`,
         sql`s.duration_seconds > 0`,
-        sql`${usersTable.isAdmin} = false`,
       )),
 
     // Session count today — all users (since midnight America/New_York).
@@ -1446,13 +1435,12 @@ router.get("/stats", requireAdmin, async (_req, res) => {
         sql`${usersTable.isAdmin} = false`,
       )),
 
-    // Sessions today — non-admin only (pairs with costTodayRow for cost/session)
+    // Sessions today — all accounts (pairs with costTodayRow for cost/session)
     db.select({ count: sql<number>`COUNT(*)` })
       .from(sql`sessions s`)
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
       .where(and(
         sql`s.started_at >= ${startOfToday}`,
-        sql`${usersTable.isAdmin} = false`,
         sql`(s.duration_seconds >= 30 OR s.ended_at IS NULL)`,
       )),
 
@@ -1480,7 +1468,6 @@ router.get("/stats", requireAdmin, async (_req, res) => {
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
       .where(and(
         sql`s.started_at >= ${startOfToday}`,
-        sql`${usersTable.isAdmin} = false`,
         sql`(s.duration_seconds >= 30 OR s.ended_at IS NULL)`,
       ))
       .groupBy(sql`
@@ -1491,7 +1478,7 @@ router.get("/stats", requireAdmin, async (_req, res) => {
         END`),
   ]);
 
-  // Display minutes: non-admin users only
+  // Display minutes: every account, including admins
   const minutesToday = Number(minutesTodayRow[0]?.total ?? 0);
   const minutesWeek  = Number(minutesWeekRow[0]?.total  ?? 0);
   const minutesMonth = Number(minutesMonthRow[0]?.total ?? 0);
@@ -1594,7 +1581,7 @@ router.get("/stats", requireAdmin, async (_req, res) => {
     costPerSession,
     payingUsers:   payingCount,
     trialUsers:    trialCount,
-    // Live sessions (customer accounts; duplicate opens per user surfaced in UI)
+    // Live sessions (every account, including admins; duplicate opens per user surfaced in UI)
     activeSessions: enrichedLive.map(s =>
       packAdminLiveSessionRow({
         sessionId: s.sessionId,
@@ -1652,7 +1639,7 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
       .groupBy(sql`DATE_TRUNC('day', timezone('America/New_York', ${usersTable.createdAt}))`)
       .orderBy(sql`DATE_TRUNC('day', timezone('America/New_York', ${usersTable.createdAt}))`),
 
-    // Daily active users — unique users with a real session each day, last 14 days
+    // Daily active users — unique users with a real session each day, last 14 days (admins included)
     db.select({
       day:   sql<string>`TO_CHAR(DATE_TRUNC('day', timezone('America/New_York', s.started_at)), 'YYYY-MM-DD')`,
       count: sql<number>`COUNT(DISTINCT s.user_id)`,
@@ -1661,13 +1648,12 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
       .where(and(
         sql`s.started_at >= ${fourteenAgo}`,
-        sql`${usersTable.isAdmin} = false`,
         sql`(s.duration_seconds >= 30 OR s.ended_at IS NULL)`,
       ))
       .groupBy(sql`DATE_TRUNC('day', timezone('America/New_York', s.started_at))`)
       .orderBy(sql`DATE_TRUNC('day', timezone('America/New_York', s.started_at))`),
 
-    // Minutes and real cost today
+    // Minutes and real cost today — every account, including admins
     db.select({
       minutes:     sql<number>`COALESCE(SUM((${sql.raw(effectiveSessionSecondsSqlAliasS())})), 0) / 60.0`,
       sonioxNativeMinutes: sql<number>`
@@ -1690,11 +1676,10 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
       .where(and(
         sql`s.started_at >= ${todayStartNy}`,
-        sql`${usersTable.isAdmin} = false`,
         sql`(s.duration_seconds >= 30 OR s.ended_at IS NULL)`,
       )),
 
-    // Minutes transcribed this month
+    // Minutes transcribed this month — every account, including admins
     db.select({
       minutes: sql<number>`COALESCE(SUM(s.duration_seconds), 0) / 60.0`,
     })
@@ -1702,7 +1687,6 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
       .where(and(
         sql`s.started_at >= ${startOfMonthNy}`,
-        sql`${usersTable.isAdmin} = false`,
         sql`s.duration_seconds >= 30`,
       )),
 
@@ -1715,7 +1699,7 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
       .where(sql`${usersTable.isAdmin} = false`)
       .groupBy(usersTable.planType),
 
-    // Top 10 users by live-accurate usage today (session-derived)
+    // Top 10 users by live-accurate usage today (session-derived, admins included)
     db.select({
       username: usersTable.username,
       minutesToday: sql<number>`
@@ -1730,10 +1714,7 @@ ${sql.raw(effectiveSessionSecondsSqlAliasS())}
     })
       .from(sql`sessions s`)
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
-      .where(and(
-        sql`s.started_at >= ${todayStartNy}`,
-        sql`${usersTable.isAdmin} = false`,
-      ))
+      .where(sql`s.started_at >= ${todayStartNy}`)
       .groupBy(usersTable.id, usersTable.username, usersTable.totalMinutesUsed, usersTable.planType)
       .having(sql`COALESCE(
           SUM(
@@ -1757,7 +1738,6 @@ ${sql.raw(effectiveSessionSecondsSqlAliasS())}
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
       .where(and(
         sql`s.started_at >= ${startOfMonthNy}`,
-        sql`${usersTable.isAdmin} = false`,
         SONIOX_NATIVE_ANALYTICS_WHERE,
       )),
 
@@ -1769,7 +1749,6 @@ ${sql.raw(effectiveSessionSecondsSqlAliasS())}
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
       .where(and(
         sql`s.started_at >= ${startOfMonthNy}`,
-        sql`${usersTable.isAdmin} = false`,
         HETZNER_MT_ANALYTICS_WHERE,
       )),
 
@@ -1782,7 +1761,6 @@ ${sql.raw(effectiveSessionSecondsSqlAliasS())}
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
       .where(and(
         sql`s.started_at >= ${startOfMonthNy}`,
-        sql`${usersTable.isAdmin} = false`,
         OPENAI_MT_ANALYTICS_WHERE,
       )),
 
@@ -1795,7 +1773,6 @@ ${sql.raw(effectiveSessionSecondsSqlAliasS())}
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
       .where(and(
         sql`s.started_at >= ${startOfMonthNy}`,
-        sql`${usersTable.isAdmin} = false`,
         sql`s.duration_seconds >= 30`,
       )),
 
@@ -1988,21 +1965,17 @@ router.get("/analytics/extended", requireAdmin, async (req, res) => {
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
       .where(and(
         sql`s.started_at >= ${rangeStart}`,
-        sql`${usersTable.isAdmin} = false`,
         sql`(s.duration_seconds >= 30 OR s.ended_at IS NULL)`,
       )),
 
-    // ── Live sessions load (always real-time — ignores range) ────────────────
+    // ── Live sessions load (always real-time — ignores range; admins included) ─
     db.select({
       count:           sql<number>`COUNT(*)`,
       minutesLive:     sql<number>`COALESCE(SUM(EXTRACT(EPOCH FROM (NOW() - s.started_at)) / 60.0), 0)`,
     })
       .from(sql`sessions s`)
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
-      .where(and(
-        sql`s.ended_at IS NULL`,
-        sql`${usersTable.isAdmin} = false`,
-      )),
+      .where(sql`s.ended_at IS NULL`),
 
     // ── Top trial users by live-accurate usage today ────────────────────────
     db.select({
@@ -2020,7 +1993,6 @@ ${sql.raw(effectiveSessionSecondsSqlAliasS())}
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
       .where(and(
         sql`s.started_at >= ${startOfAppDay(now)}`,
-        sql`${usersTable.isAdmin} = false`,
         inArray(usersTable.planType, [...TRIAL_LIKE_PLAN_TYPES]),
       ))
       .groupBy(usersTable.id, usersTable.username, usersTable.dailyLimitMinutes)
@@ -2101,10 +2073,7 @@ router.get("/active-sessions", requireAdmin, async (req, res) => {
     })
     .from(sessionsTable)
     .innerJoin(usersTable, eq(sessionsTable.userId, usersTable.id))
-    .where(and(
-      isNull(sessionsTable.endedAt),
-      sql`${usersTable.isAdmin} = false`,
-    ))
+    .where(isNull(sessionsTable.endedAt))
     .orderBy(sessionsTable.startedAt);
 
   const enriched = enrichActiveSessionRows(rows);
@@ -3092,12 +3061,12 @@ router.get("/system-monitor", requireAdmin, async (_req, res) => {
     sessionsEndedRow,
   ] = await Promise.all([
     db.select({ count: sql<number>`COUNT(*)::int` }).from(usersTable)
-      .where(and(gt(usersTable.lastActivity, since5min), sql`${usersTable.isAdmin} = false`)),
+      .where(gt(usersTable.lastActivity, since5min)),
 
     db.select({ count: sql<number>`COUNT(*)::int` })
       .from(sessionsTable)
       .innerJoin(usersTable, eq(sessionsTable.userId, usersTable.id))
-      .where(and(isNull(sessionsTable.endedAt), sql`${usersTable.isAdmin} = false`)),
+      .where(isNull(sessionsTable.endedAt)),
 
     db.select({ count: sql<number>`COUNT(*)::int` }).from(loginEventsTable)
       .where(and(gte(loginEventsTable.createdAt, startOfToday), eq(loginEventsTable.success, false))),
@@ -3123,7 +3092,7 @@ router.get("/system-monitor", requireAdmin, async (_req, res) => {
 
   res.json({
     activeUsers:            activeUsersRow[0]?.count           ?? 0,
-    /** Customer open sessions only (matches admin Live Sessions list). */
+    /** Open sessions, including admins (matches admin Live Sessions list). */
     activeSessions:         activeSessionsRow[0]?.count ?? 0,
     failedLoginsToday:      failedLoginsRow[0]?.count          ?? 0,
     successfulLoginsToday:  successLoginsRow[0]?.count         ?? 0,
