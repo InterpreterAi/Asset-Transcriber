@@ -529,12 +529,9 @@ const DEMONYM_BY_BASE: Record<string, string> = {
 };
 
 /**
- * Call-opening phrases Soniox X was missing (chunk-v2 has these). Without them,
- * STT latches onto "thank you for calling our…" / "UR3" instead of
- * "you're through to the … interpreter".
- *
- * Deliberately omit "thank you for calling…" terms — those pull Soniox toward
- * the wrong handoff line the user keeps seeing.
+ * Handoff phrases that must never be sent as recognition terms or as a
+ * context sentence. Soniox treats them as words it is about to hear, then
+ * the final pass replaces the grey text with that sentence.
  */
 export function buildInterpreterIntroTerms(langA: string, langB: string): string[] {
   const demonyms = [
@@ -575,13 +572,10 @@ function withInterpreterCallFraming(ctx: SonioxStartContext, langA: string, lang
     });
   }
 
-  const opening = ctx.general.find((kv) => kv.key === "call_opening");
-  const openingValue = "Handoff line: you're through to the interpreter. You are through to the interpreter.";
-  if (opening) opening.value = openingValue;
-  else ctx.general.push({ key: "call_opening", value: openingValue });
+  // No handoff sentence and no handoff terms. A sentence in context is what the
+  // final pass writes, so a correct grey hearing gets replaced by that sentence.
+  ctx.general = ctx.general.filter((kv) => kv.key !== "call_opening");
 
-  // "thank you for calling" must not appear anywhere in context. Soniox treats
-  // those words as likely speech, and "you're through" then comes out as NorthRoute.
   const intro = new Set(buildInterpreterIntroTerms(langA, langB).map((t) => t.toLowerCase()));
   const terms = (ctx.terms ?? []).filter((t) => !intro.has(t.toLowerCase()));
   if (terms.length > 0) ctx.terms = terms;
@@ -898,19 +892,7 @@ function mergeEnglishArabicLeanContext(args: {
   }
 
   if (out.length === 0) delete ctx.translation_terms;
-  const handoff = ["you're through", "you are through", "you're through to the Arabic interpreter", "you are through to the Arabic interpreter"];
-  const terms = [...(ctx.terms ?? [])];
-  const seen = new Set(terms.map((t) => t.toLowerCase()));
-  for (const phrase of handoff) {
-    if (seen.has(phrase)) continue;
-    seen.add(phrase);
-    terms.unshift(phrase);
-  }
-  ctx.terms = terms;
-  const opening = ctx.general?.find((kv) => kv.key === "call_opening");
-  if (opening) {
-    opening.value = "you're through to the Arabic interpreter. You are through to the Arabic interpreter.";
-  }
+  if (ctx.general) ctx.general = ctx.general.filter((kv) => kv.key !== "call_opening");
   return ctx;
 }
 

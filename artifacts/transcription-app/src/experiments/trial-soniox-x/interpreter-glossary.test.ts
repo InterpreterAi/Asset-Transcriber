@@ -43,8 +43,8 @@ describe("interpreter glossary", () => {
     expect(JSON.stringify(ctx).length).toBeLessThanOrEqual(SONIOX_X_CONTEXT_SAFE_CHARS);
     expect(ctx.translation_terms?.some((t) => t.source === "MRI")).toBe(true);
     expect(ctx.translation_terms?.some((t) => t.target === "MRI")).toBe(true);
-    expect(ctx.terms?.some((t) => /you're through to the Arabic interpreter/i.test(t))).toBe(true);
-    expect(ctx.general?.some((kv) => kv.key === "call_opening" && /you're through/i.test(kv.value))).toBe(true);
+    expect(ctx.terms?.some((t) => /you're through/i.test(t))).toBe(false);
+    expect(ctx.general?.some((kv) => kv.key === "call_opening")).toBe(false);
     expect(JSON.stringify(ctx.general)).not.toMatch(/thank you for calling/i);
     expect(ctx.general?.find((kv) => kv.key === "domain")?.value).toMatch(/Telephone and video interpreting/i);
     expect(ctx.general?.find((kv) => kv.key === "domain")?.value).not.toMatch(/^Healthcare interpretation$/i);
@@ -90,7 +90,7 @@ describe("interpreter glossary", () => {
     expect(find("I will come")?.target).toBe("سأأتي");
     expect(find("cum")?.target).toBe("النشوة");
     expect(ctx.translation_terms?.some((t) => t.source.toLowerCase() === "come" && /النشوة/.test(t.target))).toBe(false);
-    expect(ctx.general?.some((kv) => kv.key === "call_opening" && /you're through to the Arabic interpreter/i.test(kv.value))).toBe(true);
+    expect(ctx.general?.some((kv) => kv.key === "call_opening")).toBe(false);
     expect(find("sonogram")?.target).toBe("تصوير بالموجات فوق الصوتية");
     expect(find("Immigration status")?.target).toBe("الوضع الهجري");
     expect(find("Felony")?.target).toBe("جناية");
@@ -111,7 +111,7 @@ describe("interpreter glossary", () => {
     for (const w of ["بزاف", "شلون", "ازاي", "قديش", "هسه", "واش", "زول", "مدري", "باهي", "هلبا", "دحين", "ذلحين"]) {
       expect(arabicTerms, w).toContain(w);
     }
-    expect(ctx.terms).toContain("you're through to the Arabic interpreter");
+    expect(ctx.terms?.some((t) => /you're through/i.test(t))).toBe(false);
     expect(JSON.stringify(ctx)).not.toMatch(/thank you for calling/i);
     expect((ctx.terms ?? []).some((t) => /^[A-Z]{2,8}$/.test(t))).toBe(false);
 
@@ -222,7 +222,7 @@ describe("interpreter glossary", () => {
     expect(sono?.target ?? "").not.toMatch(/sonogram/i);
     expect(ctx.text).toMatch(/español estándar/i);
     expect(ctx.terms?.some((t) => /you're through to the Spanish interpreter/i.test(t)) ?? false).toBe(false);
-    expect(ctx.general?.some((kv) => kv.key === "call_opening" && /you're through/i.test(kv.value))).toBe(true);
+    expect(ctx.general?.some((kv) => kv.key === "call_opening")).toBe(false);
   });
 
   it("loads the en-de medical pack both directions", () => {

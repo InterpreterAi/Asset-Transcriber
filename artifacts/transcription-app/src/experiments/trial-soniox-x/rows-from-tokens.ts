@@ -1,5 +1,4 @@
 import type { Token } from "@soniox/speech-to-text-web";
-import { correctNorthRouteHandoff, correctNorthRouteTranslation } from "./handoff-hearing";
 import { applyFaithfulMeaningFixes } from "./meaning-locks";
 
 /** Same speaker, 10s audio gap → new bubble. */
@@ -399,13 +398,10 @@ export function snapshotLinesFromSonioxXRows(rows: SonioxXRow[]): {
   transcriptLines: string[];
   translationLines: string[];
 } {
-  const transcriptLines = rows.map((r) => correctNorthRouteHandoff(`${r.origFinal}${r.origPartial}`));
-  const translationLines = rows.map((r) => {
-    const original = `${r.origFinal}${r.origPartial}`;
-    const fixedOriginal = correctNorthRouteHandoff(original);
-    const translated = applyFaithfulMeaningFixes(fixedOriginal, `${r.transFinal}${r.transPartial}`);
-    return correctNorthRouteTranslation(original, translated);
-  });
+  const transcriptLines = rows.map((r) => `${r.origFinal}${r.origPartial}`);
+  const translationLines = rows.map((r) =>
+    applyFaithfulMeaningFixes(`${r.origFinal}${r.origPartial}`, `${r.transFinal}${r.transPartial}`),
+  );
   while (translationLines.length < transcriptLines.length) translationLines.push("");
   while (transcriptLines.length < translationLines.length) transcriptLines.push("");
   return { transcriptLines, translationLines };

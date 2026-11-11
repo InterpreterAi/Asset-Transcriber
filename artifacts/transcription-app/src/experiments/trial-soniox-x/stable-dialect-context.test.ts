@@ -29,7 +29,7 @@ describe("stable dialect pins", () => {
     const ctx = buildStableDialectContext("ar", "en");
     const blob = JSON.stringify(ctx);
     expect(blob).toBe(JSON.stringify(buildStableDialectContext("en", "ar")));
-    expect(ctx.general?.map((row) => row.key)).toEqual(["domain", "language", "instructions", "translation", "call_opening"]);
+    expect(ctx.general?.map((row) => row.key)).toEqual(["domain", "language", "instructions", "translation"]);
     expect(ctx.text).toBeUndefined();
     for (const d of ["Yemeni", "Iraqi", "Gulf", "Levantine", "Egyptian", "Sudanese", "Algerian", "Tunisian", "Libyan", "Hassaniya"]) {
       expect(blob, d).not.toContain(d);

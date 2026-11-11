@@ -333,11 +333,6 @@ function buildEnglishArabicContext(): SonioxStartContext {
           "Person, place, and organization names stay exactly as spoken (Partnership stays Partnership). " +
           "Into English: standard American English. Use translation_terms wording exactly.",
       },
-      {
-        key: "call_opening",
-        value:
-          "Handoff line: you're through to the Arabic interpreter. You are through to the Arabic interpreter.",
-      },
     ],
     terms: [...EN_AR_DIALECT_TERMS],
     translation_terms: EN_AR_PHRASE_TERMS.map((t) => ({ ...t })),
