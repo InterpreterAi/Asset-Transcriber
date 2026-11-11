@@ -74,6 +74,7 @@ import {
   type GlossaryTerm,
 } from "./interpreter-glossary";
 import { applyExactGlossaryPins } from "./pin-translation";
+import { correctNorthRouteHandoff, correctNorthRouteTranslation } from "./handoff-hearing";
 import { GLOSSARY_CHANGED_EVENT } from "@/lib/glossary-strict-storage";
 import { LiveAudioMeter } from "./live-audio-meter";
 import { LiveElapsedClock } from "./live-elapsed-clock";
@@ -213,13 +214,17 @@ const SonioxXTranscriptRow = memo(function SonioxXTranscriptRow({
   readingReady: boolean;
   readingFailed: boolean;
 }) {
-  const orig = `${row.origFinal}${row.origPartial}`;
+  const origRaw = `${row.origFinal}${row.origPartial}`;
+  const orig = correctNorthRouteHandoff(origRaw);
   const transRaw = `${row.transFinal}${row.transPartial}`;
   // Option A: pin against the FULL local glossary (not just the 9.9k Soniox
   // session slice). Apply on live partials too so glossary wording shows as
   // soon as the original phrase is present — not only after finalize.
   const transPinned = applyExactGlossaryPins(orig, transRaw, pinPairs);
-  const trans = applyFaithfulMeaningFixes(orig, transPinned);
+  const trans = correctNorthRouteTranslation(
+    origRaw,
+    applyFaithfulMeaningFixes(orig, transPinned),
+  );
   const origDir = dominantBidiDir(orig, langDir(row.origLang));
   const transDir = dominantBidiDir(trans, langDir(row.transLang));
   const showReading = readingMode !== "off";

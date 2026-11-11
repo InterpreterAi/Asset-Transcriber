@@ -576,16 +576,12 @@ function withInterpreterCallFraming(ctx: SonioxStartContext, langA: string, lang
   }
 
   const opening = ctx.general.find((kv) => kv.key === "call_opening");
-  const openingValue =
-    "Handoff line: you're through to the [language] interpreter (or you are through). " +
-    "Never write UR3 or thank you for calling our crew/team for that line. " +
-    "Each utterance is independent — hear it again. Do not reuse a previous wrong word.";
+  const openingValue = "Handoff line: you're through to the interpreter. You are through to the interpreter.";
   if (opening) opening.value = openingValue;
   else ctx.general.push({ key: "call_opening", value: openingValue });
 
-  // Handoff wording stays in `call_opening` only. Putting those English phrases
-  // in `terms` biases recognition for the whole call, so the other language
-  // gets written as English words.
+  // "thank you for calling" must not appear anywhere in context. Soniox treats
+  // those words as likely speech, and "you're through" then comes out as NorthRoute.
   const intro = new Set(buildInterpreterIntroTerms(langA, langB).map((t) => t.toLowerCase()));
   const terms = (ctx.terms ?? []).filter((t) => !intro.has(t.toLowerCase()));
   if (terms.length > 0) ctx.terms = terms;
@@ -902,6 +898,19 @@ function mergeEnglishArabicLeanContext(args: {
   }
 
   if (out.length === 0) delete ctx.translation_terms;
+  const handoff = ["you're through", "you are through", "you're through to the Arabic interpreter", "you are through to the Arabic interpreter"];
+  const terms = [...(ctx.terms ?? [])];
+  const seen = new Set(terms.map((t) => t.toLowerCase()));
+  for (const phrase of handoff) {
+    if (seen.has(phrase)) continue;
+    seen.add(phrase);
+    terms.unshift(phrase);
+  }
+  ctx.terms = terms;
+  const opening = ctx.general?.find((kv) => kv.key === "call_opening");
+  if (opening) {
+    opening.value = "you're through to the Arabic interpreter. You are through to the Arabic interpreter.";
+  }
   return ctx;
 }
 
