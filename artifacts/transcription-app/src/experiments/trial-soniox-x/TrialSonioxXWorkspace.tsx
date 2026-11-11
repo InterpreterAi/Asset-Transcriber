@@ -620,7 +620,10 @@ export default function TrialSonioxXWorkspace() {
     apiKey: fetchTempApiKey,
     translationConfig,
     languageHints,
-    languageHintsStrict: true,
+    // Strict mode is for one known language. On a two-language call it locks the
+    // pair but does not pick Arabic vs English, so the first words can come out
+    // in the wrong script. Hints stay on; they only bias recognition.
+    languageHintsStrict: false,
     context: sonioxContext,
     onSpeechActivity: () => {
       resetInactivityRef.current?.();
