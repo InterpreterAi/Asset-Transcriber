@@ -17,6 +17,7 @@ import {
   type TranslationConfig,
 } from "@soniox/speech-to-text-web";
 import type { SonioxStartContext } from "./stable-dialect-context";
+import { shouldOpenFreshSonioxEar, tokenIsHeardSpeech } from "./ear-refresh";
 
 interface UseSonioxClientOptions {
   apiKey: string | (() => Promise<string>);
@@ -41,7 +42,12 @@ export type TrialSonioxXStartOptions = {
   audioConstraints?: MediaTrackConstraints;
   /** Prefetched temp key so start() does not wait on a second /token round-trip. */
   apiKey?: string;
+  /** Keep the on-screen transcript. Used when opening a fresh Soniox socket after `<end>`. */
+  keepTranscript?: boolean;
 };
+
+/** Reuse a temp key briefly so a new socket does not mint a key on every pause. */
+const FRESH_EAR_KEY_REUSE_MS = 90_000;
 
 // useTranscribe hook wraps Soniox speech-to-text-web SDK.
 export default function useSonioxClient({
@@ -67,7 +73,12 @@ export default function useSonioxClient({
         const pending = pendingStartKeyRef.current?.trim();
         if (pending) return pending;
         const key = apiKeyRef.current;
-        return typeof key === "function" ? key() : key;
+        const resolved = typeof key === "function" ? await key() : key;
+        if (resolved) {
+          lastKeyRef.current = resolved;
+          lastKeyAtRef.current = Date.now();
+        }
+        return resolved;
       },
     });
   }
@@ -76,11 +87,21 @@ export default function useSonioxClient({
   const [finalTokens, setFinalTokens] = useState<Token[]>([]);
   const [nonFinalTokens, setNonFinalTokens] = useState<Token[]>([]);
   const [error, setError] = useState<TranscriptionError | null>(null);
+  /** True while the socket is restarting after an utterance. The mic and transcript stay. */
+  const [refreshingEar, setRefreshingEar] = useState(false);
   const finalAccRef = useRef<Token[]>([]);
   const nonFinalRef = useRef<Token[]>([]);
   const flushRafRef = useRef<number | null>(null);
   /** When false, ignore trailing SDK partials after Stop so the UI stays wiped. */
   const acceptResultsRef = useRef(false);
+  const wantLiveRef = useRef(false);
+  const heardSpeechRef = useRef(false);
+  const openingFreshRef = useRef(false);
+  const streamRef = useRef<MediaStream | undefined>(undefined);
+  const audioConstraintsRef = useRef<MediaTrackConstraints | undefined>(undefined);
+  const lastKeyRef = useRef<string | null>(null);
+  const lastKeyAtRef = useRef(0);
+  const startRef = useRef<(opts?: TrialSonioxXStartOptions) => Promise<void>>(async () => {});
 
   const cancelTokenFlush = useCallback(() => {
     if (flushRafRef.current == null) return;
@@ -110,10 +131,29 @@ export default function useSonioxClient({
   }, [cancelTokenFlush]);
 
   const startTranscription = useCallback(async (startOptions?: TrialSonioxXStartOptions) => {
+    const keepTranscript = startOptions?.keepTranscript === true;
+    wantLiveRef.current = true;
+    if (startOptions?.stream) streamRef.current = startOptions.stream;
+    if (startOptions?.audioConstraints) audioConstraintsRef.current = startOptions.audioConstraints;
     acceptResultsRef.current = true;
-    wipeTokens();
+    if (!keepTranscript) {
+      heardSpeechRef.current = false;
+      openingFreshRef.current = false;
+      wipeTokens();
+    }
     setError(null);
-    pendingStartKeyRef.current = startOptions?.apiKey?.trim() || null;
+    const reused =
+      keepTranscript &&
+      lastKeyRef.current &&
+      Date.now() - lastKeyAtRef.current < FRESH_EAR_KEY_REUSE_MS
+        ? lastKeyRef.current
+        : "";
+    const explicit = startOptions?.apiKey?.trim() || reused;
+    pendingStartKeyRef.current = explicit || null;
+    if (explicit) {
+      lastKeyRef.current = explicit;
+      if (!reused) lastKeyAtRef.current = Date.now();
+    }
 
     // First message we send contains configuration. Here we set if we set if we
     // are transcribing or translating. For translation we also set if it is
@@ -133,13 +173,28 @@ export default function useSonioxClient({
           }
         : {}),
       ...(context ? { context } : {}),
-      ...(startOptions?.stream ? { stream: startOptions.stream } : {}),
-      ...(startOptions?.audioConstraints
-        ? { audioConstraints: startOptions.audioConstraints }
-        : {}),
+      ...(streamRef.current ? { stream: streamRef.current } : {}),
+      ...(audioConstraintsRef.current ? { audioConstraints: audioConstraintsRef.current } : {}),
 
-      onFinished: onFinished,
-      onStarted: onStarted,
+      onFinished: () => {
+        // Utterance ended: the socket is closed. Open a new one so the next
+        // word is heard fresh instead of repeating the first wrong spelling.
+        if (openingFreshRef.current && wantLiveRef.current) {
+          void startRef.current({ keepTranscript: true }).catch(() => {
+            openingFreshRef.current = false;
+            setRefreshingEar(false);
+          });
+          return;
+        }
+        onFinished?.();
+      },
+      onStarted: () => {
+        // Require new speech before another refresh, so a bare `<end>` cannot loop.
+        heardSpeechRef.current = false;
+        openingFreshRef.current = false;
+        setRefreshingEar(false);
+        onStarted?.();
+      },
 
       onError: (
         status: ErrorStatus,
@@ -170,6 +225,8 @@ export default function useSonioxClient({
           }
         }
 
+        if (result.tokens.some(tokenIsHeardSpeech)) heardSpeechRef.current = true;
+
         if (result.tokens.length > 0) {
           onSpeechActivityRef.current?.();
         }
@@ -179,14 +236,34 @@ export default function useSonioxClient({
         }
         nonFinalRef.current = newNonFinalTokens;
         scheduleTokenFlush();
+
+        if (
+          wantLiveRef.current &&
+          !openingFreshRef.current &&
+          shouldOpenFreshSonioxEar(result.tokens, heardSpeechRef.current)
+        ) {
+          heardSpeechRef.current = false;
+          openingFreshRef.current = true;
+          setRefreshingEar(true);
+          queueMicrotask(() => {
+            if (!wantLiveRef.current) return;
+            sonioxClient.current?.stop();
+          });
+        }
       },
     });
+    if (!wantLiveRef.current) sonioxClient.current?.stop();
   }, [context, languageHints, languageHintsStrict, onFinished, onStarted, scheduleTokenFlush, translationConfig, wipeTokens]);
+
+  startRef.current = startTranscription;
 
   const stopTranscription = useCallback((opts?: { preserveTokens?: boolean }) => {
     // Match Chuck v2: wipe the transcript as soon as Stop is pressed — not on the
     // next Start. Reject any late SDK partials that arrive while stop() drains.
     // Admin inactivity / max-session auto-stop may preserveTokens so the transcript stays.
+    wantLiveRef.current = false;
+    openingFreshRef.current = false;
+    setRefreshingEar(false);
     acceptResultsRef.current = false;
     if (!opts?.preserveTokens) wipeTokens();
     sonioxClient.current?.stop();
@@ -199,6 +276,7 @@ export default function useSonioxClient({
 
   useEffect(() => {
     return () => {
+      wantLiveRef.current = false;
       cancelTokenFlush();
       sonioxClient.current?.cancel();
     };
@@ -209,6 +287,7 @@ export default function useSonioxClient({
     stopTranscription,
     clearTokens,
     state,
+    refreshingEar,
     finalTokens,
     nonFinalTokens,
     error,
