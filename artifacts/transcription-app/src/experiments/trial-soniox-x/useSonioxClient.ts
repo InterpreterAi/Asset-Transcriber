@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   SonioxClient,
+  isActiveState,
   type ErrorStatus,
   type RecorderState,
   type Token,
@@ -69,6 +70,10 @@ export default function useSonioxClient({
         const key = apiKeyRef.current;
         return typeof key === "function" ? key() : key;
       },
+      // One socket for the whole call. Keepalive holds it through silence so
+      // Soniox does not drop the session and its memory of the dialogue.
+      keepAlive: true,
+      keepAliveInterval: 10_000,
     });
   }
 
@@ -81,6 +86,8 @@ export default function useSonioxClient({
   const flushRafRef = useRef<number | null>(null);
   /** When false, ignore trailing SDK partials after Stop so the UI stays wiped. */
   const acceptResultsRef = useRef(false);
+  /** True after the user presses Stop, so a normal close is not reported as a drop. */
+  const userStopRef = useRef(false);
 
   const cancelTokenFlush = useCallback(() => {
     if (flushRafRef.current == null) return;
@@ -110,6 +117,12 @@ export default function useSonioxClient({
   }, [cancelTokenFlush]);
 
   const startTranscription = useCallback(async (startOptions?: TrialSonioxXStartOptions) => {
+    const client = sonioxClient.current;
+    // A previous Stop can sit in Finishing forever if Soniox never sends
+    // `finished` (the reconnect limit did this). start() then throws and
+    // the button stays stuck. Drop that socket before opening the next one.
+    if (client && isActiveState(client.state)) client.cancel();
+    userStopRef.current = false;
     acceptResultsRef.current = true;
     wipeTokens();
     setError(null);
@@ -162,7 +175,7 @@ export default function useSonioxClient({
         const newFinalTokens: Token[] = [];
         const newNonFinalTokens: Token[] = [];
 
-        for (const token of result.tokens) {
+        for (const token of result.tokens ?? []) {
           if (token.is_final) {
             newFinalTokens.push(token);
           } else {
@@ -170,7 +183,7 @@ export default function useSonioxClient({
           }
         }
 
-        if (result.tokens.length > 0) {
+        if ((result.tokens ?? []).length > 0) {
           onSpeechActivityRef.current?.();
         }
 
@@ -188,8 +201,19 @@ export default function useSonioxClient({
     // next Start. Reject any late SDK partials that arrive while stop() drains.
     // Admin inactivity / max-session auto-stop may preserveTokens so the transcript stays.
     acceptResultsRef.current = false;
+    userStopRef.current = true;
     if (!opts?.preserveTokens) wipeTokens();
-    sonioxClient.current?.stop();
+    const client = sonioxClient.current;
+    const ws = client?._websocket;
+    const socketDead =
+      ws == null || ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED;
+    // stop() does nothing once it is already finishing, so a closed socket
+    // leaves the button on Stop and no words come in. cancel() releases it.
+    if (client && (client.state === "FinishingProcessing" || (isActiveState(client.state) && socketDead))) {
+      client.cancel();
+    } else {
+      client?.stop();
+    }
   }, [wipeTokens]);
 
   const clearTokens = useCallback(() => {
@@ -198,7 +222,21 @@ export default function useSonioxClient({
   }, [wipeTokens]);
 
   useEffect(() => {
+    const watch = window.setInterval(() => {
+      const client = sonioxClient.current;
+      const ws = client?._websocket;
+      if (!client || !ws || !isActiveState(client.state) || userStopRef.current) return;
+      if (ws.readyState !== WebSocket.CLOSING && ws.readyState !== WebSocket.CLOSED) return;
+      acceptResultsRef.current = false;
+      client.cancel();
+      setError({
+        status: "websocket_error",
+        message: "Transcription disconnected. Press Start to continue.",
+        errorCode: undefined,
+      });
+    }, 2000);
     return () => {
+      window.clearInterval(watch);
       cancelTokenFlush();
       sonioxClient.current?.cancel();
     };

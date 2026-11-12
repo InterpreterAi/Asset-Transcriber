@@ -1,6 +1,6 @@
 /** Per open session: cap STT token minting to slow scripted harvest / multi-socket abuse. */
 const SESSION_TOKEN_WINDOW_MS = 60 * 60 * 1000;
-const SESSION_TOKEN_MAX_PER_WINDOW = 8;
+const SESSION_TOKEN_MAX_PER_WINDOW = 40;
 
 const hitsBySessionId = new Map<number, number[]>();
 
