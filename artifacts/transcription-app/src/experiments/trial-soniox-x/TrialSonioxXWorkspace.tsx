@@ -609,7 +609,6 @@ export default function TrialSonioxXWorkspace() {
 
   const {
     state,
-    refreshingEar,
     finalTokens,
     nonFinalTokens,
     startTranscription,
@@ -630,7 +629,7 @@ export default function TrialSonioxXWorkspace() {
     },
   });
 
-  const recording = isActiveState(state) || refreshingEar;
+  const recording = isActiveState(state);
   const wsDark = workspaceTheme === "dark";
 
   useEffect(() => {
